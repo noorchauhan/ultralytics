@@ -21,7 +21,6 @@ import torch
 from torch import distributed as dist
 from torch import nn, optim
 
-from ultralytics import __version__
 from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data.utils import check_cls_dataset, check_det_dataset
 from ultralytics.nn.tasks import load_checkpoint
@@ -572,7 +571,7 @@ class BaseTrainer:
                 "train_metrics": {**self.metrics, **{"fitness": self.fitness}},
                 "train_results": self.read_results_csv(),
                 "date": datetime.now().isoformat(),
-                "version": __version__,
+                "version": __import__("ultralytics").__version__,
                 "git": {
                     "root": str(GIT.root),
                     "branch": GIT.branch,

@@ -70,7 +70,6 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ultralytics import __version__
 from ultralytics.cfg import TASK2DATA, get_cfg
 from ultralytics.data import build_dataloader
 from ultralytics.data.dataset import YOLODataset
@@ -462,7 +461,7 @@ class Exporter:
             "description": description,
             "author": "Ultralytics",
             "date": datetime.now().isoformat(),
-            "version": __version__,
+            "version": __import__("ultralytics").__version__,
             "license": "AGPL-3.0 License (https://ultralytics.com/license)",
             "docs": "https://docs.ultralytics.com",
             "stride": int(max(model.stride)),

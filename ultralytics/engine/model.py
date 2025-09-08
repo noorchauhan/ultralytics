@@ -410,12 +410,10 @@ class Model(torch.nn.Module):
         from copy import deepcopy
         from datetime import datetime
 
-        from ultralytics import __version__
-
         updates = {
             "model": deepcopy(self.model).half() if isinstance(self.model, torch.nn.Module) else self.model,
             "date": datetime.now().isoformat(),
-            "version": __version__,
+            "version": __import__("ultralytics").__version__,
             "license": "AGPL-3.0 License (https://ultralytics.com/license)",
             "docs": "https://docs.ultralytics.com",
         }

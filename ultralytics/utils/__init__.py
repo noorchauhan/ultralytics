@@ -24,7 +24,6 @@ import cv2
 import numpy as np
 import torch
 
-from ultralytics import __version__
 from ultralytics.utils.git import GitRepo
 from ultralytics.utils.patches import imread, imshow, imwrite, torch_save  # for patches
 from ultralytics.utils.tqdm import TQDM  # noqa
@@ -1170,7 +1169,7 @@ def set_sentry():
         debug=False,
         auto_enabling_integrations=False,
         traces_sample_rate=1.0,
-        release=__version__,
+        release=__import__("ultralytics").__version__,
         environment="runpod" if is_runpod() else "production",
         before_send=before_send,
         ignore_errors=[KeyboardInterrupt, FileNotFoundError],

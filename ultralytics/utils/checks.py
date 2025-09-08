@@ -296,10 +296,8 @@ def check_pip_update_available():
     """
     if ONLINE and IS_PIP_PACKAGE:
         try:
-            from ultralytics import __version__
-
             latest = check_latest_pypi_version()
-            if check_version(__version__, f"<{latest}"):  # check if current version is < latest version
+            if check_version(__import__("ultralytics").__version__, f"<{latest}"):  # check if current version is < latest version
                 LOGGER.info(
                     f"New https://pypi.org/project/ultralytics/{latest} available 😃 "
                     f"Update with 'pip install -U ultralytics'"
