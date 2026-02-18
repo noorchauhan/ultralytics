@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from pathlib import Path
 from typing import Any
 
@@ -703,7 +704,7 @@ class Model(torch.nn.Module):
             'path/to/exported/model.onnx'
         """
         self._check_is_pytorch_model()
-        if isolate and self.ckpt_path:
+        if (isolate or os.environ.get("YOLO_EXPORT_ISOLATION")) and self.ckpt_path:
             return self._export_isolated(**kwargs)
         from .exporter import Exporter
 

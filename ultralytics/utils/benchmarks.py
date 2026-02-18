@@ -170,7 +170,6 @@ def benchmark(
                     data=data,
                     device=device,
                     verbose=False,
-                    isolate=True,
                     **kwargs,
                 )
                 exported_model = YOLO(filename, task=model.task)
@@ -469,14 +468,12 @@ class ProfileModels:
                         imgsz=self.imgsz,
                         device=self.device,
                         verbose=False,
-                        isolate=True,
                     )
                 onnx_file = model.export(
                     format="onnx",
                     imgsz=self.imgsz,
                     device=self.device,
                     verbose=False,
-                    isolate=True,
                 )
             elif file.suffix == ".onnx":
                 model_info = self.get_onnx_model_info(file)

@@ -9,6 +9,7 @@ permissions:
 
 env:
   PYTHONFAULTHANDLER: 1
+  YOLO_EXPORT_ISOLATION: 1
 
 on:
   push:

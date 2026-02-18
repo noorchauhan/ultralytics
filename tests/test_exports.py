@@ -19,14 +19,14 @@ from ultralytics.utils.torch_utils import TORCH_1_10, TORCH_1_11, TORCH_1_13, TO
 @pytest.mark.parametrize("end2end", [False, True])
 def test_export_torchscript(end2end):
     """Test YOLO model export to TorchScript format for compatibility and correctness."""
-    file = YOLO(MODEL).export(format="torchscript", optimize=False, imgsz=32, end2end=end2end, isolate=True)
+    file = YOLO(MODEL).export(format="torchscript", optimize=False, imgsz=32, end2end=end2end)
     YOLO(file)(SOURCE, imgsz=32)  # exported model inference
 
 
 @pytest.mark.parametrize("end2end", [False, True])
 def test_export_onnx(end2end):
     """Test YOLO model export to ONNX format with dynamic axes."""
-    file = YOLO(MODEL).export(format="onnx", dynamic=True, imgsz=32, end2end=end2end, isolate=True)
+    file = YOLO(MODEL).export(format="onnx", dynamic=True, imgsz=32, end2end=end2end)
     YOLO(file)(SOURCE, imgsz=32)  # exported model inference
 
 
@@ -34,7 +34,7 @@ def test_export_onnx(end2end):
 @pytest.mark.parametrize("end2end", [False, True])
 def test_export_openvino(end2end):
     """Test YOLO export to OpenVINO format for model inference compatibility."""
-    file = YOLO(MODEL).export(format="openvino", imgsz=32, end2end=end2end, isolate=True)
+    file = YOLO(MODEL).export(format="openvino", imgsz=32, end2end=end2end)
     if WINDOWS:
         # Ensure a unique export path per test to prevent OpenVINO file writes
         file = Path(file)
@@ -67,7 +67,6 @@ def test_export_openvino_matrix(task, dynamic, int8, half, batch, nms, end2end):
         data=TASK2DATA[task],
         nms=nms,
         end2end=end2end,
-        isolate=True,
     )
     if WINDOWS:
         # Use unique filenames due to Windows file permissions bug possibly due to latent threaded use
@@ -100,7 +99,6 @@ def test_export_onnx_matrix(task, dynamic, int8, half, batch, simplify, nms, end
         simplify=simplify,
         nms=nms,
         end2end=end2end,
-        isolate=True,
     )
     YOLO(file)([SOURCE] * batch, imgsz=64 if dynamic else 32)  # exported model inference
     Path(file).unlink()  # cleanup
@@ -128,7 +126,6 @@ def test_export_torchscript_matrix(task, dynamic, int8, half, batch, nms, end2en
         batch=batch,
         nms=nms,
         end2end=end2end,
-        isolate=True,
     )
     YOLO(file)([SOURCE] * batch, imgsz=64 if dynamic else 32)  # exported model inference
     Path(file).unlink()  # cleanup
@@ -166,7 +163,6 @@ def test_export_coreml_matrix(task, dynamic, int8, half, nms, batch, end2end):
         batch=batch,
         nms=nms,
         end2end=end2end,
-        isolate=True,
     )
     YOLO(file)([SOURCE] * batch, imgsz=32)  # exported model inference
     shutil.rmtree(file)  # cleanup
@@ -207,7 +203,6 @@ def test_export_tflite_matrix(task, dynamic, int8, half, batch, nms, end2end):
         batch=batch,
         nms=nms,
         end2end=end2end,
-        isolate=True,
     )
     YOLO(file)([SOURCE] * batch, imgsz=32)  # exported model inference
     Path(file).unlink()  # cleanup
@@ -239,7 +234,7 @@ def test_export_coreml():
 def test_export_tflite():
     """Test YOLO export to TFLite format under specific OS and Python version conditions."""
     model = YOLO(MODEL)
-    file = model.export(format="tflite", imgsz=32, isolate=True)
+    file = model.export(format="tflite", imgsz=32)
     YOLO(file)(SOURCE, imgsz=32)
 
 
@@ -248,21 +243,21 @@ def test_export_tflite():
 def test_export_pb():
     """Test YOLO export to TensorFlow's Protobuf (*.pb) format."""
     model = YOLO(MODEL)
-    file = model.export(format="pb", imgsz=32, isolate=True)
+    file = model.export(format="pb", imgsz=32)
     YOLO(file)(SOURCE, imgsz=32)
 
 
 @pytest.mark.skipif(True, reason="Test disabled as Paddle protobuf and ONNX protobuf requirements conflict.")
 def test_export_paddle():
     """Test YOLO export to Paddle format, noting protobuf conflicts with ONNX."""
-    YOLO(MODEL).export(format="paddle", imgsz=32, isolate=True)
+    YOLO(MODEL).export(format="paddle", imgsz=32)
 
 
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_1_10, reason="MNN export requires torch>=1.10")
 def test_export_mnn():
     """Test YOLO export to MNN format (WARNING: MNN test must precede NCNN test or CI error on Windows)."""
-    file = YOLO(MODEL).export(format="mnn", imgsz=32, isolate=True)
+    file = YOLO(MODEL).export(format="mnn", imgsz=32)
     YOLO(file)(SOURCE, imgsz=32)  # exported model inference
 
 
@@ -279,7 +274,7 @@ def test_export_mnn():
 def test_export_mnn_matrix(task, int8, half, batch, end2end):
     """Test YOLO export to MNN format considering various export configurations."""
     file = YOLO(TASK2MODEL[task]).export(
-        format="mnn", imgsz=32, int8=int8, half=half, batch=batch, end2end=end2end, isolate=True
+        format="mnn", imgsz=32, int8=int8, half=half, batch=batch, end2end=end2end
     )
     YOLO(file)([SOURCE] * batch, imgsz=32)  # exported model inference
     Path(file).unlink()  # cleanup
@@ -289,7 +284,7 @@ def test_export_mnn_matrix(task, int8, half, batch, end2end):
 @pytest.mark.skipif(not TORCH_2_0, reason="NCNN inference causes segfault on PyTorch<2.0")
 def test_export_ncnn():
     """Test YOLO export to NCNN format."""
-    file = YOLO(MODEL).export(format="ncnn", imgsz=32, isolate=True)
+    file = YOLO(MODEL).export(format="ncnn", imgsz=32)
     YOLO(file)(SOURCE, imgsz=32)  # exported model inference
 
 
@@ -298,7 +293,7 @@ def test_export_ncnn():
 @pytest.mark.parametrize("task, half, batch", list(product(TASKS, [True, False], [1])))
 def test_export_ncnn_matrix(task, half, batch):
     """Test YOLO export to NCNN format considering various export configurations."""
-    file = YOLO(TASK2MODEL[task]).export(format="ncnn", imgsz=32, half=half, batch=batch, isolate=True)
+    file = YOLO(TASK2MODEL[task]).export(format="ncnn", imgsz=32, half=half, batch=batch)
     YOLO(file)([SOURCE] * batch, imgsz=32)  # exported model inference
     shutil.rmtree(file, ignore_errors=True)  # retry in case of potential lingering multi-threaded file usage errors
 
@@ -312,7 +307,7 @@ def test_export_ncnn_matrix(task, half, batch):
 def test_export_imx():
     """Test YOLO export to IMX format."""
     model = YOLO("yolo11n.pt")  # IMX export only supports YOLO11
-    file = model.export(format="imx", imgsz=32, isolate=True)
+    file = model.export(format="imx", imgsz=32)
     YOLO(file)(SOURCE, imgsz=32)
 
 
@@ -323,7 +318,7 @@ def test_export_imx():
 def test_export_axelera():
     """Test YOLO export to Axelera format."""
     # For faster testing, use a smaller calibration dataset (32 image size crashes axelera export, so 64 is used)
-    file = YOLO(MODEL).export(format="axelera", imgsz=64, data="coco8.yaml", isolate=True)
+    file = YOLO(MODEL).export(format="axelera", imgsz=64, data="coco8.yaml")
     assert Path(file).exists(), f"Axelera export failed, directory not found: {file}"
     shutil.rmtree(file, ignore_errors=True)  # cleanup
 
@@ -333,7 +328,7 @@ def test_export_axelera():
 @pytest.mark.skipif(WINDOWS, reason="Skipping test on Windows")
 def test_export_executorch():
     """Test YOLO model export to ExecuTorch format."""
-    file = YOLO(MODEL).export(format="executorch", imgsz=32, isolate=True)
+    file = YOLO(MODEL).export(format="executorch", imgsz=32)
     assert Path(file).exists(), f"ExecuTorch export failed, directory not found: {file}"
     # Check that .pte file exists in the exported directory
     pte_file = Path(file) / Path(MODEL).with_suffix(".pte").name
@@ -351,7 +346,7 @@ def test_export_executorch():
 @pytest.mark.parametrize("task", TASKS)
 def test_export_executorch_matrix(task):
     """Test YOLO export to ExecuTorch format for various task types."""
-    file = YOLO(TASK2MODEL[task]).export(format="executorch", imgsz=32, isolate=True)
+    file = YOLO(TASK2MODEL[task]).export(format="executorch", imgsz=32)
     assert Path(file).exists(), f"ExecuTorch export failed for task '{task}', directory not found: {file}"
     # Check that .pte file exists in the exported directory
     model_name = Path(TASK2MODEL[task]).with_suffix(".pte").name
