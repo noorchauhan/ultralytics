@@ -118,14 +118,7 @@ def test_export_onnx_matrix(task, dynamic, int8, half, batch, simplify, nms, end
 def test_export_torchscript_matrix(task, dynamic, int8, half, batch, nms, end2end):
     """Test YOLO model export to TorchScript format under varied configurations."""
     file = YOLO(TASK2MODEL[task]).export(
-        format="torchscript",
-        imgsz=32,
-        dynamic=dynamic,
-        int8=int8,
-        half=half,
-        batch=batch,
-        nms=nms,
-        end2end=end2end,
+        format="torchscript", imgsz=32, dynamic=dynamic, int8=int8, half=half, batch=batch, nms=nms, end2end=end2end
     )
     YOLO(file)([SOURCE] * batch, imgsz=64 if dynamic else 32)  # exported model inference
     Path(file).unlink()  # cleanup
@@ -195,14 +188,7 @@ def test_export_coreml_matrix(task, dynamic, int8, half, nms, batch, end2end):
 def test_export_tflite_matrix(task, dynamic, int8, half, batch, nms, end2end):
     """Test YOLO export to TFLite format considering various export configurations."""
     file = YOLO(TASK2MODEL[task]).export(
-        format="tflite",
-        imgsz=32,
-        dynamic=dynamic,
-        int8=int8,
-        half=half,
-        batch=batch,
-        nms=nms,
-        end2end=end2end,
+        format="tflite", imgsz=32, dynamic=dynamic, int8=int8, half=half, batch=batch, nms=nms, end2end=end2end
     )
     YOLO(file)([SOURCE] * batch, imgsz=32)  # exported model inference
     Path(file).unlink()  # cleanup
