@@ -727,7 +727,8 @@ class Model(torch.nn.Module):
 
         file = str(Path(self.ckpt_path).resolve())
         export_args = json.dumps(kwargs, default=str)
-        tmp = tempfile.mktemp(suffix=".txt")
+        fd, tmp = tempfile.mkstemp(suffix=".txt")
+        os.close(fd)
         code = (
             "import json, sys; "
             "from ultralytics import YOLO; "
