@@ -725,7 +725,7 @@ class Model(torch.nn.Module):
         import tempfile
 
         file = str(Path(self.ckpt_path).resolve())
-        export_args = json.dumps(kwargs)
+        export_args = json.dumps(kwargs, default=str)
         tmp = tempfile.mktemp(suffix=".txt")
         code = (
             "import json, sys; "
