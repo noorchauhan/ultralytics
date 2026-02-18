@@ -677,9 +677,9 @@ class Model(torch.nn.Module):
         defaults, and any additional arguments provided.
 
         Args:
-            isolate (bool): Run export in an isolated subprocess. This prevents dependency conflicts when
-                export formats install, upgrade, or downgrade packages (e.g., numpy, onnx, tensorflow) that
-                are already imported in the current process and cannot be reloaded.
+            isolate (bool): Run export in an isolated subprocess. This prevents dependency conflicts when export formats
+                install, upgrade, or downgrade packages (e.g., numpy, onnx, tensorflow) that are already imported in the
+                current process and cannot be reloaded.
             **kwargs (Any): Arbitrary keyword arguments for export configuration. Common options include:
                 - format (str): Export format (e.g., 'onnx', 'engine', 'coreml').
                 - half (bool): Export model in half-precision.
