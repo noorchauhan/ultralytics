@@ -47,11 +47,10 @@ def load_stereo_config(cfg_path: str | Path) -> dict[str, Any]:
     if not isinstance(config["stereo"], bool) or not config["stereo"]:
         raise ValueError(f"Stereo flag must be True in stereo config: {cfg_path}")
 
-    # Validate input channels (must be 6 for stereo: RGB left + RGB right)
-    if config["input_channels"] != 6:
+    # Validate input channels (6 = stereo, 7 = stereo + depth prior)
+    if config["input_channels"] not in (6, 7):
         raise ValueError(
-            f"Stereo model must have 6 input channels (got {config['input_channels']}), "
-            f"expected RGB left (3) + RGB right (3)"
+            f"Stereo model must have 6 or 7 input channels (got {config['input_channels']})"
         )
 
     # Validate number of classes
@@ -107,8 +106,8 @@ def validate_stereo_config(config: dict[str, Any]) -> bool:
     if not isinstance(config["stereo"], bool) or not config["stereo"]:
         raise ValueError("stereo must be True")
 
-    if config["input_channels"] != 6:
-        raise ValueError(f"input_channels must be 6 for stereo, got {config['input_channels']}")
+    if config["input_channels"] not in (6, 7):
+        raise ValueError(f"input_channels must be 6 or 7 for stereo, got {config['input_channels']}")
 
     if not isinstance(config["nc"], int) or config["nc"] < 1:
         raise ValueError(f"nc must be a positive integer, got {config['nc']}")

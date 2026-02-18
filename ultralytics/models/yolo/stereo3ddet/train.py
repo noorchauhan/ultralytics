@@ -82,13 +82,18 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         from ultralytics.data.utils import check_det_dataset
         data_cfg = check_det_dataset(self.args.data, autodownload=True)
 
-        # Validate channels for stereo (must be 6 = left RGB + right RGB)
+        # Determine input channels: 6 (stereo) or 7 (stereo + depth prior)
+        # Read from model YAML if available, otherwise default to 6
         channels = data_cfg.get("channels", 6)
-        if channels != 6:
+        if hasattr(self, "model") and self.model is not None and hasattr(self.model, "yaml"):
+            channels = self.model.yaml.get("input_channels", channels)
+        elif isinstance(self.args.model, str) and self.args.model.endswith(".yaml"):
+            from ultralytics.nn.tasks import yaml_model_load
+            model_cfg = yaml_model_load(self.args.model)
+            channels = model_cfg.get("input_channels", channels)
+        if channels not in (6, 7):
             raise ValueError(
-                f"Stereo3DDet requires 6 input channels (left + right RGB), "
-                f"but dataset config has channels={channels}. "
-                f"Please set 'channels: 6' in your dataset YAML."
+                f"Stereo3DDet requires 6 or 7 input channels, got {channels}"
             )
 
         # Root path and splits
@@ -112,8 +117,8 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         return {
             "yaml_file": str(self.args.data) if isinstance(self.args.data, (str, Path)) else None,
             "path": str(root),
-            # Channels for model input (6 = left+right stacked)
-            "channels": 6,
+            # Channels for model input (6 = stereo, 7 = stereo + depth prior)
+            "channels": channels,
             # Signal to our get_dataloader/build_dataset that this is a stereo dataset
             "train": {"type": "kitti_stereo", "root": str(root), "split": train_split},
             "val": {"type": "kitti_stereo", "root": str(root), "split": val_split},
@@ -147,7 +152,8 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             if hasattr(self, "model") and self.model is not None:
                 try:
                     with torch.no_grad():
-                        dummy_img = torch.zeros(1, 6, imgsz_hw[0], imgsz_hw[1], device=self.device)
+                        n_ch = self.data.get("channels", 6)
+                        dummy_img = torch.zeros(1, n_ch, imgsz_hw[0], imgsz_hw[1], device=self.device)
                         dummy_output = self.model(dummy_img)
                         # Training returns dict with "feats" (list of [B,C,H,W] feature maps)
                         if isinstance(dummy_output, dict) and "feats" in dummy_output:
@@ -161,6 +167,10 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             # Get mean_dims from dataset config
             mean_dims = self.data.get("mean_dims")
             std_dims = self.data.get("std_dims")
+            # Pass depth_prior_dir when using 7-channel input
+            depth_prior_dir = None
+            if self.data.get("channels", 6) == 7:
+                depth_prior_dir = Path(desc.get("root", ".")) / "depth_maps"
             return Stereo3DDetDataset(
                 root=str(desc.get("root", ".")),
                 split=str(desc.get("split", "train")),
@@ -170,7 +180,8 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                 mean_dims=mean_dims,
                 std_dims=std_dims,
                 augment=(mode == "train"),
-                hyp=self.args
+                hyp=self.args,
+                depth_prior_dir=depth_prior_dir,
             )
         # Otherwise, use the default detection dataset builder
         return super().build_dataset(img_path, mode=mode, batch=batch)

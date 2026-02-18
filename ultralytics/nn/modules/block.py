@@ -51,6 +51,7 @@ __all__ = (
     "RepVGGDW",
     "ResNetLayer",
     "SCDown",
+    "StereoCostVolume",
     "TorchVision",
 )
 
@@ -2178,3 +2179,56 @@ class RealNVP(nn.Module):
             self.float()
         z, log_det = self.backward_p(x)
         return self.prior.log_prob(z) + log_det
+
+
+class StereoCostVolume(nn.Module):
+    """Sparse correlation cost volume between left/right stereo features.
+
+    Builds dot-product correlation at D discrete disparity offsets from groups=2
+    features, producing a refined feature map downsampled by 2x (stride 4 → stride 8).
+
+    Args:
+        c1: Input channels from groups=2 layer (left: c1//2, right: c1//2).
+        c2: Output channels after refinement.
+        max_disp: Maximum disparity in feature pixels at the input stride.
+        num_bins: Number of discrete disparity samples.
+    """
+
+    def __init__(self, c1, c2=64, max_disp=48, num_bins=24):
+        super().__init__()
+        self.c_half = c1 // 2
+        # Integer disparity offsets evenly spaced from 0 to max_disp
+        self.disparities = [int(d) for d in torch.linspace(0, max_disp, num_bins).round().tolist()]
+        # Process cost volume: num_bins → c2, then downsample stride 4 → stride 8
+        self.refine = nn.Sequential(
+            Conv(num_bins, c2, 3),
+            Conv(c2, c2, 3, s=2),
+        )
+
+    def forward(self, x):
+        """Build cost volume from groups=2 stereo features.
+
+        Args:
+            x: [B, C, H, W] from groups=2 layer (first C//2 = left, last C//2 = right).
+
+        Returns:
+            [B, c2, H//2, W//2] refined cost volume features.
+        """
+        B, C, H, W = x.shape
+        c = self.c_half
+        left = F.normalize(x[:, :c], dim=1)
+        right = F.normalize(x[:, c:], dim=1)
+
+        corrs = []
+        for d in self.disparities:
+            if d == 0:
+                corrs.append((left * right).sum(dim=1, keepdim=True))
+            elif d >= W:
+                corrs.append(x.new_zeros(B, 1, H, W))
+            else:
+                # Compare left[x] with right[x-d]: shift right features right by d pixels
+                corr = x.new_zeros(B, 1, H, W)
+                corr[:, :, :, d:] = (left[:, :, :, d:] * right[:, :, :, :-d]).sum(dim=1, keepdim=True)
+                corrs.append(corr)
+
+        return self.refine(torch.cat(corrs, dim=1))

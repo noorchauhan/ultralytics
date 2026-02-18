@@ -66,6 +66,7 @@ from ultralytics.nn.modules import (
     SCDown,
     Segment,
     Segment26,
+    StereoCostVolume,
     TorchVision,
     WorldDetect,
     YOLOEDetect,
@@ -1722,6 +1723,10 @@ def parse_model(d, ch, verbose=True):
             c2 = args[0]
             c1 = ch[f] if isinstance(f, int) else ch[f[0]]
             args = [c1, c2, *args[1:]]
+        elif m is StereoCostVolume:
+            c1 = ch[f]
+            c2 = args[0]  # output channels, NOT width-scaled
+            args = [c1, *args]
         elif m is CBFuse:
             c2 = ch[f[-1]]
         elif m in frozenset({TorchVision, Index}):

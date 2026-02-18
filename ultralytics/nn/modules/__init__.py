@@ -58,6 +58,7 @@ from .block import (
     RepVGGDW,
     ResNetLayer,
     SCDown,
+    StereoCostVolume,
     TorchVision,
 )
 from .conv import (
@@ -179,6 +180,7 @@ __all__ = (
     "SCDown",
     "Segment",
     "Segment26",
+    "StereoCostVolume",
     "SpatialAttention",
     "TorchVision",
     "TransformerBlock",

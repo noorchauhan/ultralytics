@@ -195,13 +195,11 @@ class Stereo3DDetValidator(BaseValidator):
         if not isinstance(data_cfg, dict):
             raise RuntimeError("stereo3ddet: data must be a YAML path or dict")
 
-        # Validate channels for stereo (must be 6 = left RGB + right RGB)
+        # Validate channels for stereo (6 = stereo, 7 = stereo + depth prior)
         channels = data_cfg.get("channels", 6)
-        if channels != 6:
+        if channels not in (6, 7):
             raise ValueError(
-                f"Stereo3DDet requires 6 input channels (left + right RGB), "
-                f"but dataset config has channels={channels}. "
-                f"Please set 'channels: 6' in your dataset YAML."
+                f"Stereo3DDet requires 6 or 7 input channels, got {channels}"
             )
 
         # Root path and splits
@@ -229,8 +227,8 @@ class Stereo3DDetValidator(BaseValidator):
                 str(self.args.data) if isinstance(self.args.data, (str, Path)) else None
             ),
             "path": str(root),
-            # Channels for model input (6 = left+right stacked)
-            "channels": 6,
+            # Channels for model input (6 = stereo, 7 = stereo + depth prior)
+            "channels": channels,
             # Signal to our get_dataloader/build_dataset that this is a stereo dataset
             "train": {"type": "kitti_stereo", "root": str(root), "split": train_split},
             "val": {"type": "kitti_stereo", "root": str(root), "split": val_split},
@@ -380,6 +378,9 @@ class Stereo3DDetValidator(BaseValidator):
         else:
             self.std_dims = None
             LOGGER.info("No std_dims in dataset config, will use defaults")
+
+        # Clear accumulated stats from previous validation epoch
+        self.metrics.clear_stats()
 
         # Init 2D detection metrics (bbox mAP)
         self.det_metrics.names = self.names
@@ -1328,6 +1329,11 @@ class Stereo3DDetValidator(BaseValidator):
             mean_dims = self.data.get("mean_dims") if hasattr(self, "data") else None
             std_dims = self.data.get("std_dims") if hasattr(self, "data") else None
 
+            # Pass depth_prior_dir when using 7-channel input
+            depth_prior_dir = None
+            channels = self.data.get("channels", 6) if hasattr(self, "data") else 6
+            if channels == 7:
+                depth_prior_dir = Path(desc.get("root", ".")) / "depth_maps"
             return Stereo3DDetDataset(
                 root=str(desc.get("root", ".")),
                 split=str(desc.get("split", mode)),
@@ -1338,6 +1344,7 @@ class Stereo3DDetValidator(BaseValidator):
                 mean_dims=mean_dims,
                 std_dims=std_dims,
                 augment=False,
+                depth_prior_dir=depth_prior_dir,
             )
 
         # Fallback: if img_path is a string, try to use it directly
