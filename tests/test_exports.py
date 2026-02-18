@@ -273,9 +273,7 @@ def test_export_mnn():
 )
 def test_export_mnn_matrix(task, int8, half, batch, end2end):
     """Test YOLO export to MNN format considering various export configurations."""
-    file = YOLO(TASK2MODEL[task]).export(
-        format="mnn", imgsz=32, int8=int8, half=half, batch=batch, end2end=end2end
-    )
+    file = YOLO(TASK2MODEL[task]).export(format="mnn", imgsz=32, int8=int8, half=half, batch=batch, end2end=end2end)
     YOLO(file)([SOURCE] * batch, imgsz=32)  # exported model inference
     Path(file).unlink()  # cleanup
 
