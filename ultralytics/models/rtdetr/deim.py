@@ -8,10 +8,12 @@ from copy import copy
 from typing import Any
 
 import torch
+from torch import optim
 
 from ultralytics.data import YOLODataset
 from ultralytics.data.augment import Compose, Format
 from ultralytics.utils import LOGGER, colorstr
+from ultralytics.utils.torch_utils import one_cycle
 
 from .detr_augment import compute_policy_epochs, rtdetr_deim_transforms
 from .train import RTDETRTrainer
@@ -300,6 +302,36 @@ class RTDETRDEIMTrainer(RTDETRTrainer):
             fraction=self.args.fraction if mode == "train" else 1.0,
         )
         return dataset
+
+    def _setup_scheduler(self):
+        """Initialize LR scheduler with optional DEIM flat-cosine schedule."""
+        scheduler_name = str(getattr(self.args, "lr_scheduler", "")).lower()
+        if not scheduler_name:
+            return super()._setup_scheduler()
+
+        if scheduler_name in {"linear"}:
+            self.lf = lambda x: max(1 - x / self.epochs, 0) * (1.0 - self.args.lrf) + self.args.lrf
+        elif scheduler_name in {"cosine", "cos", "cos_lr"}:
+            self.lf = one_cycle(1, self.args.lrf, self.epochs)
+        elif scheduler_name in {"flatcosine", "flat_cosine", "flatcos"}:
+            # Flat phase keeps LR constant, then cosine anneals to fixed DEIM gamma.
+            warmup_epochs = max(float(getattr(self.args, "warmup_epochs", 0.0)), 0.0)
+            flat_epoch = min(self.epochs, max(int(math.ceil(warmup_epochs)), 4) + self.epochs // 2)
+            gamma = 0.5
+            decay_epochs = max(self.epochs - flat_epoch, 1)
+
+            def _flat_cosine(epoch: int) -> float:
+                if epoch < flat_epoch:
+                    return 1.0
+                progress = min(max((epoch - flat_epoch) / decay_epochs, 0.0), 1.0)
+                return gamma + 0.5 * (1.0 - gamma) * (1.0 + math.cos(math.pi * progress))
+
+            self.lf = _flat_cosine
+        else:
+            LOGGER.warning(f"Unknown lr_scheduler='{scheduler_name}', falling back to default scheduler.")
+            return super()._setup_scheduler()
+
+        self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
 
     def _on_train_epoch_start(self, trainer=None):
         """Apply DEIM epoch scheduling to transforms/collate and stop multi-scale at stage-4 start."""
