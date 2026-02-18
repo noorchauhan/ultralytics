@@ -703,7 +703,7 @@ class Model(torch.nn.Module):
             'path/to/exported/model.onnx'
         """
         self._check_is_pytorch_model()
-        if isolate:
+        if isolate and self.ckpt_path:
             return self._export_isolated(**kwargs)
         from .exporter import Exporter
 
