@@ -1014,10 +1014,13 @@ class RTDETRDetectionModel(DetectionModel):
             if supports_dfine:
                 loss_o2m_kwargs["dfine_meta"] = dfine_meta_o2m
             loss_o2m = self.criterion((o2m_bboxes, o2m_scores), targets_o2m, **loss_o2m_kwargs)
-            # Combine losses (o2m with lower weight)
+            # Combine one-to-many losses for all available coefficients (main + aux + optional DFine terms).
+            # Denoising is disabled for o2m branch, so *_dn keys are placeholder zeros and are skipped.
             o2m_weight = 1.0
-            for k in ["loss_giou", "loss_class", "loss_bbox"]:
-                loss[f"{k}_o2m"] = loss_o2m[k] * o2m_weight
+            for k, v in loss_o2m.items():
+                if k.endswith("_dn"):
+                    continue
+                loss[f"{k}_o2m"] = v * o2m_weight
 
         # NOTE: There are like 12 losses in RTDETR, backward with all losses but only show enabled losses.
         loss_keys = ["loss_giou", "loss_class", "loss_bbox"]
