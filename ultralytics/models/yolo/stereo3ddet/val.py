@@ -1189,7 +1189,7 @@ class Stereo3DDetValidator(BaseValidator):
                 )
 
             # Get AP3D metrics (use mean values)
-            ap50 = temp_results.get("maps3d_50", 0.0)
+            ap50 = temp_results.get("ap3d_50", 0.0)
             if isinstance(ap50, dict):
                 ap50 = (
                     float(
@@ -1200,7 +1200,7 @@ class Stereo3DDetValidator(BaseValidator):
                     if ap50
                     else 0.0
                 )
-            ap70 = temp_results.get("maps3d_70", 0.0)
+            ap70 = temp_results.get("ap3d_70", 0.0)
             if isinstance(ap70, dict):
                 ap70 = (
                     float(

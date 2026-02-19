@@ -3,7 +3,8 @@
 # YOLO11 Stereo 3D Detection with group-conv stem + stereo cost volume
 # The cost volume taps features from backbone layer 1 (groups=2, stride 4),
 # builds dot-product correlation at 24 disparity offsets (0..48 feature pixels),
-# refines + downsamples to stride 8, then concatenates with P3 features.
+# and is passed ONLY to depth branches (lr_distance, depth) in the head,
+# keeping P3/P4/P5 clean for 2D detection to avoid 2D-3D task conflict.
 # Usage: model=yolo11n-stereo3ddet-costvol.yaml
 
 # Parameters
@@ -44,7 +45,7 @@ backbone:
   - [-1, 1, SPPF, [1024, 5]]            # 9
   - [-1, 2, C2PSA, [1024]]              # 10
 
-# YOLO11 head with stereo cost volume
+# YOLO11 head — cost volume bypasses P3, goes only to depth branches
 head:
   # Top-down FPN
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
@@ -52,21 +53,18 @@ head:
   - [-1, 2, C3k2, [512, False]]         # 13
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
   - [[-1, 4], 1, Concat, [1]]
-  - [-1, 2, C3k2, [256, False]]         # 16 (P3/8 FPN output)
+  - [-1, 2, C3k2, [256, False]]         # 16 (P3/8, clean — no cost vol)
 
-  # Stereo cost volume from backbone layer 1 (groups=2, stride 4)
-  # StereoCostVolume args: [out_ch, max_disp, num_bins]
-  - [1, 1, StereoCostVolume, [64, 48, 24]]  # 17: cost vol → [B, 64, H/8, W/8]
-  - [[-1, 16], 1, Concat, [1]]              # 18: merge cost vol + P3
-  - [-1, 1, Conv, [256, 1]]                 # 19: reduce channels (new P3)
+  # Stereo cost volume (separate, NOT merged into P3)
+  - [1, 1, StereoCostVolume, [64, 48, 24]]  # 17: [B, 64, H/8, W/8]
 
-  # Bottom-up PAN
-  - [-1, 1, Conv, [256, 3, 2]]
+  # Bottom-up PAN from clean P3
+  - [16, 1, Conv, [256, 3, 2]]
   - [[-1, 13], 1, Concat, [1]]
-  - [-1, 2, C3k2, [512, False]]         # 22 (P4/16)
+  - [-1, 2, C3k2, [512, False]]         # 20 (P4/16)
   - [-1, 1, Conv, [512, 3, 2]]
   - [[-1, 10], 1, Concat, [1]]
-  - [-1, 2, C3k2, [1024, True]]         # 25 (P5/32)
+  - [-1, 2, C3k2, [1024, True]]         # 23 (P5/32)
 
-  # Multi-scale head
-  - [[19, 22, 25], 1, Stereo3DDetHeadYOLO11, [nc]]
+  # Head: [P3, P4, P5, cost_vol] — cost vol only feeds depth branches
+  - [[16, 20, 23, 17], 1, Stereo3DDetHeadYOLO11, [nc]]

@@ -49,19 +49,27 @@ def _deep_branch(in_ch: int, out_ch: int, hidden: int = 64) -> nn.Sequential:
 class Stereo3DDetHeadYOLO11(Detect):
     """Multi-scale stereo 3D detection head (Pose-pattern).
 
-    Receives P3/P4/P5 feature maps from FPN+PAN neck.  Per-scale aux branches
-    predict stereo/3D quantities; outputs are flattened to [B, C, HW_total].
+    Receives P3/P4/P5 feature maps from FPN+PAN neck, plus optional cost volume
+    features that are fed ONLY to depth branches (lr_distance, depth) at P3 scale.
+    This keeps P3/P4/P5 clean for 2D detection, avoiding 2D-3D task conflict.
 
     Args:
         nc: Number of classes.
         reg_max: DFL channels (forced to 1).
         end2end: End-to-end mode (forced to False).
-        ch: Tuple of per-scale input channels, e.g. (256, 512, 1024).
+        ch: Tuple of per-scale input channels, e.g. (256, 512, 1024) or
+            (256, 512, 1024, 64) where the 4th element is cost volume channels.
     """
 
     def __init__(self, nc: int = 3, reg_max: int = 1, end2end: bool = False, ch: tuple = ()):
         if isinstance(reg_max, (list, tuple)):  # YAML [nc] — ch landed in reg_max slot
             ch, reg_max = reg_max, 1
+
+        # Detect cost volume channels (4th element beyond P3/P4/P5)
+        ch = list(ch)
+        self.cv_ch = ch.pop() if len(ch) > 3 else 0
+        ch = tuple(ch)
+
         super().__init__(nc=nc, reg_max=1, end2end=False, ch=ch)  # Force reg_max=1, end2end=False
 
         # Force reg_max=1 (no DFL) — stereo 3D detection doesn't benefit from DFL
@@ -80,10 +88,15 @@ class Stereo3DDetHeadYOLO11(Detect):
         depth_hidden = max(ch[0] // 2, 64)  # wider hidden for depth-critical branches
 
         # Per-scale aux branches (like Pose.cv4)
+        # Depth branches at P3 (scale 0) get cost volume concat → wider input
         self.aux = nn.ModuleDict()
         for name, out_c in self.aux_specs.items():
             if name in ("lr_distance", "depth"):
-                self.aux[name] = nn.ModuleList(_deep_branch(x, out_c, depth_hidden) for x in ch)
+                branches = []
+                for i, x in enumerate(ch):
+                    in_ch = x + self.cv_ch if i == 0 else x  # P3 gets cost vol
+                    branches.append(_deep_branch(in_ch, out_c, depth_hidden))
+                self.aux[name] = nn.ModuleList(branches)
             else:
                 self.aux[name] = nn.ModuleList(_branch(x, out_c, hidden) for x in ch)
 
@@ -104,14 +117,29 @@ class Stereo3DDetHeadYOLO11(Detect):
     ) -> dict[str, torch.Tensor]:
         """Forward pass: compute detection + aux predictions.
 
-        Returns dict with boxes, scores, feats, and all aux branch outputs.
+        If cost volume is present (4th element in x), it is separated and
+        concatenated with P3 ONLY for depth branches (lr_distance, depth).
+        2D detection (box/cls) uses clean P3/P4/P5 features.
         """
+        # Separate cost volume from feature maps
+        cost_vol = None
+        if self.cv_ch > 0 and len(x) > self.nl:
+            cost_vol = x[self.nl]
+            x = list(x[: self.nl])
+
+        # 2D detection on clean features
         preds = super().forward_head(x, box_head, cls_head)  # {boxes, scores, feats}
+
         if aux_branches is not None:
             bs = x[0].shape[0]
             for name, branches in aux_branches.items():
                 out_c = self.aux_specs[name]
-                preds[name] = torch.cat(
-                    [branches[i](x[i]).view(bs, out_c, -1) for i in range(self.nl)], -1
-                )  # [B, C, HW_total]
+                feats = []
+                for i in range(self.nl):
+                    feat = x[i]
+                    # Concat cost volume with P3 only for depth branches
+                    if cost_vol is not None and i == 0 and name in ("lr_distance", "depth"):
+                        feat = torch.cat([feat, cost_vol], dim=1)
+                    feats.append(branches[i](feat).view(bs, out_c, -1))
+                preds[name] = torch.cat(feats, -1)  # [B, C, HW_total]
         return preds

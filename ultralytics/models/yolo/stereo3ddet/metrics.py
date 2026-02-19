@@ -236,18 +236,9 @@ class Stereo3DDetMetrics(SimpleClass, DataExportMixin):
         recall_scalar = flatten_metric(self.recall) if isinstance(self.recall, dict) else (float(self.recall) if isinstance(self.recall, (int, float)) else 0.0)
         f1_scalar = flatten_metric(self.f1) if isinstance(self.f1, dict) else (float(self.f1) if isinstance(self.f1, (int, float)) else 0.0)
         
-        # Flatten ap3d_50 and ap3d_70 from dict {class_name: value} to scalar mean values
-        ap3d_50_scalar = flatten_metric(self.ap3d_50) if isinstance(self.ap3d_50, dict) else (float(self.ap3d_50) if isinstance(self.ap3d_50, (int, float)) else 0.0)
-        ap3d_70_scalar = flatten_metric(self.ap3d_70) if isinstance(self.ap3d_70, dict) else (float(self.ap3d_70) if isinstance(self.ap3d_70, (int, float)) else 0.0)
-        
-        maps3d_50_val = self.maps3d_50
-        maps3d_70_val = self.maps3d_70
-        
         return {
-            "ap3d_50": ap3d_50_scalar,
-            "ap3d_70": ap3d_70_scalar,
-            "maps3d_50": maps3d_50_val,
-            "maps3d_70": maps3d_70_val,
+            "ap3d_50": self.maps3d_50,
+            "ap3d_70": self.maps3d_70,
             "precision": precision_scalar,
             "recall": recall_scalar,
             "f1": f1_scalar,
@@ -257,7 +248,7 @@ class Stereo3DDetMetrics(SimpleClass, DataExportMixin):
     @property
     def keys(self) -> list[str]:
         """Return list of metric keys."""
-        return ["ap3d_50", "ap3d_70", "maps3d_50", "maps3d_70", "precision", "recall", "f1"]
+        return ["ap3d_50", "ap3d_70", "precision", "recall", "f1"]
 
     @property
     def fitness(self) -> float:
