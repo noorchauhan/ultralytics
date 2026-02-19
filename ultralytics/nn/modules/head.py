@@ -1487,6 +1487,7 @@ class RTDETRDecoder(nn.Module):
         one_to_many_groups: int = 0,
         dab_sine_embedding: bool = False,
         efficient_msdeformable_attn: bool = False,
+        o2m_topk_mode: str = "unshared",
     ):
         """Initialize the RTDETRDecoder module with the given parameters.
 
@@ -1541,6 +1542,7 @@ class RTDETRDecoder(nn.Module):
         self.query_noise_scale = 0.0
         self.one_to_many_groups = one_to_many_groups
         self.dab_sine_embedding = dab_sine_embedding
+        self.o2m_topk_mode = o2m_topk_mode
 
         # Decoder embedding
         self.learnt_init_query = learnt_init_query
@@ -1864,14 +1866,26 @@ class RTDETRDecoder(nn.Module):
             enc_outputs_scores = self.enc_score_head(features)  # (bs, h*w, nc)
 
             # === H-DETR style: Select TopK = o2o + o2m total proposals ===
-            # During training with o2m: select more proposals, split them
-            # During inference: select only num_queries
+            # During training with o2m:
+            # - shared: select all (o2o + o2m) in one top-k pass (disjoint by construction).
+            # - unshared: select o2o and o2m with separate top-k passes (can overlap).
+            # During inference: always select only num_queries.
             k = self.one_to_many_groups if (self.training and self.one_to_many_groups > 0) else 0
-            total_queries = self.num_queries * (1 + k)
-
-            # Query selection - select all proposals at once
-            topk_ind = self._select_topk(enc_outputs_scores, total_queries).view(-1)
-            batch_ind = torch.arange(end=bs, dtype=topk_ind.dtype).unsqueeze(-1).repeat(1, total_queries).view(-1)
+            num_o2m = self.num_queries * k
+            total_queries = self.num_queries + num_o2m
+            if num_o2m > 0 and self.o2m_topk_mode == "unshared":
+                topk_ind_o2o = self._select_topk(enc_outputs_scores, self.num_queries)
+                topk_ind_o2m = self._select_topk(enc_outputs_scores, num_o2m)
+                topk_ind = torch.cat([topk_ind_o2o, topk_ind_o2m], dim=1)
+            else:
+                topk_ind = self._select_topk(enc_outputs_scores, total_queries)
+            topk_ind = topk_ind.reshape(-1)
+            batch_ind = (
+                torch.arange(end=bs, dtype=topk_ind.dtype, device=topk_ind.device)
+                .unsqueeze(-1)
+                .repeat(1, total_queries)
+                .reshape(-1)
+            )
 
             # (bs, total_queries, 256)
             top_k_features = features[batch_ind, topk_ind].view(bs, total_queries, -1)
@@ -1969,6 +1983,7 @@ class DFineDecoder(RTDETRDecoder):
         reg_scale: float = 4.0,
         layer_scale: float = 1.0,
         mlp_act: str = "relu",
+        o2m_topk_mode: str = "unshared",
     ):
         nn.Module.__init__(self)
         self.hidden_dim = hd
@@ -1982,6 +1997,7 @@ class DFineDecoder(RTDETRDecoder):
         self.query_select_method = query_select_method
         self.one_to_many_groups = one_to_many_groups
         self.query_noise_scale = 0.0
+        self.o2m_topk_mode = o2m_topk_mode
 
         if dab_sine_embedding:
             raise ValueError("DFineDecoder does not support dab_sine_embedding yet.")
