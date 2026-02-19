@@ -220,7 +220,9 @@ class _RTDETRDEIMMosaic:
         self.half_size = imgsz // 2
         self.p = p
         self._tv_tensors = tv_tensors
-        self._resize = T.Resize(size=[self.half_size, self.half_size])
+        # Single int → torchvision resizes the shorter edge to half_size, preserving aspect ratio.
+        # This matches DEIM's `T.Resize(size=output_size)` behaviour exactly.
+        self._resize = T.Resize(size=self.half_size)
         self._affine = T.RandomAffine(degrees=10, translate=(0.1, 0.1), scale=(0.5, 1.5), fill=0)
         self._sanitize = T.SanitizeBoundingBoxes(min_size=1)
 
@@ -254,26 +256,28 @@ class _RTDETRDEIMMosaic:
         return labels
 
     def _mosaic4(self, labels_list: list[dict[str, Any]]) -> dict[str, Any]:
-        import torchvision.transforms.v2.functional as TF
+        # Derive canvas dimensions from the actual tile sizes after aspect-preserving resize.
+        # PIL .width / .height give (W, H); torchvision canvas_size convention is (H, W).
+        max_height = max(lbl["image"].height for lbl in labels_list)
+        max_width = max(lbl["image"].width for lbl in labels_list)
+        canvas_w = max_width * 2   # PIL width
+        canvas_h = max_height * 2  # PIL height
 
-        s = self.half_size
-        canvas_size = s * 2
-        canvas = torch.zeros((3, canvas_size, canvas_size), dtype=torch.uint8)
-        offsets = [(0, 0), (s, 0), (0, s), (s, s)]
+        # PIL paste: tiles placed at quadrant corners; unfilled regions stay 0 (black).
+        # Matches DEIM's `Image.new(..., color=0)` + `image.paste(img, placement_offsets[i])`.
+        mode = labels_list[0]["image"].mode
+        merged_image = Image.new(mode, (canvas_w, canvas_h), color=0)
+        # (x_offset, y_offset) in PIL/pixel space  ←→  DEIM's [[0,0],[max_width,0],[0,max_height],[max_width,max_height]]
+        offsets = [(0, 0), (max_width, 0), (0, max_height), (max_width, max_height)]
 
         all_boxes, all_cls = [], []
         for lbl, (x_off, y_off) in zip(labels_list, offsets):
-            img_t = TF.pil_to_tensor(lbl["image"])
-            h, w = img_t.shape[1], img_t.shape[2]
-            ph, pw = min(h, s), min(w, s)
-            canvas[:, y_off : y_off + ph, x_off : x_off + pw] = img_t[:, :ph, :pw]
-
+            merged_image.paste(lbl["image"], (x_off, y_off))
             boxes = lbl["boxes"]
             if len(boxes):
-                boxes = boxes.clone()
-                boxes[:, [0, 2]] += x_off
-                boxes[:, [1, 3]] += y_off
-                all_boxes.append(boxes)
+                # XYXY shift: add [x_off, y_off, x_off, y_off] — matches DEIM's offset tensor
+                offset_t = boxes.new_tensor([x_off, y_off, x_off, y_off], dtype=torch.float32)
+                all_boxes.append(boxes.clone().to(torch.float32) + offset_t)
                 all_cls.append(lbl["labels"])
 
         if all_boxes:
@@ -284,8 +288,9 @@ class _RTDETRDEIMMosaic:
             final_cls = torch.zeros((0,), dtype=torch.int64)
 
         return {
-            "image": TF.to_pil_image(canvas),
-            "boxes": self._tv_tensors.BoundingBoxes(final_boxes, format="XYXY", canvas_size=(canvas_size, canvas_size)),
+            "image": merged_image,
+            # canvas_size is (H, W) per torchvision convention
+            "boxes": self._tv_tensors.BoundingBoxes(final_boxes, format="XYXY", canvas_size=(canvas_h, canvas_w)),
             "labels": final_cls,
         }
 
