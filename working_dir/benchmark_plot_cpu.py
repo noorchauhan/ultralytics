@@ -13,11 +13,33 @@ import matplotlib.pyplot as plt
 # =============================================================================
 BENCHMARK = "t4_new"
 
+# Default metric for Y axis.
+DEFAULT_METRIC = "ap75"
+METRIC_LABELS = {
+    "ap": "mAP50-95 (COCO)",
+    "ap50": "AP50 (COCO)",
+    "ap75": "AP75 (COCO)",
+    "ap_small": "AP_small (COCO)",
+    "ap_medium": "AP_medium (COCO)",
+    "ap_large": "AP_large (COCO)",
+}
+METRIC_TITLE_TOKENS = {
+    "ap": "mAP",
+    "ap50": "AP50",
+    "ap75": "AP75",
+    "ap_small": "AP_small",
+    "ap_medium": "AP_medium",
+    "ap_large": "AP_large",
+}
+
 
 # =============================================================================
 # BENCHMARK DATA
 # =============================================================================
-# Format: (size_label, latency_ms, mAP50-95[, latency_err_ms])
+# Format: (size_label, latency_ms, ap_value[, latency_err_ms])
+#         ap_value can be a float (legacy: AP/mAP50-95 only)
+#         or a metric dict with keys like:
+#         {"ap", "ap50", "ap75", "ap_small", "ap_medium", "ap_large"}
 
 BENCHMARKS = {
     "m5": {
@@ -226,37 +248,37 @@ BENCHMARKS = {
         "title": "Object Detection Models: Latency vs mAP (Tesla T4 GPU, TensorRT)",
         "models": {
             "YOLO26 (E2E)": [
-                ("n", 1.8, 40.1),
-                ("s", 2.7, 47.8),
-                ("m", 5.3, 52.5),
-                ("l", 7.0, 54.4),
-                ("x", 13.3, 56.9),
+                ("n", 1.8, {"ap": 40.1, "ap50": 55.6, "ap75": 43.5, "ap_small": 19.7, "ap_medium": 44.0, "ap_large": 58.4}),
+                ("s", 2.7, {"ap": 47.8, "ap50": 64.6, "ap75": 52.2, "ap_small": 29.1, "ap_medium": 52.5, "ap_large": 64.3}),
+                ("m", 5.3, {"ap": 52.5, "ap50": 69.8, "ap75": 57.2, "ap_small": 36.2, "ap_medium": 56.9, "ap_large": 68.5}),
+                ("l", 7.0, {"ap": 54.4, "ap50": 71.5, "ap75": 59.4, "ap_small": 37.8, "ap_medium": 58.6, "ap_large": 70.3}),
+                ("x", 13.3, {"ap": 56.9, "ap50": 74.1, "ap75": 62.1, "ap_small": 41.3, "ap_medium": 61.2, "ap_large": 72.7}),
             ],
             "YOLO26 (NMS)": [
-                ("n", 1.9, 40.9),
-                ("s", 2.7, 48.6),
-                ("m", 5.1, 53.1),
-                ("l", 6.8, 55.0),
-                ("x", 13.3, 57.5),
+                ("n", 1.9, {"ap": 40.9, "ap50": 56.8, "ap75": 44.3, "ap_small": 21.1, "ap_medium": 44.8, "ap_large": 59.1}),
+                ("s", 2.7, {"ap": 48.6, "ap50": 65.8, "ap75": 52.8, "ap_small": 29.5, "ap_medium": 53.2, "ap_large": 65.8}),
+                ("m", 5.1, {"ap": 53.1, "ap50": 70.7, "ap75": 57.7, "ap_small": 36.7, "ap_medium": 57.8, "ap_large": 68.9}),
+                ("l", 6.8, {"ap": 55.0, "ap50": 72.5, "ap75": 60.0, "ap_small": 38.4, "ap_medium": 59.5, "ap_large": 71.1}),
+                ("x", 13.3, {"ap": 57.5, "ap50": 75.0, "ap75": 62.7, "ap_small": 41.8, "ap_medium": 62.1, "ap_large": 73.3}),
             ],
-            "YOLO26_RTDETR": [
-                ("n", 1.8, 41.2),
-                ("ns", 2.5, 47.7),
-                ("s", 4.5, 51.0),
-                ("m", 6.9, 54.0),
-                ("l", 8.8, 55.2),
-                ("x", 13.8, 56.6),
-            ],
-            "DINOv3-RTDETR": [
-                ("s", 4.5, 50.3, 0.1),
-            ],
+            # "YOLO26_RTDETR": [
+            #     ("n", 1.8, 41.2),
+            #     ("ns", 2.5, 47.7),
+            #     ("s", 4.5, 51.0),
+            #     ("m", 6.9, 54.0),
+            #     ("l", 8.8, 55.2),
+            #     ("x", 13.8, 56.6),
+            # ],
+            # "DINOv3-RTDETR": [
+            #     ("s", 4.5, 50.3, 0.1),
+            # ],
             "RF-DETR (TopK)": [
-                ("n", 2.8, 48.4),
-                ("s", 4.4, 53.0),
-                ("m", 5.7, 54.7),
-                ("l", 8.7, 56.5),
-                ("x", 18.1, 58.6),
-                ("xxl", 29.1, 60.1),
+                ("n", 2.8, {"ap": 48.4, "ap50": 67.5, "ap75": 51.7, "ap_small": 25.3, "ap_medium": 53.6, "ap_large": 71.0}),
+                ("s", 4.4, {"ap": 53.0, "ap50": 72.0, "ap75": 57.1, "ap_small": 31.8, "ap_medium": 58.4, "ap_large": 73.1}),
+                ("m", 5.7, {"ap": 54.7, "ap50": 73.6, "ap75": 59.1, "ap_small": 35.9, "ap_medium": 59.8, "ap_large": 73.7}),
+                ("l", 8.7, {"ap": 56.5, "ap50": 75.1, "ap75": 61.2, "ap_small": 39.0, "ap_medium": 61.0, "ap_large": 74.0}),
+                ("x", 18.1, {"ap": 58.6, "ap50": 77.5, "ap75": 64.0, "ap_small": 40.8, "ap_medium": 64.3, "ap_large": 76.3}),
+                ("xxl", 29.1, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
             ],
         },
     },
@@ -400,7 +422,13 @@ MODEL_STYLES = {
 }
 
 
-def plot_series(ax, points, label, color, marker, label_offset):
+def get_metric_value(y_value, metric):
+    if isinstance(y_value, dict):
+        return y_value.get(metric)
+    return y_value if metric == "ap" else None
+
+
+def plot_series(ax, points, label, color, marker, label_offset, metric):
     parsed_points = []
     for point in points:
         if len(point) == 3:
@@ -410,9 +438,16 @@ def plot_series(ax, points, label, color, marker, label_offset):
             size, x_value, y_value, x_error = point
         else:
             raise ValueError(
-                f"Point '{point}' must have 3 or 4 values: (size, latency, map[, latency_error])."
+                f"Point '{point}' must have 3 or 4 values: (size, latency, metric_value[, latency_error])."
             )
-        parsed_points.append((size, x_value, y_value, x_error))
+
+        metric_value = get_metric_value(y_value, metric)
+        if metric_value is None:
+            continue
+        parsed_points.append((size, x_value, metric_value, x_error))
+
+    if not parsed_points:
+        return False
 
     xs = [point[1] for point in parsed_points]
     ys = [point[2] for point in parsed_points]
@@ -452,9 +487,10 @@ def plot_series(ax, points, label, color, marker, label_offset):
             fontsize=9,
             color=color,
         )
+    return True
 
 
-def build_plot(output_path: Path, show: bool) -> None:
+def build_plot(output_path: Path, show: bool, metric: str) -> None:
     benchmark_data = BENCHMARKS[BENCHMARK]
     models = benchmark_data["models"]
     title = benchmark_data["title"]
@@ -465,13 +501,18 @@ def build_plot(output_path: Path, show: bool) -> None:
     ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.6)
 
     palette = plt.get_cmap("tab10")
+    plotted = False
     for i, (model_name, data) in enumerate(models.items()):
         marker, label_offset = MODEL_STYLES.get(model_name, ("o", 8))
-        plot_series(ax, data, model_name, palette(i), marker, label_offset)
+        plotted |= plot_series(ax, data, model_name, palette(i), marker, label_offset, metric)
 
-    ax.set_title(title)
+    if not plotted:
+        raise ValueError(f"No '{metric}' values available for benchmark '{BENCHMARK}'.")
+
+    title_metric = METRIC_TITLE_TOKENS[metric]
+    ax.set_title(title if metric == "ap" else title.replace("mAP", title_metric))
     ax.set_xlabel("Latency (ms)")
-    ax.set_ylabel("mAP50-95 (COCO)")
+    ax.set_ylabel(METRIC_LABELS[metric])
     ax.legend(frameon=True, loc="lower right", fontsize=9)
     ax.margins(x=0.05, y=0.08)
     ax.spines["top"].set_visible(False)
@@ -484,18 +525,28 @@ def build_plot(output_path: Path, show: bool) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    default_output = Path(__file__).with_name(f"benchmark_plot_{BENCHMARK}.png")
     parser = argparse.ArgumentParser(
         description="Plot object detection model latency vs mAP benchmarks."
     )
-    parser.add_argument("--output", type=Path, default=default_output)
+    parser.add_argument(
+        "--metric",
+        choices=list(METRIC_LABELS.keys()),
+        default=DEFAULT_METRIC,
+        help="Y-axis metric to plot. AP keeps existing mAP50-95 values.",
+    )
+    parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--show", action="store_true", help="Display the plot window.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    build_plot(args.output, args.show)
+    output_path = args.output or Path(__file__).with_name(
+        f"benchmark_plot_{BENCHMARK}.png"
+        if args.metric == "ap"
+        else f"benchmark_plot_{BENCHMARK}_{args.metric}.png"
+    )
+    build_plot(output_path, args.show, args.metric)
 
 
 if __name__ == "__main__":
