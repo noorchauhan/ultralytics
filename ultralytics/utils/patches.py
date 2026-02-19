@@ -40,7 +40,49 @@ def imread(filename: str, flags: int = cv2.IMREAD_COLOR) -> np.ndarray | None:
         return None
     else:
         im = cv2.imdecode(file_bytes, flags)
+        # Fallback for formats OpenCV imdecode may not support (AVIF, HEIC)
+        if im is None and filename.lower().endswith((".avif", ".heic")):
+            im = _imread_pil(filename, flags)
         return im[..., None] if im is not None and im.ndim == 2 else im  # Always ensure 3 dimensions
+
+
+_pil_plugins_registered = False
+
+
+def _imread_pil(filename: str, flags: int = cv2.IMREAD_COLOR) -> np.ndarray | None:
+    """Read an image using PIL as fallback for formats not supported by OpenCV.
+
+    Args:
+        filename (str): Path to the file to read.
+        flags (int, optional): OpenCV imread flags (used to determine grayscale conversion).
+
+    Returns:
+        (np.ndarray | None): The read image array in BGR format, or None if reading fails.
+    """
+    global _pil_plugins_registered
+    try:
+        from PIL import Image
+
+        # Register HEIF/AVIF plugins once
+        if not _pil_plugins_registered:
+            try:
+                import pillow_heif
+
+                pillow_heif.register_heif_opener()
+            except ImportError:
+                pass
+            try:
+                import pillow_avif  # noqa: F401
+            except ImportError:
+                pass
+            _pil_plugins_registered = True
+
+        with Image.open(filename) as img:
+            if flags == cv2.IMREAD_GRAYSCALE:
+                return np.asarray(img.convert("L"))
+            return cv2.cvtColor(np.asarray(img.convert("RGB")), cv2.COLOR_RGB2BGR)
+    except Exception:
+        return None
 
 
 def imwrite(filename: str, img: np.ndarray, params: list[int] | None = None) -> bool:
@@ -149,7 +191,7 @@ def arange_patch(args):
         func = torch.arange
 
         def arange(*args, dtype=None, **kwargs):
-            """Return a 1-D tensor of size with values from the interval and common difference."""
+            """Wrap torch.arange to cast dtype after creation instead of passing it directly."""
             return func(*args, **kwargs).to(dtype)  # cast to dtype instead of passing dtype
 
         torch.arange = arange  # patch
@@ -168,8 +210,8 @@ def onnx_export_patch():
         func = torch.onnx.export
 
         def torch_export(*args, **kwargs):
-            """Return a 1-D tensor of size with values from the interval and common difference."""
-            return func(*args, **kwargs, dynamo=False)  # cast to dtype instead of passing dtype
+            """Export model to ONNX format with Dynamo disabled for compatibility."""
+            return func(*args, **kwargs, dynamo=False)
 
         torch.onnx.export = torch_export  # patch
         yield
@@ -184,7 +226,7 @@ def override_configs(args, overrides: dict[str, Any] | None = None):
 
     Args:
         args (IterableSimpleNamespace): Original configuration arguments.
-        overrides (dict[str, Any]): Dictionary of overrides to apply.
+        overrides (dict[str, Any] | None): Dictionary of overrides to apply.
 
     Yields:
         (IterableSimpleNamespace): Configuration arguments with overrides applied.

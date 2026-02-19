@@ -24,8 +24,8 @@ def coco91_to_coco80_class() -> list[int]:
     """Convert 91-index COCO class IDs to 80-index COCO class IDs.
 
     Returns:
-        (list[int]): A list of 91 class IDs where the index represents the 80-index class ID and the value is the
-            corresponding 91-index class ID.
+        (list[int | None]): A list of 91 elements where the index represents the 91-index class ID and the value is the
+            corresponding 80-index class ID, or None if there is no mapping.
     """
     return [
         0,
@@ -519,8 +519,8 @@ def min_index(arr1: np.ndarray, arr2: np.ndarray):
         arr2 (np.ndarray): A NumPy array of shape (M, 2) representing M 2D points.
 
     Returns:
-        idx1 (int): Index of the point in arr1 with the shortest distance.
-        idx2 (int): Index of the point in arr2 with the shortest distance.
+        (tuple[int, int]): A tuple (idx1, idx2) where idx1 is the index in arr1 and idx2 is the index in arr2 of the
+            pair with the shortest distance.
     """
     dis = ((arr1[:, None, :] - arr2[None, :, :]) ** 2).sum(-1)
     return np.unravel_index(np.argmin(dis, axis=None), dis.shape)
@@ -537,7 +537,7 @@ def merge_multi_segment(segments: list[list]):
             [segmentation1, segmentation2,...].
 
     Returns:
-        s (list[np.ndarray]): A list of connected segments represented as NumPy arrays.
+        (list[np.ndarray]): A list of connected segments represented as NumPy arrays.
     """
     s = []
     segments = [np.array(i).reshape(-1, 2) for i in segments]
@@ -578,8 +578,9 @@ def merge_multi_segment(segments: list[list]):
 
 
 def yolo_bbox2segment(im_dir: str | Path, save_dir: str | Path | None = None, sam_model: str = "sam_b.pt", device=None):
-    """Convert existing object detection dataset (bounding boxes) to segmentation dataset or oriented bounding box (OBB)
-    in YOLO format. Generate segmentation data using SAM auto-annotator as needed.
+    """Convert existing object detection dataset (bounding boxes) to segmentation dataset in YOLO format.
+
+    Generates segmentation data using SAM auto-annotator as needed.
 
     Args:
         im_dir (str | Path): Path to image directory to convert.
@@ -659,7 +660,7 @@ def create_synthetic_coco_dataset():
     """
 
     def create_synthetic_image(image_file: Path):
-        """Generate synthetic images with random sizes and colors for dataset augmentation or testing purposes."""
+        """Generate a synthetic image with random size and color for dataset augmentation or testing purposes."""
         if not image_file.exists():
             size = (random.randint(480, 640), random.randint(480, 640))
             Image.new(
@@ -759,20 +760,20 @@ async def convert_ndjson_to_yolo(ndjson_path: str | Path, output_path: str | Pat
     - Subsequent lines: Individual image records with annotations and optional URLs
 
     Args:
-        ndjson_path (Union[str, Path]): Path to the input NDJSON file containing dataset information.
-        output_path (Optional[Union[str, Path]], optional): Directory where the converted YOLO dataset will be saved. If
-            None, uses the parent directory of the NDJSON file. Defaults to None.
+        ndjson_path (str | Path): Path to the input NDJSON file containing dataset information.
+        output_path (str | Path | None, optional): Directory where the converted YOLO dataset will be saved. If None,
+            uses the DATASETS_DIR directory. Defaults to None.
 
     Returns:
         (Path): Path to the generated data.yaml file (detection) or dataset directory (classification).
 
     Examples:
         Convert a local NDJSON file:
-        >>> yaml_path = convert_ndjson_to_yolo("dataset.ndjson")
+        >>> yaml_path = await convert_ndjson_to_yolo("dataset.ndjson")
         >>> print(f"Dataset converted to: {yaml_path}")
 
         Convert with custom output directory:
-        >>> yaml_path = convert_ndjson_to_yolo("dataset.ndjson", output_path="./converted_datasets")
+        >>> yaml_path = await convert_ndjson_to_yolo("dataset.ndjson", output_path="./converted_datasets")
 
         Use with YOLO training
         >>> from ultralytics import YOLO
@@ -796,6 +797,17 @@ async def convert_ndjson_to_yolo(ndjson_path: str | Path, output_path: str | Pat
     # Check if this is a classification dataset
     is_classification = dataset_record.get("task") == "classify"
     class_names = {int(k): v for k, v in dataset_record.get("class_names", {}).items()}
+    len(class_names)
+
+    # Validate required fields before downloading images
+    task = dataset_record.get("task", "detect")
+    if not is_classification:
+        if "train" not in splits:
+            raise ValueError(f"Dataset missing required 'train' split. Found splits: {sorted(splits)}")
+        if "val" not in splits and "test" not in splits:
+            raise ValueError(f"Dataset missing required 'val' split. Found splits: {sorted(splits)}")
+    if task == "pose" and "kpt_shape" not in dataset_record:
+        raise ValueError("Pose dataset missing required 'kpt_shape'. See https://docs.ultralytics.com/datasets/pose/")
 
     # Create base directories
     dataset_dir.mkdir(parents=True, exist_ok=True)
@@ -838,14 +850,19 @@ async def convert_ndjson_to_yolo(ndjson_path: str | Path, output_path: str | Pat
             if http_url := record.get("url"):
                 if not image_path.exists():
                     image_path.parent.mkdir(parents=True, exist_ok=True)
-                    try:
-                        async with session.get(http_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                            response.raise_for_status()
-                            image_path.write_bytes(await response.read())
-                        return True
-                    except Exception as e:
-                        LOGGER.warning(f"Failed to download {http_url}: {e}")
-                        return False
+                    # Retry with exponential backoff (3 attempts: 0s, 2s, 4s delays)
+                    for attempt in range(3):
+                        try:
+                            async with session.get(http_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                                response.raise_for_status()
+                                image_path.write_bytes(await response.read())
+                            return True
+                        except Exception as e:
+                            if attempt < 2:  # Don't sleep after last attempt
+                                await asyncio.sleep(2**attempt)  # 1s, 2s backoff
+                            else:
+                                LOGGER.warning(f"Failed to download {http_url} after 3 attempts: {e}")
+                                return False
             return True
 
     # Process all images with async downloads (limit connections for small datasets)
@@ -861,8 +878,15 @@ async def convert_ndjson_to_yolo(ndjson_path: str | Path, output_path: str | Pat
             pbar.update(1)
             return result
 
-        await asyncio.gather(*[tracked_process(record) for record in image_records])
+        results = await asyncio.gather(*[tracked_process(record) for record in image_records])
         pbar.close()
+
+    # Validate images were downloaded successfully
+    success_count = sum(1 for r in results if r)
+    if success_count == 0:
+        raise RuntimeError(f"Failed to download any images from {ndjson_path}. Check network connection and URLs.")
+    if success_count < len(image_records):
+        LOGGER.warning(f"Downloaded {success_count}/{len(image_records)} images from {ndjson_path}")
 
     if is_classification:
         # Classification: return dataset directory (check_cls_dataset expects a directory path)
