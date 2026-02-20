@@ -200,12 +200,6 @@ class RTDETRDEIMDataset(RTDETRDataset):
     def __init__(self, *args, data=None, **kwargs):
         hyp = kwargs["hyp"]
         self.policy_epochs, self.mixup_epochs, self.copyblend_epochs = self._compute_deim_schedule(hyp)
-        if not hasattr(hyp, "mosaic"):
-            raise AttributeError("RTDETRDEIMDataset requires 'mosaic' hyperparameter in hyp.")
-        if not hasattr(hyp, "mixup"):
-            raise AttributeError("RTDETRDEIMDataset requires 'mixup' hyperparameter in hyp.")
-        if not hasattr(hyp, "copy_paste"):
-            raise AttributeError("RTDETRDEIMDataset requires 'copy_paste' hyperparameter in hyp.")
         self.mosaic_prob = float(hyp.mosaic)
         self.mixup_prob = float(hyp.mixup)
         self.copyblend_prob = float(hyp.copy_paste)
@@ -259,11 +253,11 @@ class RTDETRDEIMDataset(RTDETRDataset):
     def set_epoch(self, epoch: int) -> None:
         """Propagate epoch to transforms and collate_fn for DEIM stage scheduling."""
         self.epoch = epoch
-        if hasattr(self.transforms, "set_epoch"):
-            self.transforms.set_epoch(epoch)
-        collate_fn = getattr(self, "collate_fn", None)
-        if collate_fn is not None and hasattr(collate_fn, "set_epoch"):
-            collate_fn.set_epoch(epoch)
+        self.transforms.set_epoch(epoch)
+
+        requires_collate_epoch = self.mixup_prob > 0.0 or self.copyblend_prob > 0.0
+        if requires_collate_epoch:
+            self.collate_fn.set_epoch(epoch)
 
 
 class RTDETRDEIMValidator(RTDETRValidator):
@@ -285,6 +279,7 @@ class RTDETRDEIMValidator(RTDETRValidator):
 
 class RTDETRDEIMTrainer(RTDETRTrainer):
     """RT-DETR trainer variant with isolated DEIM augmentation scheduling."""
+    _deim_callback_registered = False
 
     def build_dataset(self, img_path: str, mode: str = "val", batch: int | None = None):
         dataset = RTDETRDEIMDataset(
@@ -305,7 +300,10 @@ class RTDETRDEIMTrainer(RTDETRTrainer):
 
     def _setup_scheduler(self):
         """Initialize LR scheduler with optional DEIM flat-cosine schedule."""
-        scheduler_name = str(getattr(self.args, "lr_scheduler", "")).lower()
+        scheduler_arg = self.args.lr_scheduler
+        if scheduler_arg is None:
+            return super()._setup_scheduler()
+        scheduler_name = str(scheduler_arg).lower()
         if not scheduler_name:
             return super()._setup_scheduler()
 
@@ -315,7 +313,7 @@ class RTDETRDEIMTrainer(RTDETRTrainer):
             self.lf = one_cycle(1, self.args.lrf, self.epochs)
         elif scheduler_name in {"flatcosine", "flat_cosine", "flatcos"}:
             # Flat phase keeps LR constant, then cosine anneals to fixed DEIM gamma.
-            warmup_epochs = max(float(getattr(self.args, "warmup_epochs", 0.0)), 0.0)
+            warmup_epochs = max(float(self.args.warmup_epochs), 0.0)
             flat_epoch = min(self.epochs, max(int(math.ceil(warmup_epochs)), 4) + self.epochs // 2)
             gamma = 0.5
             decay_epochs = max(self.epochs - flat_epoch, 1)
@@ -338,11 +336,7 @@ class RTDETRDEIMTrainer(RTDETRTrainer):
         trainer = trainer or self
         epoch = trainer.epoch
         dataset = trainer.train_loader.dataset
-        if hasattr(dataset, "set_epoch"):
-            dataset.set_epoch(epoch)
-
-        if not hasattr(dataset, "policy_epochs"):
-            raise AttributeError("RTDETRDEIMTrainer requires dataset.policy_epochs for DEIM scheduling.")
+        dataset.set_epoch(epoch)
         stop_epoch = int(dataset.policy_epochs[-1])
         if epoch == stop_epoch and trainer.args.multi_scale > 0:
             trainer.args.multi_scale = 0.0
@@ -353,7 +347,7 @@ class RTDETRDEIMTrainer(RTDETRTrainer):
         # Keep base trainer's close_mosaic hook disabled to avoid overriding DEIM policy.
         if self.args.close_mosaic:
             self.args.close_mosaic = 0
-        if not getattr(self, "_deim_callback_registered", False):
+        if not self._deim_callback_registered:
             self.add_callback("on_train_epoch_start", self._on_train_epoch_start)
             self._deim_callback_registered = True
         return super().train(*args, **kwargs)

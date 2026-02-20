@@ -341,11 +341,7 @@ def compute_policy_epochs(hyp: IterableSimpleNamespace) -> tuple[int, int, int]:
     if stop < 0:
         raise ValueError(f"compute_policy_epochs got invalid no_aug_epoch={no_aug_epoch} for epochs={epochs}.")
 
-    if hasattr(hyp, "flat_epoch"):
-        mid = int(hyp.flat_epoch)
-    else:
-        mid = min(stop, start + epochs // 2)
-
+    mid = min(stop, start + epochs // 2)
     if not (0 <= start <= mid <= stop <= epochs):
         raise ValueError(
             f"compute_policy_epochs produced invalid boundaries: start={start}, mid={mid}, stop={stop}, epochs={epochs}."
