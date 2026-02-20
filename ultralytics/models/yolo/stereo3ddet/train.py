@@ -17,7 +17,6 @@ from ultralytics.models.yolo.stereo3ddet.dataset import Stereo3DDetDataset
 from ultralytics.models.yolo.stereo3ddet.model import Stereo3DDetModel
 from ultralytics.models.yolo.stereo3ddet.preprocess import preprocess_stereo_batch
 from ultralytics.models.yolo.stereo3ddet.visualize import labels_to_box3d
-from ultralytics.nn.tasks import load_checkpoint
 from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK, ROOT, YAML
 from ultralytics.utils.checks import check_yaml
 from ultralytics.utils.plotting import Annotator, VisualizationConfig, colors, plot_labels, plot_stereo3d_boxes
@@ -40,6 +39,16 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         return yolo.stereo3ddet.Stereo3DDetValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
+
+    def _get_model_yaml(self):
+        """Get model YAML dict, handling DDP wrapper."""
+        model = getattr(self, "model", None)
+        if model is None:
+            return {}
+        # Unwrap DDP/DataParallel
+        if hasattr(model, "module"):
+            model = model.module
+        return getattr(model, "yaml", None) or {}
 
     def _determine_loss_names(self):
         """Set loss names for stereo 3D detection (disparity + dimensions)."""
@@ -82,19 +91,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         from ultralytics.data.utils import check_det_dataset
         data_cfg = check_det_dataset(self.args.data, autodownload=True)
 
-        # Determine input channels: 6 (stereo) or 7 (stereo + depth prior)
-        # Read from model YAML if available, otherwise default to 6
-        channels = data_cfg.get("channels", 6)
-        if hasattr(self, "model") and self.model is not None and hasattr(self.model, "yaml"):
-            channels = self.model.yaml.get("input_channels", channels)
-        elif isinstance(self.args.model, str) and self.args.model.endswith(".yaml"):
-            from ultralytics.nn.tasks import yaml_model_load
-            model_cfg = yaml_model_load(self.args.model)
-            channels = model_cfg.get("input_channels", channels)
-        if channels not in (6, 7):
-            raise ValueError(
-                f"Stereo3DDet requires 6 or 7 input channels, got {channels}"
-            )
+        channels = 6
 
         # Root path and splits
         root = Path(data_cfg["path"])
@@ -117,7 +114,6 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         return {
             "yaml_file": str(self.args.data) if isinstance(self.args.data, (str, Path)) else None,
             "path": str(root),
-            # Channels for model input (6 = stereo, 7 = stereo + depth prior)
             "channels": channels,
             # Signal to our get_dataloader/build_dataset that this is a stereo dataset
             "train": {"type": "kitti_stereo", "root": str(root), "split": train_split},
@@ -167,10 +163,6 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             # Get mean_dims from dataset config
             mean_dims = self.data.get("mean_dims")
             std_dims = self.data.get("std_dims")
-            # Pass depth_prior_dir when using 7-channel input
-            depth_prior_dir = None
-            if self.data.get("channels", 6) == 7:
-                depth_prior_dir = Path(desc.get("root", ".")) / "depth_maps"
             return Stereo3DDetDataset(
                 root=str(desc.get("root", ".")),
                 split=str(desc.get("split", "train")),
@@ -181,7 +173,6 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                 std_dims=std_dims,
                 augment=(mode == "train"),
                 hyp=self.args,
-                depth_prior_dir=depth_prior_dir,
             )
         # Otherwise, use the default detection dataset builder
         return super().build_dataset(img_path, mode=mode, batch=batch)
@@ -239,7 +230,6 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
     def set_model_attributes(self):
         """Set model attributes based on dataset information."""
         super().set_model_attributes()
-        # T204: Determine loss names after model is set
         self._determine_loss_names()
 
     def preprocess_batch(self, batch):
@@ -279,7 +269,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
 
         for i in range(previews):
             _6_channel_img = batch["img"][i]
-            assert _6_channel_img.shape[0] == 6, "6-channel image is required"
+            assert _6_channel_img.shape[0] == 6, f"6 channel image required, got {_6_channel_img.shape[0]}"
             assert _6_channel_img.max() <= 1.0, "image is not normalized"
             assert _6_channel_img.min() >= 0.0, "image is not normalized"
             # convert to cpu and numpy

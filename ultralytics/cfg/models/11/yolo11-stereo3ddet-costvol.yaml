@@ -10,7 +10,6 @@
 # Parameters
 nc: 3
 stereo: true
-input_channels: 6
 scales:
   n: [0.50, 0.25, 1024]
   s: [0.50, 0.50, 1024]

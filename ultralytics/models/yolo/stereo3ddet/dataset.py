@@ -58,7 +58,6 @@ class Stereo3DDetDataset(BaseDataset):
         hyp: dict[str, Any] = DEFAULT_CFG,
         prefix: str = "",
         data: dict | None = None,
-        depth_prior_dir: str | Path | None = None,
     ):
         """Initialize Stereo3DDetDataset.
 
@@ -130,14 +129,6 @@ class Stereo3DDetDataset(BaseDataset):
             self.image_ids = self.image_ids[:max_samples]
             if len(self.image_ids) < total:
                 LOGGER.info(f"Limited stereo dataset to {len(self.image_ids)} samples (from {total} total)")
-
-        # Depth prior (precomputed disparity maps as 7th channel)
-        self.depth_prior_dir = Path(depth_prior_dir) / split if depth_prior_dir else None
-        if self.depth_prior_dir and self.depth_prior_dir.exists():
-            LOGGER.info(f"Depth prior enabled: loading from {self.depth_prior_dir}")
-        elif self.depth_prior_dir:
-            LOGGER.warning(f"Depth prior dir not found: {self.depth_prior_dir}, disabling")
-            self.depth_prior_dir = None
 
         # Occlusion filtering settings
         if filter_occluded:
@@ -309,21 +300,6 @@ class Stereo3DDetDataset(BaseDataset):
                 left_rgb = cv2.cvtColor(left_img, cv2.COLOR_BGR2RGB)
                 right_rgb = cv2.cvtColor(right_img, cv2.COLOR_BGR2RGB)
                 im = np.concatenate([left_rgb, right_rgb], axis=2)  # [H, W, 6]
-
-                # Optionally add precomputed depth prior as 7th channel
-                if self.depth_prior_dir is not None:
-                    image_id = Path(f).stem
-                    depth_path = self.depth_prior_dir / f"{image_id}.npy"
-                    if depth_path.exists():
-                        depth_map = np.load(str(depth_path))  # [orig_H, orig_W]
-                        # Resize to match current image size
-                        depth_map = cv2.resize(
-                            depth_map, (im.shape[1], im.shape[0]), interpolation=cv2.INTER_LINEAR
-                        )
-                        # Scale disparity to [0, 255] uint8 range (matches RGB channels)
-                        # so /255.0 normalization in preprocess gives [0, 1]
-                        depth_map = np.clip(depth_map / 192.0 * 255.0, 0, 255).astype(np.uint8)
-                        im = np.concatenate([im, depth_map[..., None]], axis=2)  # [H, W, 7]
             
             if im is None:
                 raise FileNotFoundError(f"Failed to load stereo image pair for {f}")
@@ -473,11 +449,10 @@ class Stereo3DDetDataset(BaseDataset):
         
         stereo_img = label["img"]  # Already 6-channel from load_image()
         
-        # Verify 6 or 7 channels (7 when depth prior is enabled)
         n_ch = stereo_img.shape[-1]
-        if n_ch not in (6, 7):
+        if n_ch != 6:
             raise ValueError(
-                f"Expected 6 or 7 channel stereo image, got {n_ch}. Shape: {stereo_img.shape}"
+                f"Expected 6 channel stereo image, got {n_ch}. Shape: {stereo_img.shape}"
             )
 
         # Get labels and calibration from cached data
@@ -806,10 +781,9 @@ class Stereo3DDetDataset(BaseDataset):
             Dictionary with batched images, targets, and metadata.
         """
         imgs = torch.stack([b["img"] for b in batch], 0)  # (B,6,H,W)
-        
-        # Validate batch has 6 or 7 channels (6=stereo, 7=stereo+depth prior)
-        assert imgs.shape[1] in (6, 7), (
-            f"Stereo batch must have 6 or 7 channels, got shape {imgs.shape}."
+
+        assert imgs.shape[1] == 6, (
+            f"Stereo batch must have 6 channels, got shape {imgs.shape}."
         )
         
         # Extract from instances and stereo-specific keys

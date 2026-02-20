@@ -4,9 +4,11 @@ from ultralytics.nn.tasks import DetectionModel
 
 
 class Stereo3DDetModel(DetectionModel):
-    """Stereo 3D Detection model — standard YOLO with 6-channel input."""
+    """Stereo 3D Detection model — 6 channel input (stereo pair)."""
 
-    def __init__(self, cfg, ch=6, nc=None, verbose=True):
+    def __init__(self, cfg, ch=None, nc=None, verbose=True):
+        if ch is None:
+            ch = 6
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
         self.task = "stereo3ddet"
         self.end2end = False  # stereo uses custom geometric postprocessing, not NMS-free

@@ -534,7 +534,7 @@ class StereoHSV:
             return labels
 
         img = labels.get("img")
-        if img is None or img.shape[-1] not in (6, 7):
+        if img is None or img.shape[-1] != 6:
             return labels
 
         # Split stereo image
@@ -560,11 +560,7 @@ class StereoHSV:
         right_aug = cv2.merge((cv2.LUT(hue_r, lut_hue), cv2.LUT(sat_r, lut_sat), cv2.LUT(val_r, lut_val)))
         right_aug = cv2.cvtColor(right_aug, cv2.COLOR_HSV2BGR)
 
-        # Recombine (preserve extra channels like depth prior)
-        parts = [left_aug, right_aug]
-        if img.shape[-1] > 6:
-            parts.append(img[:, :, 6:])
-        labels["img"] = np.concatenate(parts, axis=-1)
+        labels["img"] = np.concatenate([left_aug, right_aug], axis=-1)
         return labels
 
 
@@ -602,7 +598,7 @@ class StereoHFlip:
             return labels
 
         img = labels.get("img")
-        if img is None or img.shape[-1] not in (6, 7):
+        if img is None or img.shape[-1] != 6:
             return labels
 
         h, w = img.shape[:2]
@@ -610,10 +606,7 @@ class StereoHFlip:
         # Split, flip, and swap left/right views
         left_f = cv2.flip(img[:, :, :3], 1)
         right_f = cv2.flip(img[:, :, 3:6], 1)
-        parts = [right_f, left_f]
-        if img.shape[-1] > 6:  # depth prior channel(s) — flip but don't swap
-            parts.append(cv2.flip(img[:, :, 6:], 1))
-        labels["img"] = np.concatenate(parts, axis=-1)
+        labels["img"] = np.concatenate([right_f, left_f], axis=-1)
 
         # Use StereoLabels to synchronize instance and calibration updates
         stereo = StereoLabels.from_labels(labels)
@@ -675,7 +668,7 @@ class StereoScale:
             return labels
 
         img = labels.get("img")
-        if img is None or img.shape[-1] not in (6, 7):
+        if img is None or img.shape[-1] != 6:
             return labels
 
         h, w = img.shape[:2]
@@ -725,7 +718,7 @@ class StereoCrop:
             return labels
 
         img = labels.get("img")
-        if img is None or img.shape[-1] not in (6, 7):
+        if img is None or img.shape[-1] != 6:
             return labels
 
         h, w = img.shape[:2]
@@ -790,8 +783,7 @@ class StereoLetterBox:
         if img is None:
             return labels
 
-        # Handle 6 or 7 channel stereo image (7 = stereo + depth prior)
-        if img.shape[-1] not in (6, 7):
+        if img.shape[-1] != 6:
             return labels
 
         h, w = img.shape[:2]
