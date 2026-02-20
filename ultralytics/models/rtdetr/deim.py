@@ -314,7 +314,13 @@ class RTDETRDEIMTrainer(RTDETRTrainer):
         elif scheduler_name in {"flatcosine", "flat_cosine", "flatcos"}:
             # Flat phase keeps LR constant, then cosine anneals to fixed DEIM gamma.
             warmup_epochs = max(float(self.args.warmup_epochs), 0.0)
-            flat_epoch = min(self.epochs, max(int(math.ceil(warmup_epochs)), 4) + self.epochs // 2)
+            default_flat_epoch = min(self.epochs, max(int(math.ceil(warmup_epochs)), 4) + self.epochs // 2)
+            flat_epoch = default_flat_epoch if self.args.flat_epoch is None else int(self.args.flat_epoch)
+            if not (0 <= flat_epoch <= self.epochs):
+                raise ValueError(
+                    f"flatcosine got invalid flat_epoch={flat_epoch} for epochs={self.epochs}. "
+                    "Expected 0 <= flat_epoch <= epochs."
+                )
             gamma = 0.5
             decay_epochs = max(self.epochs - flat_epoch, 1)
 
