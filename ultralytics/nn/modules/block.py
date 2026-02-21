@@ -2192,18 +2192,20 @@ class StereoCostVolume(nn.Module):
         c2: Output channels after refinement.
         max_disp: Maximum disparity in feature pixels at the input stride.
         num_bins: Number of discrete disparity samples.
+        refine_layers: Number of conv layers in the refinement network (default 2).
     """
 
-    def __init__(self, c1, c2=64, max_disp=48, num_bins=24):
+    def __init__(self, c1, c2=64, max_disp=48, num_bins=24, refine_layers=2):
         super().__init__()
         self.c_half = c1 // 2
         # Integer disparity offsets evenly spaced from 0 to max_disp
         self.disparities = [int(d) for d in torch.linspace(0, max_disp, num_bins).round().tolist()]
         # Process cost volume: num_bins → c2, then downsample stride 4 → stride 8
-        self.refine = nn.Sequential(
-            Conv(num_bins, c2, 3),
-            Conv(c2, c2, 3, s=2),
-        )
+        layers = [Conv(num_bins, c2, 3)]
+        for _ in range(refine_layers - 2):
+            layers.append(Conv(c2, c2, 3))
+        layers.append(Conv(c2, c2, 3, s=2))
+        self.refine = nn.Sequential(*layers)
 
     def forward(self, x):
         """Build cost volume from groups=2 stereo features.
@@ -2231,4 +2233,5 @@ class StereoCostVolume(nn.Module):
                 corr[:, :, :, d:] = (left[:, :, :, d:] * right[:, :, :, :-d]).sum(dim=1, keepdim=True)
                 corrs.append(corr)
 
-        return self.refine(torch.cat(corrs, dim=1))
+        cost_vol = torch.cat(corrs, dim=1)  # [B, num_bins, H, W]
+        return self.refine(cost_vol)

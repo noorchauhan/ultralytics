@@ -142,4 +142,5 @@ class Stereo3DDetHeadYOLO11(Detect):
                         feat = torch.cat([feat, cost_vol], dim=1)
                     feats.append(branches[i](feat).view(bs, out_c, -1))
                 preds[name] = torch.cat(feats, -1)  # [B, C, HW_total]
+
         return preds

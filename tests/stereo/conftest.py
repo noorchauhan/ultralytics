@@ -62,7 +62,6 @@ def sample_box3d():
         class_label="Car",
         class_id=0,
         confidence=0.95,
-        bbox_2d=(100.0, 100.0, 200.0, 200.0),  # [x1, y1, x2, y2]
     )
 
 
@@ -77,7 +76,6 @@ def sample_boxes3d():
             class_label="Car",
             class_id=0,
             confidence=0.92,
-            bbox_2d=(90.0, 110.0, 210.0, 220.0),
         ),
         Box3D(
             center_3d=(6.0, 1.6, 18.0),
@@ -86,7 +84,6 @@ def sample_boxes3d():
             class_label="Pedestrian",
             class_id=1,
             confidence=0.81,
-            bbox_2d=(140.0, 120.0, 160.0, 200.0),
         ),
         Box3D(
             center_3d=(12.5, 1.7, 32.0),
@@ -95,7 +92,6 @@ def sample_boxes3d():
             class_label="Cyclist",
             class_id=2,
             confidence=0.88,
-            bbox_2d=(220.0, 130.0, 260.0, 210.0),
         ),
     ]
 

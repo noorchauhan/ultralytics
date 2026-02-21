@@ -51,7 +51,7 @@ class Stereo3DDetDataset(BaseDataset):
         output_size: Tuple[int, int] | None = None,
         mean_dims: Dict[str, List[float]] | None = None,
         std_dims: Dict[str, List[float]] | None = None,
-        filter_occluded: bool = True,
+        filter_occluded: bool = False,
         max_occlusion_level: int = 1,
         cache: bool | str = False,
         augment: bool = True,
@@ -475,7 +475,7 @@ class Stereo3DDetDataset(BaseDataset):
             calib["cx"] = calib.get("cx", 0.0) * ratio_w
             calib["cy"] = calib.get("cy", 0.0) * ratio_h
         label["calibration"] = calib
-        
+
         # Convert to Instances format with 3D data included
         if len(label_list) == 0:
             # Empty case
@@ -966,7 +966,7 @@ class Stereo3DDetDataset(BaseDataset):
                 padded[bi, : t.shape[0]] = t
             aux_targets[k] = padded
 
-        return {
+        result = {
             "img": imgs,
             "labels": labels_list,  # Keep labels for metrics computation
             "calib": calibs,  # For downstream metrics/tools
@@ -980,3 +980,5 @@ class Stereo3DDetDataset(BaseDataset):
             "targets": aux_targets,  # Primary key used by model.loss()
             "aux_targets": aux_targets,  # Keep for backward compatibility
         }
+
+        return result

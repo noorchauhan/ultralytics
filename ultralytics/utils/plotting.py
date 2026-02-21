@@ -1351,8 +1351,8 @@ def plot_boxes3d(
         color = _select_color(getattr(box, "class_id", 0), scheme)
 
         for start, end in EDGE_CONNECTIONS:
-            pt1 = (int(round(corners[start][0])), int(round(corners[start][1])))
-            pt2 = (int(round(corners[end][0])), int(round(corners[end][1])))
+            pt1 = (int(np.clip(round(corners[start][0]), -1e6, 1e6)), int(np.clip(round(corners[start][1]), -1e6, 1e6)))
+            pt2 = (int(np.clip(round(corners[end][0]), -1e6, 1e6)), int(np.clip(round(corners[end][1]), -1e6, 1e6)))
             clipped, clip_pt1, clip_pt2 = cv2.clipLine(rect, pt1, pt2)
             if clipped:
                 cv2.line(canvas, clip_pt1, clip_pt2, color, line_width, lineType=cv2.LINE_AA)
