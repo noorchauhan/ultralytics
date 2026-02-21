@@ -582,8 +582,8 @@ class Stereo3DDetValidator(BaseValidator):
                                         LOGGER.warning("Error computing 3D IoU: %s", e2)
                                         iou_matrix[i, j] = 0.0
 
-                    # Match predictions to ground truth (greedy matching)
-                    matched_gt = set()
+                    # Match predictions to ground truth (independent greedy matching per IoU threshold)
+                    matched_gt_per_iou = [set() for _ in range(self.niou)]
                     tp = np.zeros((len(pred_boxes), self.niou), dtype=bool)
                     fp = np.zeros((len(pred_boxes), self.niou), dtype=bool)
 
@@ -596,25 +596,23 @@ class Stereo3DDetValidator(BaseValidator):
 
                     for pred_idx in pred_indices:
                         pred_box = pred_boxes[pred_idx]
-                        best_iou = 0.0
-                        best_gt_idx = -1
 
-                        # Find best matching ground truth
-                        for gt_idx, gt_box in enumerate(gt_boxes):
-                            if gt_idx in matched_gt:
-                                continue
-                            if pred_box.class_id != gt_box.class_id:
-                                continue
-                            if iou_matrix[pred_idx, gt_idx] > best_iou:
-                                best_iou = iou_matrix[pred_idx, gt_idx]
-                                best_gt_idx = gt_idx
-
-                        # Check if match exceeds IoU thresholds
                         for iou_idx, iou_thresh in enumerate(self.iouv):
-                            if best_iou >= iou_thresh.item():
+                            best_iou = 0.0
+                            best_gt_idx = -1
+
+                            for gt_idx, gt_box in enumerate(gt_boxes):
+                                if gt_idx in matched_gt_per_iou[iou_idx]:
+                                    continue
+                                if pred_box.class_id != gt_box.class_id:
+                                    continue
+                                if iou_matrix[pred_idx, gt_idx] > best_iou:
+                                    best_iou = iou_matrix[pred_idx, gt_idx]
+                                    best_gt_idx = gt_idx
+
+                            if best_iou >= iou_thresh.item() and best_gt_idx >= 0:
                                 tp[pred_idx, iou_idx] = True
-                                if best_gt_idx >= 0:
-                                    matched_gt.add(best_gt_idx)
+                                matched_gt_per_iou[iou_idx].add(best_gt_idx)
                             else:
                                 fp[pred_idx, iou_idx] = True
 
@@ -747,7 +745,12 @@ class Stereo3DDetValidator(BaseValidator):
             save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot
         )
         # Merge so training logs/CSV show both 3D and 2D bbox metrics.
-        return {**self.metrics.results_dict, **self.det_metrics.results_dict}
+        # 3D metrics go LAST so fitness=AP3D@0.5 (not 2D mAP) drives best-model selection.
+        # 3D metrics FIRST to preserve CSV column order, then 2D metrics appended.
+        # Pop 2D fitness so 3D fitness (AP3D@0.5) drives best-model selection.
+        det_results = self.det_metrics.results_dict
+        det_results.pop("fitness", None)
+        return {**self.metrics.results_dict, **det_results}
 
     def plot_validation_samples(
         self,

@@ -261,11 +261,7 @@ class Stereo3DDetMetrics(SimpleClass, DataExportMixin):
         if not self.ap3d_50:
             return 0.0
         values = list(self.ap3d_50.values())
-        result = float(np.mean(values)) if values else 0.0
-        
-        # DIAGNOSTIC: Log maps3d_50 computation
-        
-        return result
+        return float(np.mean(values)) if values else 0.0
 
     @property
     def maps3d_70(self) -> float:

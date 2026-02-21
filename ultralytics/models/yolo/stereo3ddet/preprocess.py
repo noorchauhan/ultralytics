@@ -282,7 +282,7 @@ def decode_stereo3d_outputs(
 
             z_from_direct = None
             if depth_log is not None:
-                z_from_direct = math.exp(max(depth_log, 0.0))  # clamp min ~1m
+                z_from_direct = math.exp(max(depth_log, -10.0))
 
             # Combine depth sources
             if z_from_disp is not None and z_from_direct is not None:
