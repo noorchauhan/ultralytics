@@ -12,7 +12,7 @@ DEPTH_BINS = 16
 DEPTH_MIN = 2.0
 DEPTH_MAX = 80.0
 
-AUX_SPECS = {"lr_distance": 1, "dimensions": 3, "orientation": 2, "depth": DEPTH_BINS}
+AUX_SPECS = {"lr_distance": 1, "dimensions": 3, "orientation": 2, "depth": DEPTH_BINS + 1}
 
 
 class DepthDFL(nn.Module):
@@ -25,10 +25,12 @@ class DepthDFL(nn.Module):
         self.register_buffer("bin_values", torch.linspace(log_min, log_max, n_bins))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Decode bin logits [B, n_bins, HW] → log-depth [B, 1, HW]."""
-        b, _, a = x.shape
-        weights = x.softmax(dim=1)  # [B, n_bins, HW]
-        return (weights * self.bin_values.view(1, -1, 1)).sum(dim=1, keepdim=True)  # [B, 1, HW]
+        """Decode bin logits + residual [B, n_bins+1, HW] → log-depth [B, 1, HW]."""
+        bins = x[:, : self.n_bins]  # [B, n_bins, HW]
+        residual = x[:, self.n_bins :]  # [B, 1, HW]
+        weights = bins.softmax(dim=1)  # [B, n_bins, HW]
+        coarse = (weights * self.bin_values.view(1, -1, 1)).sum(dim=1, keepdim=True)  # [B, 1, HW]
+        return coarse + residual
 
 
 def get_aux_specs(depth_mode: str = "both") -> dict[str, int]:
@@ -165,10 +167,12 @@ class Stereo3DDetHeadYOLO11(Detect):
                     feats.append(branches[i](feat).view(bs, out_c, -1))
                 preds[name] = torch.cat(feats, -1)  # [B, C, HW_total]
 
-        # Decode depth bins → scalar log-depth (keep raw logits for loss during training)
+        # Decode depth bins + residual → scalar log-depth
         if "depth" in preds:
+            raw = preds["depth"]  # [B, 17, HW]
             if self.training:
-                preds["depth_bins"] = preds["depth"]  # raw logits [B, 16, HW] for DFLoss
-            preds["depth"] = self.depth_dfl(preds["depth"])  # decoded [B, 1, HW]
+                preds["depth_bins"] = raw[:, :DEPTH_BINS]  # [B, 16, HW] for DFLoss
+                preds["depth_residual"] = raw[:, DEPTH_BINS:]  # [B, 1, HW] for residual loss
+            preds["depth"] = self.depth_dfl(raw)  # decoded [B, 1, HW]
 
         return preds
