@@ -130,7 +130,7 @@ venv.bak/
 .spyproject
 
 # VSCode project settings
-# .vscode/
+.vscode/
 .devcontainer/
 
 # Rope project settings
@@ -202,7 +202,6 @@ calibration_*.npy
 .cursor/
 .specify/
 specs/
-.vscode/launch.json
 
 # Training logs
 args.yaml
