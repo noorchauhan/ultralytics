@@ -17,7 +17,13 @@ from ultralytics.models.yolo.stereo3ddet.preprocess import (
     decode_and_refine_predictions,
     clear_config_cache,
 )
-from ultralytics.models.yolo.stereo3ddet.metrics import Stereo3DDetMetrics
+from ultralytics.models.yolo.stereo3ddet.metrics import (
+    DIFFICULTY_EASY,
+    DIFFICULTY_HARD,
+    DIFFICULTY_MODERATE,
+    Stereo3DDetMetrics,
+    classify_difficulty,
+)
 from ultralytics.utils import LOGGER, RANK, YAML
 from ultralytics.utils.metrics import DetMetrics, box_iou, compute_3d_iou
 from ultralytics.utils.plotting import plot_stereo3d_boxes
@@ -104,10 +110,7 @@ def compute_3d_iou_batch(
         for j in range(len(gt_boxes)):
             if not class_match[i, j]:
                 continue
-            try:
-                iou_matrix[i, j] = compute_3d_iou(pred_boxes[i], gt_boxes[j], eps=eps)
-            except Exception:
-                iou_matrix[i, j] = 0.0
+            iou_matrix[i, j] = compute_3d_iou(pred_boxes[i], gt_boxes[j], eps=eps)
 
     return iou_matrix
 
@@ -298,80 +301,71 @@ class Stereo3DDetValidator(BaseValidator):
         # Clear config cache at start of validation to reload fresh configs
         clear_config_cache()
 
-        # Get class names from dataset, not from metrics results_dict (which contains metric keys, not class names)
-        # Get class names from dataset configuration - names must be provided
-        if hasattr(self, "data") and self.data and "names" in self.data:
-            self.names = self.data["names"]
-        elif hasattr(model, "names") and model.names:
-            self.names = model.names
+        # Use model's class names — they define the class IDs the model predicts.
+        # The dataset YAML may have more classes (e.g., 8 KITTI classes) than the model (e.g., 3).
+        # Using model names ensures class IDs match between predictions and GT filtering.
+        model_names = getattr(model, "names", None)
+        data_names = self.data.get("names") if hasattr(self, "data") and self.data else None
+        if model_names:
+            self.names = model_names
+        elif data_names:
+            self.names = data_names
         else:
-            raise ValueError("Dataset configuration must include 'names' mapping")
+            raise ValueError("Model or dataset configuration must include 'names' mapping")
 
-        self.nc = (
-            len(self.names)
-            if isinstance(self.names, dict)
-            else len(self.names) if isinstance(self.names, (list, tuple)) else 0
-        )
+        self.nc = len(self.names) if isinstance(self.names, (dict, list, tuple)) else 0
         self.seen = 0
         self.metrics.names = self.names
-        self.metrics.nc = (
-            self.nc
-        )  # Also update metrics.nc to match the correct number of classes
+        self.metrics.nc = self.nc
 
-        # Create reverse mapping from class name to class ID
-        # self.names is {0: "Car", 1: "Van", ...} so we need {"Car": 0, "Van": 1, ...}
-        name_to_id = {}
-        if isinstance(self.names, dict):
-            name_to_id = {name: idx for idx, name in self.names.items()}
-        elif isinstance(self.names, (list, tuple)):
-            name_to_id = {name: idx for idx, name in enumerate(self.names)}
+        # Map mean_dims/std_dims from dataset YAML (keyed by class name) to model class IDs.
+        # E.g., model {0: "Car", 1: "Pedestrian"} + YAML {"Car": [L,W,H]} → {0: (H,W,L)}
+        def _parse_dims(raw_dims):
+            """Convert {class_name: [L,W,H]} to {model_class_id: (H,W,L)}."""
+            if raw_dims is None:
+                return None
+            result = {}
+            for class_key, dims in raw_dims.items():
+                if not (isinstance(dims, (list, tuple)) and len(dims) == 3):
+                    continue
+                l, w, h = dims  # YAML has [L, W, H]
+                # Find model class ID by name match
+                matched = False
+                for cid, cname in (self.names.items() if isinstance(self.names, dict) else enumerate(self.names)):
+                    if str(class_key) == str(cname) or (isinstance(class_key, int) and class_key == cid):
+                        result[cid] = (h, w, l)  # Store as (H, W, L)
+                        matched = True
+                        break
+                if not matched and isinstance(class_key, int):
+                    result[class_key] = (h, w, l)
+            return result if result else None
 
-        # Parse and convert mean_dims from YAML format (class name -> [L, W, H]) to (class ID -> (H, W, L))
-        mean_dims_raw = (
-            self.data.get("mean_dims") if hasattr(self, "data") and self.data else None
-        )
-        if mean_dims_raw is not None:
-            # Convert from {class_name or class_id: [L, W, H]} to {class_id: (H, W, L)}
-            self.mean_dims = {}
-            for class_key, dims in mean_dims_raw.items():
-                if isinstance(dims, (list, tuple)) and len(dims) == 3:
-                    l, w, h = dims  # YAML has [L, W, H]
-                    # Convert class name to class ID if needed
-                    if isinstance(class_key, str) and class_key in name_to_id:
-                        class_id = name_to_id[class_key]
-                    elif isinstance(class_key, int):
-                        class_id = class_key
-                    else:
-                        LOGGER.warning("Unknown class key in mean_dims: %s", class_key)
-                        continue
-                    self.mean_dims[class_id] = (h, w, l)  # Store as (H, W, L)
-        else:
-            self.mean_dims = None
+        mean_dims_raw = self.data.get("mean_dims") if hasattr(self, "data") and self.data else None
+        std_dims_raw = self.data.get("std_dims") if hasattr(self, "data") and self.data else None
+        self.mean_dims = _parse_dims(mean_dims_raw)
+        self.std_dims = _parse_dims(std_dims_raw)
+        if self.mean_dims is None:
             LOGGER.info("No mean_dims in dataset config, will use defaults")
-
-        # Parse and convert std_dims from YAML format (class name -> [L, W, H]) to (class ID -> (H, W, L))
-        std_dims_raw = (
-            self.data.get("std_dims") if hasattr(self, "data") and self.data else None
-        )
-        if std_dims_raw is not None:
-            # Convert from {class_name: [L, W, H]} to {class_id: (H, W, L)}
-            self.std_dims = {}
-            for class_key, dims in std_dims_raw.items():
-                if isinstance(dims, (list, tuple)) and len(dims) == 3:
-                    l, w, h = dims  # YAML has [L, W, H]
-                    # Convert class name to class ID if needed
-                    if isinstance(class_key, str) and class_key in name_to_id:
-                        class_id = name_to_id[class_key]
-                    elif isinstance(class_key, int):
-                        class_id = class_key
-                    else:
-                        LOGGER.warning("Unknown class key in std_dims: %s", class_key)
-                        continue
-                    self.std_dims[class_id] = (h, w, l)  # Store as (H, W, L)
+        if self.std_dims is not None:
             LOGGER.info("Loaded std_dims with %d classes: %s", len(self.std_dims), list(self.std_dims.keys()))
         else:
-            self.std_dims = None
             LOGGER.info("No std_dims in dataset config, will use defaults")
+
+        # Build dataset→model class ID mapping when dataset has more classes than model.
+        # E.g., dataset {0:Car, 1:Van, 3:Pedestrian} + model {0:Car, 1:Pedestrian}
+        # → remap {0:0, 3:1} so GT Pedestrian (dataset id=3) maps to model id=1.
+        self._dataset_to_model_cls = None
+        if data_names and model_names and len(data_names) != len(model_names):
+            model_name_to_id = {name: idx for idx, name in (
+                model_names.items() if isinstance(model_names, dict) else enumerate(model_names)
+            )}
+            remap = {}
+            for did, dname in (data_names.items() if isinstance(data_names, dict) else enumerate(data_names)):
+                if dname in model_name_to_id:
+                    remap[int(did)] = model_name_to_id[dname]
+            if remap:
+                self._dataset_to_model_cls = remap
+                LOGGER.info("Class ID remap (dataset→model): %s", remap)
 
         # Clear accumulated stats from previous validation epoch
         self.metrics.clear_stats()
@@ -420,12 +414,14 @@ class Stereo3DDetValidator(BaseValidator):
                         )
                         in_h, in_w = (imgsz, imgsz) if isinstance(imgsz, int) else (int(imgsz[0]), int(imgsz[1]))
 
-                # Convert labels to Box3D - passing letterbox parameters for bbox_2d conversion
+                # Convert labels to Box3D. Use data_names (all classes) for from_label since
+                # label dicts carry dataset class IDs, then remap to model class IDs.
+                data_names = self.data.get("names") if hasattr(self, "data") and self.data else self.names
                 try:
                     gt_boxes = _labels_to_box3d_list(
                         labels,
                         calib,
-                        names=self.names,
+                        names=data_names,
                         letterbox_scale=letterbox_scale,
                         pad_left=pad_left,
                         pad_top=pad_top,
@@ -437,6 +433,17 @@ class Stereo3DDetValidator(BaseValidator):
                         "Error converting labels to Box3D (sample %d): %s", si, e
                     )
                     gt_boxes = []
+
+                # Remap GT class IDs from dataset space to model space and drop unmapped classes
+                if self._dataset_to_model_cls:
+                    remapped = []
+                    for box in gt_boxes:
+                        new_id = self._dataset_to_model_cls.get(box.class_id)
+                        if new_id is not None:
+                            box.class_id = new_id
+                            box.class_label = self.names.get(new_id, str(new_id)) if isinstance(self.names, dict) else str(new_id)
+                            remapped.append(box)
+                    gt_boxes = remapped
 
                 # ------------------------------------------------------------
                 # 2D bbox metrics (original-image xyxy)
@@ -481,6 +488,12 @@ class Stereo3DDetValidator(BaseValidator):
                         if lb is None:
                             continue
                         cls_i = int(lab.get("class_id", 0))
+                        # Remap dataset class ID to model class ID
+                        if self._dataset_to_model_cls:
+                            mapped = self._dataset_to_model_cls.get(cls_i)
+                            if mapped is None:
+                                continue  # Skip classes not in model
+                            cls_i = mapped
                         cx = float(lb.get("center_x", 0.0)) * in_w
                         cy = float(lb.get("center_y", 0.0)) * in_h
                         bw = float(lb.get("width", 0.0)) * in_w
@@ -560,108 +573,38 @@ class Stereo3DDetValidator(BaseValidator):
                 if len(pred_boxes) == 0 and len(gt_boxes) == 0:
                     continue
 
-                # Compute 3D IoU matrix using vectorized batch computation
+                # Classify GT difficulty (KITTI standard)
+                gt_difficulties = np.full(len(gt_boxes), -1, dtype=int)
+                for gi, gt_box in enumerate(gt_boxes):
+                    trunc = gt_box.truncated if gt_box.truncated is not None else 0.0
+                    occ = gt_box.occluded if gt_box.occluded is not None else 0
+                    # Get 2D bbox height in original image pixels
+                    bbox_2d = gt_box.project_to_2d(calib) if calib else None
+                    h_2d = float(bbox_2d[3] - bbox_2d[1]) if bbox_2d is not None else 0.0
+                    gt_difficulties[gi] = classify_difficulty(trunc, occ, h_2d)
+
+                # Compute pred 2D bbox heights for min-height filtering
+                pred_heights_2d = np.zeros(len(pred_boxes), dtype=np.float32)
+                for pi, pb in enumerate(pred_boxes):
+                    bbox_2d = pb.project_to_2d(calib) if calib else None
+                    pred_heights_2d[pi] = float(bbox_2d[3] - bbox_2d[1]) if bbox_2d is not None else 0.0
+
+                # Compute 3D IoU matrix
                 if len(pred_boxes) > 0 and len(gt_boxes) > 0:
-                    # Match predictions to ground truth using 3D IoU (vectorized)
-                    try:
-                        iou_matrix = compute_3d_iou_batch(pred_boxes, gt_boxes)
-                    except Exception as e:
-                        LOGGER.warning(
-                            "Error computing 3D IoU batch: %s, falling back to individual computation",
-                            e,
-                        )
-                        # Fallback to individual computation if batch fails
-                        iou_matrix = np.zeros((len(pred_boxes), len(gt_boxes)))
-                        for i, pred_box in enumerate(pred_boxes):
-                            for j, gt_box in enumerate(gt_boxes):
-                                if pred_box.class_id == gt_box.class_id:
-                                    try:
-                                        iou = compute_3d_iou(pred_box, gt_box)
-                                        iou_matrix[i, j] = iou
-                                    except Exception as e2:
-                                        LOGGER.warning("Error computing 3D IoU: %s", e2)
-                                        iou_matrix[i, j] = 0.0
-
-                    # Match predictions to ground truth (independent greedy matching per IoU threshold)
-                    matched_gt_per_iou = [set() for _ in range(self.niou)]
-                    tp = np.zeros((len(pred_boxes), self.niou), dtype=bool)
-                    fp = np.zeros((len(pred_boxes), self.niou), dtype=bool)
-
-                    # Sort predictions by confidence
-                    pred_indices = sorted(
-                        range(len(pred_boxes)),
-                        key=lambda i: pred_boxes[i].confidence,
-                        reverse=True,
-                    )
-
-                    for pred_idx in pred_indices:
-                        pred_box = pred_boxes[pred_idx]
-
-                        for iou_idx, iou_thresh in enumerate(self.iouv):
-                            best_iou = 0.0
-                            best_gt_idx = -1
-
-                            for gt_idx, gt_box in enumerate(gt_boxes):
-                                if gt_idx in matched_gt_per_iou[iou_idx]:
-                                    continue
-                                if pred_box.class_id != gt_box.class_id:
-                                    continue
-                                if iou_matrix[pred_idx, gt_idx] > best_iou:
-                                    best_iou = iou_matrix[pred_idx, gt_idx]
-                                    best_gt_idx = gt_idx
-
-                            if best_iou >= iou_thresh.item() and best_gt_idx >= 0:
-                                tp[pred_idx, iou_idx] = True
-                                matched_gt_per_iou[iou_idx].add(best_gt_idx)
-                            else:
-                                fp[pred_idx, iou_idx] = True
-
+                    iou_matrix = compute_3d_iou_batch(pred_boxes, gt_boxes)
                 else:
-                    # No matches possible
-                    tp = np.zeros((len(pred_boxes), self.niou), dtype=bool)
-                    fp = (
-                        np.ones((len(pred_boxes), self.niou), dtype=bool)
-                        if len(pred_boxes) > 0
-                        else np.zeros((0, self.niou), dtype=bool)
-                    )
+                    iou_matrix = np.zeros((len(pred_boxes), len(gt_boxes)))
 
-                # Extract statistics
-                conf = (
-                    np.array([box.confidence for box in pred_boxes])
-                    if pred_boxes
-                    else np.array([])
-                )
-                pred_cls = (
-                    np.array([box.class_id for box in pred_boxes])
-                    if pred_boxes
-                    else np.array([], dtype=int)
-                )
-                target_cls = (
-                    np.array([box.class_id for box in gt_boxes])
-                    if gt_boxes
-                    else np.array([], dtype=int)
-                )
-
-                # DIAGNOSTIC START
-                # self._diagnostic_log_statistics_extraction(conf, pred_cls, target_cls, si)
-                # DIAGNOSTIC END
-
-                # Update metrics
+                # Store raw data for per-difficulty matching in metrics.process()
                 self.metrics.update_stats(
                     {
-                        "tp": tp,
-                        "fp": fp,
-                        "conf": conf,
-                        "pred_cls": pred_cls,
-                        "target_cls": target_cls,
-                        "boxes3d_pred": pred_boxes,
-                        "boxes3d_target": gt_boxes,
+                        "pred_boxes": pred_boxes,
+                        "gt_boxes": gt_boxes,
+                        "iou_matrix": iou_matrix,
+                        "gt_difficulties": gt_difficulties,
+                        "pred_heights_2d": pred_heights_2d,
                     }
                 )
-
-                # DIAGNOSTIC START
-                # self.metrics._diagnostic_log_statistics_accumulation(self.metrics.stats, self.batch_i if hasattr(self, 'batch_i') else 0)
-                # DIAGNOSTIC END
 
                 # Update progress bar with intermediate metrics (every batch for real-time feedback)
             if (
@@ -706,23 +649,17 @@ class Stereo3DDetValidator(BaseValidator):
                     LOGGER.warning("Error generating validation visualizations: %s", e)
 
     def get_desc(self) -> str:
-        """Return a formatted string summarizing validation metrics header for progress bar.
-
-        Returns:
-            Formatted header string matching the progress bar format.
-        """
-        # Format: class name (22 chars), then Images (11 chars), Instances (11 chars), then 6 metric columns (11 chars each)
-        # This matches the data row format: "%22s" + "%11i" * 2 + "%11.3g" * 6
+        """Return a formatted string summarizing validation metrics header for progress bar."""
         return ("%22s" + "%11s" * 8) % (
-            "",  # Empty class name column (22 chars)
-            "Images".rjust(11),
-            "Instances".rjust(11),
-            "AP3D@0.5".rjust(11),
-            "AP3D@0.7".rjust(11),
-            "Precision".rjust(11),
-            "Recall".rjust(11),
-            "mAP50".rjust(11),
-            "mAP50-95".rjust(11),
+            "",
+            "Images",
+            "Instances",
+            "AP3D@.5(E)",
+            "AP3D@.5(M)",
+            "AP3D@.5(H)",
+            "AP3D@.7(E)",
+            "AP3D@.7(M)",
+            "AP3D@.7(H)",
         )
 
     def finalize_metrics(self) -> None:
@@ -956,92 +893,45 @@ class Stereo3DDetValidator(BaseValidator):
             LOGGER.warning("Error in plot_validation_samples: %s", e)
 
     def print_results(self) -> None:
-        """Print training/validation set metrics per class."""
+        """Print training/validation set metrics per class with KITTI difficulty splits."""
+
         if not self.metrics.stats:
             LOGGER.warning(
                 f"no labels found in {self.args.task} set, can not compute metrics without labels"
             )
             return
 
-        # Count ground truth objects per class
-        all_target_cls = (
-            np.concatenate(
-                [
-                    s["target_cls"]
-                    for s in self.metrics.stats
-                    if len(s["target_cls"]) > 0
-                ],
-                axis=0,
-            )
-            if self.metrics.stats
-            else np.array([], dtype=int)
-        )
-        if len(all_target_cls) == 0:
+        # Count ground truth objects per class from raw stats
+        nt_per_class = np.zeros(self.metrics.nc, dtype=int)
+        nt_per_image = np.zeros(self.metrics.nc, dtype=int)
+        for stat in self.metrics.stats:
+            gt_classes = set()
+            for box in stat.get("gt_boxes", []):
+                if 0 <= box.class_id < self.metrics.nc:
+                    nt_per_class[box.class_id] += 1
+                    gt_classes.add(box.class_id)
+            for cls_id in gt_classes:
+                nt_per_image[cls_id] += 1
+
+        total_gt = int(nt_per_class.sum())
+        if total_gt == 0:
             LOGGER.warning(
                 f"no labels found in {self.args.task} set, can not compute metrics without labels"
             )
             return
 
-        nt_per_class = (
-            np.bincount(all_target_cls.astype(int), minlength=self.metrics.nc)
-            if len(all_target_cls) > 0
-            else np.zeros(self.metrics.nc, dtype=int)
-        )
-        total_gt = int(nt_per_class.sum())
+        # Get per-difficulty AP values
+        ap3d = self.metrics.ap3d
+        diffs = [DIFFICULTY_EASY, DIFFICULTY_MODERATE, DIFFICULTY_HARD]
 
-        # Compute images per class (how many images contain each class)
-        # Use det_metrics if available (already computed), otherwise compute from stats
-        if hasattr(self, "det_metrics") and hasattr(self.det_metrics, "nt_per_image"):
-            nt_per_image = self.det_metrics.nt_per_image
-        else:
-            # Compute from stats: count unique images (by stat index) that contain each class
-            nt_per_image = np.zeros(self.metrics.nc, dtype=int)
-            for stat in self.metrics.stats:
-                if len(stat.get("target_cls", [])) > 0:
-                    unique_classes = np.unique(stat["target_cls"].astype(int))
-                    for cls_id in unique_classes:
-                        if 0 <= cls_id < self.metrics.nc:
-                            nt_per_image[cls_id] += 1
+        def mean_ap_diff(iou_t, diff):
+            """Mean AP across classes for given IoU and difficulty."""
+            if not ap3d or iou_t not in ap3d:
+                return 0.0
+            d = ap3d[iou_t].get(diff, {})
+            return float(np.mean(list(d.values()))) if d else 0.0
 
-        # Get mean metrics
-        maps3d_50 = self.metrics.maps3d_50
-        maps3d_70 = self.metrics.maps3d_70
-
-        # Get precision and recall (flatten nested dicts to get mean values)
-        precision_mean = 0.0
-        recall_mean = 0.0
-        if isinstance(self.metrics.precision, dict) and self.metrics.precision:
-            all_precisions = []
-            for iou_dict in self.metrics.precision.values():
-                if isinstance(iou_dict, dict):
-                    all_precisions.extend(
-                        [v for v in iou_dict.values() if isinstance(v, (int, float))]
-                    )
-            precision_mean = float(np.mean(all_precisions)) if all_precisions else 0.0
-
-        if isinstance(self.metrics.recall, dict) and self.metrics.recall:
-            all_recalls = []
-            for iou_dict in self.metrics.recall.values():
-                if isinstance(iou_dict, dict):
-                    all_recalls.extend(
-                        [v for v in iou_dict.values() if isinstance(v, (int, float))]
-                    )
-            recall_mean = float(np.mean(all_recalls)) if all_recalls else 0.0
-
-        # Get 2D bbox mAP50 and mAP50-95 metrics (for main summary line)
-        box_map50 = 0.0
-        box_map5095 = 0.0
-        try:
-            det_res = (
-                self.det_metrics.results_dict if hasattr(self, "det_metrics") else {}
-            )
-            box_map50 = det_res.get("metrics/mAP50(B)", 0.0)
-            box_map5095 = det_res.get("metrics/mAP50-95(B)", 0.0)
-        except Exception as e:
-            LOGGER.debug("Failed to get bbox2d metrics for main summary: %s", e)
-
-        # Print format: class name, images, instances, AP3D@0.5, AP3D@0.7, precision, recall, mAP50, mAP50-95
-        # Matches detect task format: "Class", "Images", "Instances", ...
+        # Print: class, images, instances, AP3D@0.5(E/M/H), AP3D@0.7(E/M/H)
         pf = "%22s" + "%11i" * 2 + "%11.3g" * 6
         LOGGER.info(
             pf
@@ -1049,230 +939,72 @@ class Stereo3DDetValidator(BaseValidator):
                 "all",
                 self.seen,
                 total_gt,
-                maps3d_50,
-                maps3d_70,
-                precision_mean,
-                recall_mean,
-                box_map50,
-                box_map5095,
+                mean_ap_diff(0.5, DIFFICULTY_EASY),
+                mean_ap_diff(0.5, DIFFICULTY_MODERATE),
+                mean_ap_diff(0.5, DIFFICULTY_HARD),
+                mean_ap_diff(0.7, DIFFICULTY_EASY),
+                mean_ap_diff(0.7, DIFFICULTY_MODERATE),
+                mean_ap_diff(0.7, DIFFICULTY_HARD),
             )
         )
 
-        # Print results per class if verbose and multiple classes
-        if self.args.verbose and self.metrics.nc > 1 and self.metrics.ap3d_50:
-            # Get per-class 2D bbox metrics for printing
-            class_map50_dict = {}
-            class_map5095_dict = {}
-            try:
-                if (
-                    hasattr(self, "det_metrics")
-                    and hasattr(self.det_metrics, "class_result")
-                    and hasattr(self.det_metrics, "ap_class_index")
-                ):
-                    # Get per-class mAP50 and mAP50-95 from DetMetrics
-                    # class_result(i) returns (p, r, map50, map) for index i in ap_class_index
-                    # ap_class_index[i] gives the class_id at index i
-                    for i, class_id in enumerate(self.det_metrics.ap_class_index):
-                        try:
-                            class_result = self.det_metrics.class_result(i)
-                            if len(class_result) >= 4:
-                                class_map50_dict[class_id] = float(
-                                    class_result[2]
-                                )  # mAP50
-                                class_map5095_dict[class_id] = float(
-                                    class_result[3]
-                                )  # mAP50-95
-                        except (IndexError, AttributeError) as e:
-                            LOGGER.debug(
-                                "Failed to get metrics for class %d at index %d: %s",
-                                class_id,
-                                i,
-                                e,
-                            )
-                            continue
-            except Exception as e:
-                LOGGER.debug("Failed to get per-class bbox2d metrics: %s", e)
-
+        # Print results per class
+        if self.args.verbose and self.metrics.nc > 1 and ap3d:
             for class_id, class_name in self.metrics.names.items():
-                ap3d_50_class = self.metrics.ap3d_50.get(class_name, 0.0)
-                ap3d_70_class = self.metrics.ap3d_70.get(class_name, 0.0)
+                nt_class = int(nt_per_class[class_id]) if class_id < len(nt_per_class) else 0
+                nt_images = int(nt_per_image[class_id]) if class_id < len(nt_per_image) else 0
 
-                # Get class-specific precision and recall (average across IoU thresholds)
-                prec_class = 0.0
-                recall_class = 0.0
-                if isinstance(self.metrics.precision, dict):
-                    prec_values = []
-                    for iou_dict in self.metrics.precision.values():
-                        if isinstance(iou_dict, dict) and class_id in iou_dict:
-                            prec_values.append(iou_dict[class_id])
-                    prec_class = float(np.mean(prec_values)) if prec_values else 0.0
+                def cls_ap(iou_t, diff):
+                    if not ap3d or iou_t not in ap3d:
+                        return 0.0
+                    return ap3d[iou_t].get(diff, {}).get(class_id, 0.0)
 
-                if isinstance(self.metrics.recall, dict):
-                    recall_values = []
-                    for iou_dict in self.metrics.recall.values():
-                        if isinstance(iou_dict, dict) and class_id in iou_dict:
-                            recall_values.append(iou_dict[class_id])
-                    recall_class = (
-                        float(np.mean(recall_values)) if recall_values else 0.0
-                    )
-
-                # Get class-specific mAP50 and mAP50-95
-                class_map50 = class_map50_dict.get(class_id, 0.0)
-                class_map5095 = class_map5095_dict.get(class_id, 0.0)
-
-                nt_class = (
-                    int(nt_per_class[class_id]) if class_id < len(nt_per_class) else 0
-                )
-                nt_images = (
-                    int(nt_per_image[class_id]) if class_id < len(nt_per_image) else 0
-                )
-                # Use same format as main summary: class name, images, instances, then metrics
                 LOGGER.info(
                     pf
                     % (
                         class_name,
-                        nt_images,  # number of images containing this class
-                        nt_class,  # number of ground truth instances for this class
-                        ap3d_50_class,
-                        ap3d_70_class,
-                        prec_class,
-                        recall_class,
-                        class_map50,
-                        class_map5095,
+                        nt_images,
+                        nt_class,
+                        cls_ap(0.5, DIFFICULTY_EASY),
+                        cls_ap(0.5, DIFFICULTY_MODERATE),
+                        cls_ap(0.5, DIFFICULTY_HARD),
+                        cls_ap(0.7, DIFFICULTY_EASY),
+                        cls_ap(0.7, DIFFICULTY_MODERATE),
+                        cls_ap(0.7, DIFFICULTY_HARD),
                     )
                 )
 
     def _format_progress_metrics(self) -> str:
-        """Format current metrics for progress bar display.
+        """Format current metrics for progress bar display."""
 
-        Returns:
-            Formatted string with key metrics in training-style format.
-        """
         if not hasattr(self.metrics, "stats") or len(self.metrics.stats) == 0:
-            return ("%11i" + "%11s" * 6) % (
-                int(self.seen),
-                "-",
-                "-",
-                "-",
-                "-",
-                "-",
-                "-",
-            )
+            return ("%11i" + "%11s" * 6) % (int(self.seen), "-", "-", "-", "-", "-", "-")
 
-        # Compute intermediate metrics on accumulated stats
         try:
-            # Save current stats
             saved_stats = self.metrics.stats.copy()
-            # Process to get metrics
-            temp_results = self.metrics.process(save_dir=self.save_dir, plot=False)
-            # Also compute bbox metrics if available
-            det_temp = (
-                self.det_metrics.process(save_dir=self.save_dir, plot=False)
-                if hasattr(self, "det_metrics")
-                else {}
-            )
-            # Restore stats for final processing
+            self.metrics.process(save_dir=self.save_dir, plot=False)
+            ap3d = self.metrics.ap3d
             self.metrics.stats = saved_stats
 
-            if not temp_results:
-                return ("%11i" + "%11s" * 6) % (
-                    int(self.seen),
-                    "-",
-                    "-",
-                    "-",
-                    "-",
-                    "-",
-                    "-",
-                )
+            if not ap3d:
+                return ("%11i" + "%11s" * 6) % (int(self.seen), "-", "-", "-", "-", "-", "-")
 
-            # Get AP3D metrics (use mean values)
-            ap50 = temp_results.get("ap3d_50", 0.0)
-            if isinstance(ap50, dict):
-                ap50 = (
-                    float(
-                        np.mean(
-                            [v for v in ap50.values() if isinstance(v, (int, float))]
-                        )
-                    )
-                    if ap50
-                    else 0.0
-                )
-            ap70 = temp_results.get("ap3d_70", 0.0)
-            if isinstance(ap70, dict):
-                ap70 = (
-                    float(
-                        np.mean(
-                            [v for v in ap70.values() if isinstance(v, (int, float))]
-                        )
-                    )
-                    if ap70
-                    else 0.0
-                )
+            def mean_ap(iou_t, diff):
+                d = ap3d.get(iou_t, {}).get(diff, {})
+                return float(np.mean(list(d.values()))) if d else 0.0
 
-            # Get precision and recall (flatten nested dicts)
-            precision = temp_results.get("precision", 0.0)
-            if isinstance(precision, dict):
-                all_precisions = []
-                for iou_dict in precision.values():
-                    if isinstance(iou_dict, dict):
-                        all_precisions.extend(
-                            [
-                                v
-                                for v in iou_dict.values()
-                                if isinstance(v, (int, float))
-                            ]
-                        )
-                precision = float(np.mean(all_precisions)) if all_precisions else 0.0
-
-            recall = temp_results.get("recall", 0.0)
-            if isinstance(recall, dict):
-                all_recalls = []
-                for iou_dict in recall.values():
-                    if isinstance(iou_dict, dict):
-                        all_recalls.extend(
-                            [
-                                v
-                                for v in iou_dict.values()
-                                if isinstance(v, (int, float))
-                            ]
-                        )
-                recall = float(np.mean(all_recalls)) if all_recalls else 0.0
-
-            # Get bbox mAPs (DetMetrics uses 'metrics/mAP50(B)' keys)
-            map50 = (
-                det_temp.get("metrics/mAP50(B)", 0.0)
-                if isinstance(det_temp, dict)
-                else 0.0
-            )
-            map5095 = (
-                det_temp.get("metrics/mAP50-95(B)", 0.0)
-                if isinstance(det_temp, dict)
-                else 0.0
-            )
-
-            # Format: Images, AP3D@0.5, AP3D@0.7, Precision, Recall, mAP50(B), mAP50-95(B)
-            # Use same width format as training for consistency (matches get_desc header)
-            # Use %11i for Images (integer count) and %11.4g for float metrics
             return ("%11i" + "%11.4g" * 6) % (
-                int(self.seen),  # Images (integer)
-                ap50,  # AP3D@0.5
-                ap70,  # AP3D@0.7
-                precision,  # Precision
-                recall,  # Recall
-                float(map50),
-                float(map5095),
+                int(self.seen),
+                mean_ap(0.5, DIFFICULTY_EASY),
+                mean_ap(0.5, DIFFICULTY_MODERATE),
+                mean_ap(0.5, DIFFICULTY_HARD),
+                mean_ap(0.7, DIFFICULTY_EASY),
+                mean_ap(0.7, DIFFICULTY_MODERATE),
+                mean_ap(0.7, DIFFICULTY_HARD),
             )
         except Exception as e:
             LOGGER.debug("Error formatting progress metrics: %s", e)
-            return ("%11i" + "%11s" * 6) % (
-                int(self.seen),
-                "-",
-                "-",
-                "-",
-                "-",
-                "-",
-                "-",
-            )
+            return ("%11i" + "%11s" * 6) % (int(self.seen), "-", "-", "-", "-", "-", "-")
 
     def build_dataset(
         self,
@@ -1336,6 +1068,7 @@ class Stereo3DDetValidator(BaseValidator):
                 mean_dims=mean_dims,
                 std_dims=std_dims,
                 augment=False,
+                filter_occluded=False,
             )
 
         # Fallback: if img_path is a string, try to use it directly
@@ -1357,6 +1090,7 @@ class Stereo3DDetValidator(BaseValidator):
                 mean_dims=self.data.get("mean_dims") if hasattr(self, "data") else None,
                 std_dims=self.data.get("std_dims") if hasattr(self, "data") else None,
                 augment=False,
+                filter_occluded=False,
             )
 
         # If we can't determine the dataset, raise an error

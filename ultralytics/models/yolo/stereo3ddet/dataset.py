@@ -829,6 +829,7 @@ class Stereo3DDetDataset(BaseDataset):
             location_3d_tensor = b.get("location_3d")  # torch.Tensor (N, 3)
             rotation_y_tensor = b.get("rotation_y")  # torch.Tensor (N,)
             occluded_tensor = b.get("occluded")  # torch.Tensor (N,) or None
+            truncated_tensor = b.get("truncated")  # torch.Tensor (N,) or None
 
             # Convert tensors to numpy for processing
             if bboxes_tensor is not None and len(bboxes_tensor) > 0:
@@ -840,6 +841,7 @@ class Stereo3DDetDataset(BaseDataset):
                 location_3d = location_3d_tensor.numpy() if location_3d_tensor is not None else np.zeros((n, 3), dtype=np.float32)
                 rotation_y = rotation_y_tensor.numpy() if rotation_y_tensor is not None else np.zeros((n,), dtype=np.float32)
                 occluded = occluded_tensor.numpy().astype(np.int32) if occluded_tensor is not None else np.zeros((n,), dtype=np.int32)
+                truncated = truncated_tensor.numpy().astype(np.float32) if truncated_tensor is not None else np.zeros((n,), dtype=np.float32)
             else:
                 n = 0
                 bboxes_xywh = np.zeros((0, 4), dtype=np.float32)
@@ -849,6 +851,7 @@ class Stereo3DDetDataset(BaseDataset):
                 location_3d = np.zeros((0, 3), dtype=np.float32)
                 rotation_y = np.zeros((0,), dtype=np.float32)
                 occluded = np.zeros((0,), dtype=np.int32)
+                truncated = np.zeros((0,), dtype=np.float32)
 
             # Filter occluded objects if enabled (for training only)
             if self.filter_occluded and n > 0:
@@ -863,6 +866,7 @@ class Stereo3DDetDataset(BaseDataset):
                     location_3d = location_3d[valid_mask]
                     rotation_y = rotation_y[valid_mask]
                     occluded = occluded[valid_mask]
+                    truncated = truncated[valid_mask]
                     n = valid_mask.sum()
 
                     # Log filtered objects for the first few batches
@@ -891,6 +895,8 @@ class Stereo3DDetDataset(BaseDataset):
                     "dimensions": {"length": float(dims[0]), "width": float(dims[1]), "height": float(dims[2])},
                     "location_3d": {"x": float(loc_3d[0]), "y": float(loc_3d[1]), "z": float(loc_3d[2])},
                     "rotation_y": float(rotation_y[j]),
+                    "truncated": float(truncated[j]),
+                    "occluded": int(occluded[j]),
                 })
             labels_list.append(sample_labels)
 
