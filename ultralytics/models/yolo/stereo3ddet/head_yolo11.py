@@ -1,13 +1,34 @@
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn as nn
 
 from ultralytics.nn.modules.conv import Conv
 from ultralytics.nn.modules.head import Detect
 
+DEPTH_BINS = 16
+DEPTH_MIN = 2.0
+DEPTH_MAX = 80.0
 
-AUX_SPECS = {"lr_distance": 1, "dimensions": 3, "orientation": 2, "depth": 1}
+AUX_SPECS = {"lr_distance": 1, "dimensions": 3, "orientation": 2, "depth": DEPTH_BINS}
+
+
+class DepthDFL(nn.Module):
+    """DFL-style decode for depth bins: softmax → weighted sum → scale to log-depth range."""
+
+    def __init__(self, n_bins: int = DEPTH_BINS, d_min: float = DEPTH_MIN, d_max: float = DEPTH_MAX):
+        super().__init__()
+        self.n_bins = n_bins
+        log_min, log_max = math.log(d_min), math.log(d_max)
+        self.register_buffer("bin_values", torch.linspace(log_min, log_max, n_bins))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Decode bin logits [B, n_bins, HW] → log-depth [B, 1, HW]."""
+        b, _, a = x.shape
+        weights = x.softmax(dim=1)  # [B, n_bins, HW]
+        return (weights * self.bin_values.view(1, -1, 1)).sum(dim=1, keepdim=True)  # [B, 1, HW]
 
 
 def get_aux_specs(depth_mode: str = "both") -> dict[str, int]:
@@ -82,6 +103,7 @@ class Stereo3DDetHeadYOLO11(Detect):
         self.dfl = nn.Identity()
 
         self.aux_specs = dict(AUX_SPECS)  # mutable copy
+        self.depth_dfl = DepthDFL(DEPTH_BINS, DEPTH_MIN, DEPTH_MAX)
 
         # Hidden size scales with model width (same pattern as Pose.cv4)
         hidden = max(ch[0] // 4, max(self.aux_specs.values()))
@@ -142,5 +164,11 @@ class Stereo3DDetHeadYOLO11(Detect):
                         feat = torch.cat([feat, cost_vol], dim=1)
                     feats.append(branches[i](feat).view(bs, out_c, -1))
                 preds[name] = torch.cat(feats, -1)  # [B, C, HW_total]
+
+        # Decode depth bins → scalar log-depth (keep raw logits for loss during training)
+        if "depth" in preds:
+            if self.training:
+                preds["depth_bins"] = preds["depth"]  # raw logits [B, 16, HW] for DFLoss
+            preds["depth"] = self.depth_dfl(preds["depth"])  # decoded [B, 1, HW]
 
         return preds

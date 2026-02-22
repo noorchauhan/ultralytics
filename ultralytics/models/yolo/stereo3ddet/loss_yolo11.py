@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn.functional as F
 
-from ultralytics.utils.loss import v8DetectionLoss
+from ultralytics.utils.loss import DFLoss, v8DetectionLoss
 
 
 class Stereo3DDetLossYOLO11(v8DetectionLoss):
@@ -31,6 +33,13 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         super().__init__(model, tal_topk=tal_topk)
         self.aux_w = loss_weights or {}
         self.use_bbox_loss = use_bbox_loss
+
+        # Depth bin classification (DFL-style)
+        from ultralytics.models.yolo.stereo3ddet.head_yolo11 import DEPTH_BINS, DEPTH_MAX, DEPTH_MIN
+
+        self.depth_dfl_loss = DFLoss(reg_max=DEPTH_BINS)
+        self.depth_log_min = math.log(DEPTH_MIN)
+        self.depth_log_range = math.log(DEPTH_MAX) - math.log(DEPTH_MIN)
 
     def _aux_loss(
         self,
@@ -80,12 +89,51 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
             return aux_losses
 
         for k in ("lr_distance", "depth", "dimensions", "orientation"):
-            if k not in aux_preds or k not in aux_targets:
+            if k not in aux_targets:
                 continue
             aux_gt = aux_targets[k].to(self.device)
-            aux_losses[k] = self._aux_loss(aux_preds[k], aux_gt, target_gt_idx, fg_mask)
+            if k == "depth" and "depth_bins" in aux_preds:
+                aux_losses[k] = self._depth_bin_loss(aux_preds["depth_bins"], aux_gt, target_gt_idx, fg_mask)
+            elif k in aux_preds:
+                aux_losses[k] = self._aux_loss(aux_preds[k], aux_gt, target_gt_idx, fg_mask)
 
         return aux_losses
+
+    def _depth_bin_loss(
+        self,
+        pred_bins: torch.Tensor,
+        aux_gt: torch.Tensor,
+        gt_idx: torch.Tensor,
+        fg_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute DFL-style depth bin classification loss.
+
+        Args:
+            pred_bins: [B, n_bins, HW_total] — raw logits from depth branch.
+            aux_gt: [B, max_n, 1] — log-depth GT values.
+            gt_idx: [B, HW_total] — TAL assignment indices.
+            fg_mask: [B, HW_total] — boolean foreground mask.
+        """
+        n_bins = pred_bins.shape[1]
+        if aux_gt.shape[1] == 0 or not fg_mask.any():
+            return pred_bins.sum() * 0.0
+
+        # Gather GT log-depth per anchor
+        if gt_idx.dtype != torch.int64:
+            gt_idx = gt_idx.to(torch.int64)
+        gathered = aux_gt.gather(1, gt_idx.unsqueeze(-1))  # [B, HW_total, 1]
+
+        # Convert log-depth → fractional bin index
+        bin_idx = (gathered - self.depth_log_min) / self.depth_log_range * (n_bins - 1)
+
+        # Select foreground
+        pred_fg = pred_bins.permute(0, 2, 1)[fg_mask]  # [npos, n_bins]
+        tgt_fg = bin_idx.squeeze(-1)[fg_mask]  # [npos]
+
+        if pred_fg.numel() == 0:
+            return pred_bins.sum() * 0.0
+
+        return self.depth_dfl_loss(pred_fg, tgt_fg.unsqueeze(-1)).mean()
 
     def loss(self, preds: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         """Calculate stereo 3D detection loss: det losses + aux 3D losses.
@@ -95,7 +143,7 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
             batch: Batch dict with img, batch_idx, cls, bboxes, aux_targets.
         """
         # Separate aux preds from detection preds
-        aux_keys = {"lr_distance", "depth", "dimensions", "orientation"}
+        aux_keys = {"lr_distance", "depth", "depth_bins", "dimensions", "orientation"}
         aux_preds = {k: v for k, v in preds.items() if k in aux_keys}
 
         loss = torch.zeros(6, device=self.device)  # box, cls, lr_dist, depth, dims, orient
