@@ -21,7 +21,7 @@ scales: # model compound scaling constants
 training:
   loss_weights:
     lr_distance: 2.0
-    depth: 1.0
+    depth: 3.0
     dimensions: 1.0
     orientation: 1.0
 

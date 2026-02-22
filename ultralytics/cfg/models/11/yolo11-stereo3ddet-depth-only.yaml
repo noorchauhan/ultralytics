@@ -17,7 +17,7 @@ scales:
 training:
   depth_mode: depth_only
   loss_weights:
-    depth: 1.0
+    depth: 3.0
     dimensions: 1.0
     orientation: 1.0
 

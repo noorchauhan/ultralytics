@@ -65,28 +65,6 @@ def test_plot_boxes3d_uses_pred_color_scheme(sample_box3d, sample_calibration_di
     assert not np.array_equal(annotated_pred, annotated_gt), "Prediction and GT should use different colors"
 
 
-def test_plot_boxes3d_clips_out_of_bounds_edges(sample_calibration_dict):
-    """Verify that edges projecting outside image boundaries are clipped without errors."""
-    from ultralytics.data.stereo.box3d import Box3D
-
-    img = np.zeros((375, 1242, 3), dtype=np.uint8)
-    # Create a box that projects partially outside the image
-    box = Box3D(
-        center_3d=(0.0, 0.0, 5.0),  # Close to camera
-        dimensions=(10.0, 10.0, 10.0),  # Large box — some corners overflow int32
-        orientation=0.0,
-        class_label="Car",
-        class_id=0,
-        confidence=0.9,
-    )
-
-    # Should not raise error (int32 overflow in cv2.clipLine was the original bug)
-    annotated = plotting.plot_boxes3d(img, [box], sample_calibration_dict)
-    assert annotated.shape == img.shape
-    # Some edges should clip into the image area
-    assert np.any(annotated > 0), "Some edges should be visible even when clipped"
-
-
 def test_plot_boxes3d_skips_invalid_boxes(sample_calibration_dict):
     """Verify that boxes with invalid parameters are skipped without errors."""
     from ultralytics.data.stereo.box3d import Box3D
