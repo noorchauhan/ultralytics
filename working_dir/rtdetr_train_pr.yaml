@@ -11,8 +11,8 @@ data: coco8.yaml  # COCO8 dataset (small subset for testing)
 
 # Training hyperparameters
 epochs: 3
-batch: 16
-nbs: 16
+batch: 4
+nbs: 4
 imgsz: 640
 
 # Device configuration
