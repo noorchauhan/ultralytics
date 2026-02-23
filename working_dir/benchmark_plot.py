@@ -6,76 +6,478 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 
-YOLO26 = [
-    ("n", 1.7, 40.9),
-    ("s", 2.8, 48.6),
-    ("m", 5.1, 53.1),
-    ("l", 7.1, 55.0),
-    ("x", 13.2, 57.5),
-]
+# =============================================================================
+# SELECT BENCHMARK HERE: "m5", "m5_new", "m5_coreml", "xeon", "xeon_new", "t4", "t4_new", "jetson-agx-thor-gpu",
+# "jetson-agx-thor-cpu", "jetson-agx-orin-gpu", "jetson-agx-orin-cpu",
+# "jetson-orin-nano-super-gpu", or "jetson-orin-nano-super-cpu"
+# =============================================================================
+BENCHMARK = "t4_new"
 
-YOLO26_RTDETR = [
-    ("n", 1.7, 41.2),
-    # ("ns", 2.3, 46.5),
-    ("ns", 2.4, 47.4),
-    ("s", 3.1, 49.5),
-    # ("sm", 3.8, 50.8),
-    ("m", 5.6, 53.5),
-    ("l", 7.0, 55.2),
-    ("x", 11.6, 56.6),
-]
-
-RTDETR_V4 = [
-    ("s", 3.66, 49.8),
-    ("m", 5.91, 53.7),
-    ("l", 8.07, 55.4),
-    ("x", 12.90, 57.0),
-]
-
-LW_DETR = [
-    ("n", 1.9, 42.9),
-    ("s", 2.6, 48.0),
-    ("m", 4.4, 52.6),
-    ("l", 6.9, 56.1),
-    ("x", 13.0, 58.3),
-]
-
-RF_DETR = [
-    ("n", 2.3, 48.0),
-    ("s", 3.5, 52.9),
-    ("m", 4.4, 54.7),
-    ("l", 6.8, 56.5),
-    ("xl", 11.5, 58.6),
-    ("2xl", 17.2, 60.1),
-]
-
-# Free points without connecting lines: (label, latency_ms, mAP, color_index, marker, label_offset)
-FREE_POINTS = [
-    # ("x", 2.3, 46.5, 3, "D", -14),  # palette(3), diamond, label below
-    # ("y", 2.7, 47.7, 4, "^", 10),   # palette(4), triangle up, label above
-    # ("z", 9.4, 56.0, 2, "v", 5),   # palette(4), triangle up, label above
-    # ("w", 2.4, 47.4, 3, "D", -12),  # palette(1), plus (filled), label below
-    # ("v", 3.0, 48.9, 3, "D", 8),    # palette(0), x (filled), label above
-    # ("c", 3.8, 50.8, 3, "D", 8),    # palette(0), x (filled), label above
-    # ("c", 3.1, 49.5, 3, "D", 8),    # palette(0), x (filled), label above
-    ("dinov3", 4.5, 50.3, 3, "D", 8),    # palette(0), x (filled), label above
-    ("dinov2", 5.8, 51.5, 3, "D", 8),    # palette(0), x (filled), label above
-]
+# Default metric for Y axis.
+DEFAULT_METRIC = "ap_large"
+METRIC_LABELS = {
+    "ap": "mAP50-95 (COCO)",
+    "ap50": "AP50 (COCO)",
+    "ap75": "AP75 (COCO)",
+    "ap_small": "AP_small (COCO)",
+    "ap_medium": "AP_medium (COCO)",
+    "ap_large": "AP_large (COCO)",
+}
+METRIC_TITLE_TOKENS = {
+    "ap": "mAP",
+    "ap50": "AP50",
+    "ap75": "AP75",
+    "ap_small": "AP_small",
+    "ap_medium": "AP_medium",
+    "ap_large": "AP_large",
+}
 
 
-def plot_series(ax, points, label, color, marker, label_offset):
-    xs = [point[1] for point in points]
-    ys = [point[2] for point in points]
-    ax.plot(
-        xs,
-        ys,
-        label=label,
-        color=color,
-        marker=marker,
-        linewidth=2,
-        markersize=7,
-    )
-    for size, x_value, y_value in points:
+# =============================================================================
+# BENCHMARK DATA
+# =============================================================================
+# Format: (size_label, latency_ms, ap_value[, latency_err_ms])
+#         ap_value can be a float (legacy: AP/mAP50-95 only)
+#         or a metric dict with keys like:
+#         {"ap", "ap50", "ap75", "ap_small", "ap_medium", "ap_large"}
+
+BENCHMARKS = {
+    "m5": {
+        "title": "Object Detection Models: Latency vs mAP (Apple M5 CPU, ONNX)",
+        "models": {
+            "YOLO26": [
+                ("n", 21.0, 40.9),
+                ("s", 61.7, 48.6),
+                ("m", 168.6, 53.1),
+                ("l", 219.1, 55.0),
+                ("x", 439.3, 57.5),
+            ],
+            "RF-DETR": [
+                ("n", 79.6, 48.4),
+                ("s", 145.5, 53.0),
+                ("m", 192.0, 54.7),
+                ("l", 307.2, 56.5),
+                ("x", 688.3, 58.6),
+                ("xxl", 956.2, 60.1),
+            ],
+            "LW-DETR": [
+                ("t", 73.2, 42.9),
+                ("s", 110.9, 48.1),
+                ("m", 226.7, 52.6),
+                ("l", 353.3, 56.1),
+                ("x", 765.1, 58.3),
+            ],
+            "DEIM D-FINE": [
+                ("n", 31.4, 43.0),
+                ("s", 78.7, 49.0),
+                ("m", 158.4, 52.7),
+                ("l", 244.5, 54.7),
+                ("x", 486.8, 56.5),
+            ],
+            "DEIM RT-DETRv2": [
+                ("r18", 157.8, 49.0),
+                ("r34", 233.6, 50.9),
+                ("r50m", 254.3, 53.2),
+                ("r50", 335.4, 54.3),
+                ("r101", 584.6, 55.5),
+            ],
+            "DEIMv2": [
+                ("pico", 22.4, 38.5),
+                ("n", 30.5, 43.0),
+                ("s", 157.2, 50.9),
+                ("m", 240.9, 53.0),
+                ("l", 386.2, 56.0),
+                ("x", 525.0, 57.8),
+            ],
+        },
+    },
+    "m5_new": {
+        "title": "Object Detection Models: Latency vs mAP (Apple M5 CPU, ONNX)",
+        "models": {
+            "YOLO26 (E2E)": [
+                ("n", 20.9, 40.1),
+                ("s", 61.2, 47.8),
+                ("m", 172.0, 52.5),
+                ("l", 219.4, 54.4),
+                ("x", 439.6, 56.9),
+            ],
+            "YOLO26 (NMS)": [
+                ("n", 21.2, 40.9),
+                ("s", 61.8, 48.6),
+                ("m", 172.8, 53.1),
+                ("l", 220.8, 55.0),
+                ("x", 441.5, 57.5),
+            ],
+            "RF-DETR (TopK)": [
+                ("n", 80.3, 48.4),
+                ("s", 146.8, 53.0),
+                ("m", 193.0, 54.7),
+                ("l", 307.2, 56.5),
+                ("x", 667.1, 58.6),
+                ("xxl", 927.3, 60.1),
+            ],
+        },
+    },
+    "m5_coreml": {
+        "title": "Object Detection Models: Latency vs mAP (Apple M5 CPU, CoreML)",
+        "models": {
+            "YOLO26 (E2E)": [
+                ("n", 6.0, 40.1),
+                ("s", 10.5, 47.8),
+                ("m", 18.1, 52.5),
+                ("l", 21.6, 54.4),
+                ("x", 37.1, 56.9),
+            ],
+            "YOLO26 (NMS)": [
+                ("n", 7.5, 40.9),
+                ("s", 11.7, 48.6),
+                ("m", 19.3, 53.1),
+                ("l", 22.9, 55.0),
+                ("x", 38.2, 57.5),
+            ],
+            "RF-DETR (TopK)": [
+                ("n", 69.5, 48.4),
+                ("s", 128.1, 53.0),
+                ("m", 172.8, 54.7),
+                ("l", 287.4, 56.5),
+                ("x", 491.7, 58.6),
+                ("xxl", 606.1, 60.1),
+            ],
+        },
+    },
+    "xeon": {
+        "title": "Object Detection Models: Latency vs mAP (Intel Xeon CPU @ 2.00GHz, ONNX)",
+        "models": {
+            "YOLO26 (E2E)": [
+                ("n", 38.4, 40.1),
+                ("s", 84.6, 47.8),
+                ("m", 220.0, 52.5),
+                ("l", 284.2, 54.4),
+                ("x", 568.6, 56.9),
+            ],
+            "RF-DETR": [
+                ("n", 117.2, 48.4),
+                ("s", 211.1, 53.0),
+                ("m", 270.7, 54.7),
+                ("l", 427.3, 56.5),
+                ("x", 977.2, 58.6),
+                ("xxl", 1334.4, 60.1),
+            ],
+        },
+    },
+    "xeon_new": {
+        "title": "Object Detection Models: Latency vs mAP (Intel Xeon CPU @ 2.00GHz, ONNX)",
+        "models": {
+            "YOLO26 (E2E)": [
+                ("n", 38.1, 40.1),
+                ("s", 84.8, 47.8),
+                ("m", 218.5, 52.5),
+                ("l", 279.5, 54.4),
+                ("x", 575.5, 56.9),
+            ],
+            "YOLO26 (NMS)": [
+                ("n", 41.0, 40.9),
+                ("s", 100.2, 48.6),
+                ("m", 261.6, 53.1),
+                ("l", 335.5, 55.0),
+                ("x", 623.0, 57.5),
+            ],
+            "YOLO26_RTDETR": [
+                ("n", 55.5, 41.2),
+                ("ns", 89.1, 47.4),
+                ("s", 200.4, 49.5),
+                ("m", 338.1, 53.5),
+                ("l", 411.8, 55.2),
+                ("x", 664.9, 56.6),
+            ],
+            "RF-DETR (TopK)": [
+                ("n", 114.3, 48.4),
+                ("s", 203.3, 53.0),
+                ("m", 266.1, 54.7),
+                ("l", 410.5, 56.5),
+                ("x", 931.1, 58.6),
+                ("xxl", 1304.8, 60.1),
+            ],
+        },
+    },
+    "t4": {
+        "title": "Object Detection Models: Latency vs mAP (Tesla T4 GPU, TensorRT)",
+        "models": {
+            "YOLO26": [
+                ("n", 1.8, 40.9),
+                ("s", 2.7, 48.6),
+                ("m", 5.2, 53.1),
+                ("l", 7.0, 55.0),
+                ("x", 13.3, 57.5),
+            ],
+            "YOLO26-reported": [
+                ("n", 1.7, 40.9),
+                ("s", 2.5, 48.6),
+                ("m", 4.7, 53.1),
+                ("l", 6.2, 55.0),
+                ("x", 11.8, 57.5),
+            ],
+            "YOLO26_RTDETR": [
+                ("n", 1.7, 41.2),
+                ("ns", 2.4, 47.4),
+                ("s", 3.1, 49.5),
+                ("sm", 3.8, 50.8),
+                ("m", 5.6, 53.5),
+                ("l", 7.0, 55.2),
+                ("x", 11.6, 56.6),
+            ],
+            "RF-DETR": [
+                ("n", 3.0, 48.4),
+                ("s", 4.4, 53.0),
+                ("m", 5.6, 54.7),
+                ("l", 9.0, 56.5),
+                ("x", 18.1, 58.6),
+                ("xxl", 25.9, 60.1),
+            ],
+            "RF-DETR-reported": [
+                ("n", 2.3, 48.4),
+                ("s", 3.5, 53.0),
+                ("m", 4.4, 54.7),
+                ("l", 6.8, 56.5),
+                ("x", 11.5, 58.6),
+                ("xxl", 17.2, 60.1),
+            ],
+        },
+    },
+    "t4_new": {
+        "title": "Object Detection Models: Latency vs mAP (Tesla T4 GPU, TensorRT)",
+        "models": {
+            "YOLO26 (E2E)": [
+                ("n", 1.8, {"ap": 40.1, "ap50": 55.6, "ap75": 43.5, "ap_small": 19.7, "ap_medium": 44.0, "ap_large": 58.4}),
+                ("s", 2.7, {"ap": 47.8, "ap50": 64.6, "ap75": 52.2, "ap_small": 29.1, "ap_medium": 52.5, "ap_large": 64.3}),
+                ("m", 5.3, {"ap": 52.5, "ap50": 69.8, "ap75": 57.2, "ap_small": 36.2, "ap_medium": 56.9, "ap_large": 68.5}),
+                ("l", 7.0, {"ap": 54.4, "ap50": 71.5, "ap75": 59.4, "ap_small": 37.8, "ap_medium": 58.6, "ap_large": 70.3}),
+                ("x", 13.3, {"ap": 56.9, "ap50": 74.1, "ap75": 62.1, "ap_small": 41.3, "ap_medium": 61.2, "ap_large": 72.7}),
+            ],
+            "YOLO26 (NMS)": [
+                ("n", 1.9, {"ap": 40.9, "ap50": 56.8, "ap75": 44.3, "ap_small": 21.1, "ap_medium": 44.8, "ap_large": 59.1}),
+                ("s", 2.7, {"ap": 48.6, "ap50": 65.8, "ap75": 52.8, "ap_small": 29.5, "ap_medium": 53.2, "ap_large": 65.8}),
+                ("m", 5.1, {"ap": 53.1, "ap50": 70.7, "ap75": 57.7, "ap_small": 36.7, "ap_medium": 57.8, "ap_large": 68.9}),
+                ("l", 6.8, {"ap": 55.0, "ap50": 72.5, "ap75": 60.0, "ap_small": 38.4, "ap_medium": 59.5, "ap_large": 71.1}),
+                ("x", 13.3, {"ap": 57.5, "ap50": 75.0, "ap75": 62.7, "ap_small": 41.8, "ap_medium": 62.1, "ap_large": 73.3}),
+            ],
+            "YOLO26_RTDETR": [
+                ("n", 1.8, {"ap": 41.1, "ap50": 57.4, "ap75": 44.5, "ap_small": 21.7, "ap_medium": 44.5, "ap_large": 58.8}),
+                ("ns", 2.5, {"ap": 47.7, "ap50": 65.1, "ap75": 51.5, "ap_small": 29.6, "ap_medium": 52.0, "ap_large": 64.0}),
+                ("s", 4.5, {"ap": 51.0, "ap50": 68.4, "ap75": 55.6, "ap_small": 34.3, "ap_medium": 54.7, "ap_large": 66.9}),
+                ("m", 6.9, {"ap": 54.0, "ap50": 71.5, "ap75": 58.5, "ap_small": 38.3, "ap_medium": 57.9, "ap_large": 68.8}),
+                ("l", 8.8, {"ap": 55.3, "ap50": 73.0, "ap75": 60.2, "ap_small": 39.6, "ap_medium": 59.3, "ap_large": 70.7}),
+                ("x", 13.8, {"ap": 56.5, "ap50": 74.0, "ap75": 61.6, "ap_small": 41.1, "ap_medium": 60.8, "ap_large": 71.5}),
+            ],
+            "DINOv3-RTDETR": [
+                ("s", 4.5, {"ap": 50.3, "ap50": 69.0, "ap75": 54.4, "ap_small": 27.8, "ap_medium": 55.8, "ap_large": 72.5}),
+            ],
+            "RF-DETR (TopK)": [
+                ("n", 2.8, {"ap": 48.4, "ap50": 67.5, "ap75": 51.7, "ap_small": 25.3, "ap_medium": 53.6, "ap_large": 71.0}),
+                ("s", 4.4, {"ap": 53.0, "ap50": 72.0, "ap75": 57.1, "ap_small": 31.8, "ap_medium": 58.4, "ap_large": 73.1}),
+                ("m", 5.7, {"ap": 54.7, "ap50": 73.6, "ap75": 59.1, "ap_small": 35.9, "ap_medium": 59.8, "ap_large": 73.7}),
+                ("l", 8.7, {"ap": 56.5, "ap50": 75.1, "ap75": 61.2, "ap_small": 39.0, "ap_medium": 61.0, "ap_large": 74.0}),
+                ("x", 18.1, {"ap": 58.6, "ap50": 77.5, "ap75": 64.0, "ap_small": 40.8, "ap_medium": 64.3, "ap_large": 76.3}),
+                ("xxl", 29.1, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
+            ],
+        },
+    },
+    "jetson-agx-thor-gpu": {
+        "title": "Object Detection Models: Latency vs mAP (Jetson AGX Thor GPU, TensorRT)",
+        "models": {
+            "YOLO26": [
+                ("n", 1.286, 40.9),
+                ("s", 1.607, 48.6),
+                ("m", 2.431, 53.1),
+                ("l", 3.132, 55.0),
+                ("x", 4.98, 57.5),
+            ],
+            "RF-DETR": [
+                ("n", 1.727, 48.4),
+                ("s", 2.285, 53.0),
+                ("m", 2.808, 54.7),
+                ("l", 3.717, 56.5),
+                ("x", 4.948, 58.6),
+                ("xxl", 7.634, 60.1),
+            ],
+        },
+    },
+    "jetson-agx-thor-cpu": {
+        "title": "Object Detection Models: Latency vs mAP (Jetson AGX Thor CPU, ONNX)",
+        "models": {
+            "YOLO26": [
+                ("n", 33.89, 40.9),
+                ("s", 95.413, 48.6),
+                ("m", 273.25, 53.1),
+                ("l", 343.833, 55.0),
+                ("x", 733.873, 57.5),
+            ],
+            "RF-DETR": [
+                ("n", 131.548, 48.4),
+                ("s", 241.317, 53.0),
+                ("m", 323.0, 54.7),
+                ("l", 520.615, 56.5),
+                ("x", 1147.943, 58.6),
+                ("xxl", 1615.155, 60.1),
+            ],
+        },
+    },
+    "jetson-agx-orin-gpu": {
+        "title": "Object Detection Models: Latency vs mAP (Jetson AGX Orin GPU, TensorRT)",
+        "models": {
+            "YOLO26": [
+                ("n", 2.518, 40.9),
+                ("s", 3.629, 48.6),
+                ("m", 6.116, 53.1),
+                ("l", 7.814, 55.0),
+                ("x", 13.317, 57.5),
+            ],
+            "RF-DETR": [
+                ("n", 3.628, 48.4),
+                ("s", 5.765, 53.0),
+                ("m", 7.158, 54.7),
+                ("l", 9.662, 56.5),
+                ("x", 16.203, 58.6),
+                ("xxl", 22.234, 60.1),
+            ],
+        },
+    },
+    "jetson-agx-orin-cpu": {
+        "title": "Object Detection Models: Latency vs mAP (Jetson AGX Orin CPU, ONNX)",
+        "models": {
+            "YOLO26": [
+                ("n", 51.03, 40.9),
+                ("s", 134.092, 48.6),
+                ("m", 360.06, 53.1),
+                ("l", 455.814, 55.0),
+                ("x", 927.723, 57.5),
+            ],
+            "RF-DETR": [
+                ("n", 162.998, 48.4),
+                ("s", 300.142, 53.0),
+                ("m", 398.034, 54.7),
+                ("l", 629.981, 56.5),
+                ("x", 1413.559, 58.6),
+                ("xxl", 1988.597, 60.1),
+            ],
+        },
+    },
+    "jetson-orin-nano-super-gpu": {
+        "title": "Object Detection Models: Latency vs mAP (Jetson Orin Nano Super GPU, TensorRT)",
+        "models": {
+            "YOLO26": [
+                ("n", 4.385, 40.9),
+                ("s", 6.915, 48.6),
+                ("m", 13.399, 53.1),
+                ("l", 17.147, 55.0),
+                ("x", 32.072, 57.5),
+            ],
+            "RF-DETR": [
+                ("n", 7.223, 48.4),
+                ("s", 12.027, 53.0),
+                ("m", 15.543, 54.7),
+                ("l", 22.32, 56.5),
+                ("x", 42.316, 58.6),
+                ("xxl", 62.461, 60.1),
+            ],
+        },
+    },
+    "jetson-orin-nano-super-cpu": {
+        "title": "Object Detection Models: Latency vs mAP (Jetson Orin Nano Super CPU, ONNX)",
+        "models": {
+            "YOLO26": [
+                ("n", 183.055, 40.9),
+                ("s", 475.926, 48.6),
+                ("m", 1105.241, 53.1),
+                ("l", 1460.185, 55.0),
+                ("x", 2689.455, 57.5),
+            ],
+            "RF-DETR": [
+                ("n", 651.97, 48.4),
+                ("s", 1083.453, 53.0),
+                ("m", 1368.739, 54.7),
+                ("l", 1913.115, 56.5),
+                ("x", 3890.967, 58.6),
+                ("xxl", 4939.052, 60.1),
+            ],
+        },
+    },
+}
+
+# Marker and label offset config for each model
+MODEL_STYLES = {
+    "YOLO26": ("o", 8),
+    "YOLO26 (E2E)": ("o", 8),
+    "YOLO26 (NMS)": ("o", -12),
+    "YOLO26-reported": ("o", -12),
+    "YOLO26_RTDETR": ("^", -12),
+    "DINOv3-RTDETR": ("X", 8),
+    "RF-DETR": ("s", -12),
+    "RF-DETR (TopK)": ("s", -12),
+    "RF-DETR-reported": ("s", 8),
+    "LW-DETR": ("^", 8),
+    "DEIM D-FINE": ("D", -12),
+    "DEIM RT-DETRv2": ("v", 8),
+    "DEIMv2": ("p", -12),
+}
+
+
+def get_metric_value(y_value, metric):
+    if isinstance(y_value, dict):
+        return y_value.get(metric)
+    return y_value if metric == "ap" else None
+
+
+def plot_series(ax, points, label, color, marker, label_offset, metric):
+    parsed_points = []
+    for point in points:
+        if len(point) == 3:
+            size, x_value, y_value = point
+            x_error = 0.0
+        elif len(point) == 4:
+            size, x_value, y_value, x_error = point
+        else:
+            raise ValueError(
+                f"Point '{point}' must have 3 or 4 values: (size, latency, metric_value[, latency_error])."
+            )
+
+        metric_value = get_metric_value(y_value, metric)
+        if metric_value is None:
+            continue
+        parsed_points.append((size, x_value, metric_value, x_error))
+
+    if not parsed_points:
+        return False
+
+    xs = [point[1] for point in parsed_points]
+    ys = [point[2] for point in parsed_points]
+    x_errors = [point[3] for point in parsed_points]
+
+    if any(x_errors):
+        ax.errorbar(
+            xs,
+            ys,
+            xerr=x_errors,
+            label=label,
+            color=color,
+            marker=marker,
+            linestyle="-",
+            linewidth=2,
+            markersize=7,
+            capsize=3,
+        )
+    else:
+        ax.plot(
+            xs,
+            ys,
+            label=label,
+            color=color,
+            marker=marker,
+            linewidth=2,
+            markersize=7,
+        )
+
+    for size, x_value, y_value, _ in parsed_points:
         ax.annotate(
             size,
             (x_value, y_value),
@@ -85,41 +487,34 @@ def plot_series(ax, points, label, color, marker, label_offset):
             fontsize=9,
             color=color,
         )
+    return True
 
 
-def build_plot(output_path: Path, show: bool) -> None:
+def build_plot(output_path: Path, show: bool, metric: str) -> None:
+    benchmark_data = BENCHMARKS[BENCHMARK]
+    models = benchmark_data["models"]
+    title = benchmark_data["title"]
+
     plt.style.use("seaborn-v0_8-whitegrid")
-    fig, ax = plt.subplots(figsize=(7.5, 4.5), dpi=120)
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=120)
     ax.set_axisbelow(True)
     ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.6)
 
     palette = plt.get_cmap("tab10")
-    plot_series(ax, YOLO26, "YOLO26", palette(0), "o", 8)
-    plot_series(ax, YOLO26_RTDETR, "YOLO26-RTDETR", palette(1), "s", -14)
-    # plot_series(ax, RTDETR_V4, "RT-DETRv4", palette(2), "D", 10)
-    # plot_series(ax, LW_DETR, "LW-DETR", palette(3), "^", 14)
-    # plot_series(ax, RF_DETR, "RF-DETR", palette(4), "v", -12)
+    plotted = False
+    for i, (model_name, data) in enumerate(models.items()):
+        marker, label_offset = MODEL_STYLES.get(model_name, ("o", 8))
+        plotted |= plot_series(ax, data, model_name, palette(i), marker, label_offset, metric)
 
-    # Add free points without connecting to a line
-    for label, latency, mAP, color_idx, marker, label_offset in FREE_POINTS:
-        ax.scatter(latency, mAP, color=palette(color_idx), marker=marker, s=70, zorder=5)
-        ax.annotate(
-            label,
-            (latency, mAP),
-            textcoords="offset points",
-            xytext=(0, label_offset),
-            ha="center",
-            fontsize=9,
-            color=palette(color_idx),
-        )
+    if not plotted:
+        raise ValueError(f"No '{metric}' values available for benchmark '{BENCHMARK}'.")
 
-    ax.set_title(
-        "Latency vs mAP: YOLO26, YOLO26-RTDETR, RT-DETRv4, LW-DETR, RF-DETR"
-    )
+    title_metric = METRIC_TITLE_TOKENS[metric]
+    ax.set_title(title if metric == "ap" else title.replace("mAP", title_metric))
     ax.set_xlabel("Latency (ms)")
-    ax.set_ylabel("mAP (COCO)")
-    ax.legend(frameon=False, loc="lower right")
-    ax.margins(x=0.08, y=0.08)
+    ax.set_ylabel(METRIC_LABELS[metric])
+    ax.legend(frameon=True, loc="lower right", fontsize=9)
+    ax.margins(x=0.05, y=0.08)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -130,20 +525,28 @@ def build_plot(output_path: Path, show: bool) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    default_output = Path(__file__).with_name("benchmark_plot.png")
     parser = argparse.ArgumentParser(
-        description=(
-            "Plot YOLO26, YOLO26-RTDETR, RT-DETRv4, LW-DETR, and RF-DETR latency vs mAP benchmarks."
-        )
+        description="Plot object detection model latency vs mAP benchmarks."
     )
-    parser.add_argument("--output", type=Path, default=default_output)
+    parser.add_argument(
+        "--metric",
+        choices=list(METRIC_LABELS.keys()),
+        default=DEFAULT_METRIC,
+        help="Y-axis metric to plot. AP keeps existing mAP50-95 values.",
+    )
+    parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--show", action="store_true", help="Display the plot window.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    build_plot(args.output, args.show)
+    output_path = args.output or Path(__file__).with_name(
+        f"benchmark_plot_{BENCHMARK}.png"
+        if args.metric == "ap"
+        else f"benchmark_plot_{BENCHMARK}_{args.metric}.png"
+    )
+    build_plot(output_path, args.show, args.metric)
 
 
 if __name__ == "__main__":
