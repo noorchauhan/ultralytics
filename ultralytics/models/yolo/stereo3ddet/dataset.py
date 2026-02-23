@@ -51,7 +51,7 @@ class Stereo3DDetDataset(BaseDataset):
         output_size: Tuple[int, int] | None = None,
         mean_dims: Dict[str, List[float]] | None = None,
         std_dims: Dict[str, List[float]] | None = None,
-        filter_occluded: bool = True,
+        filter_occluded: bool = False,
         max_occlusion_level: int = 1,
         cache: bool | str = False,
         augment: bool = True,
