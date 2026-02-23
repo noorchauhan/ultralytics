@@ -20,16 +20,19 @@ from ultralytics.utils.benchmarks import ProfileModels
 # Friendly name to (weights_subfolder, filename) mapping
 MODEL_NAME_TO_FILE = {
     "nano": ("yolodetr_weights", "yolo26_detr_n_obj_480.pt"),
-    "nano-small": ("yolodetr_weights", "yolo26_detr_ns_coco_512.pt"),
-    "small": ("yolodetr_weights", "yolo26_detr_s_coco_640.pt"),
-    "medium": ("yolodetr_weights", "yolo26_detr_m_coco_640.pt"),
+    "nano-small": ("yolodetr_weights", "yolo26_detr_ns_obj_512.pt"),
+    "small": ("yolodetr_weights", "yolo26_detr_s_obj_640.pt"),
+    "medium": ("yolodetr_weights", "yolo26_detr_m_obj_640.pt"),
     "large": ("yolodetr_weights", "yolo26_detr_l_obj_640.pt"),
-    "xlarge": ("yolodetr_weights", "yolo26_detr_x_coco_640.pt"),
+    "large_v2": ("yolodetr_weights", "yolo26_detrl4_l_obj_704.pt"),
+    "xlarge": ("yolodetr_weights", "yolo26_detr_x_obj_640.pt"),
     "nano-nms": ("yolo26nms_weights", "yolo26n_nms.pt"),
     "small-nms": ("yolo26nms_weights", "yolo26s_nms.pt"),
     "medium-nms": ("yolo26nms_weights", "yolo26m_nms.pt"),
     "large-nms": ("yolo26nms_weights", "yolo26l_nms.pt"),
     "xlarge-nms": ("yolo26nms_weights", "yolo26x_nms.pt"),
+    "dinov3l": ("dinov3_weights", "rtdetr_dinov3sta_detrl3_640.pt"),
+    "dinov3x": ("dinov3_weights", "rtdetr_dinov3sta_detrl6_640.pt"),
 }
 
 
