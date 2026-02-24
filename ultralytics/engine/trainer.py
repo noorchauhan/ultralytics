@@ -814,7 +814,7 @@ class BaseTrainer:
         self.csv.parent.mkdir(parents=True, exist_ok=True)  # ensure parent directory exists
         s = "" if self.csv.exists() else ("%s," * n % ("epoch", "time", *keys)).rstrip(",") + "\n"
         # Empty strings for skipped val epochs stay empty (parsed as NaN); numbers get %.6g formatting
-        row = ",".join("" if v == "" else "%.6g" % v for v in [self.epoch + 1, t, *vals])
+        row = ",".join("" if v == "" else f"{v:.6g}" for v in [self.epoch + 1, t, *vals])
         with open(self.csv, "a", encoding="utf-8") as f:
             f.write(s + row + "\n")
 
