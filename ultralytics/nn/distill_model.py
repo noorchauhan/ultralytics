@@ -21,10 +21,8 @@ class DistillationModel(nn.Module):
         if isinstance(teacher_model, str):
             teacher_model = load_checkpoint(teacher_model)[0]
         device = next(student_model.parameters()).device
-        # self.teacher_model = teacher_model.to(device).eval()
-        self.teacher_model = teacher_model.to(device).train()
-        for v in self.teacher_model.parameters():
-            v.requires_grad = False
+        self.teacher_model = teacher_model.to(device)
+        self._freeze_teacher()
         self.student_model = student_model
         self.feats_idx = feats_idx
         # get the feature dimensions
@@ -46,7 +44,7 @@ class DistillationModel(nn.Module):
             for student_out, teacher_out in zip(student_output, teacher_output):
                 student_dim = self.decouple_outputs(student_out, shape_check=True).shape[1]
                 teacher_dim = self.decouple_outputs(teacher_out, shape_check=True).shape[1]
-                projectors.append(nn.Conv2d(student_dim, teacher_dim, kernel_size=1, stride=1, padding=0) if student_dim != teacher_dim else nn.Identity())
+                projectors.append(nn.Conv2d(student_dim, teacher_dim, kernel_size=1, stride=1, padding=0))
             self.projector = nn.ModuleList(projectors)
         if self.distill_feature_loss == "mgd":
             generations = []
@@ -83,6 +81,19 @@ class DistillationModel(nn.Module):
         """Update cached epoch progress for distillation scheduling."""
         self.cur_epoch = int(cur_epoch)
         self.total_epochs = max(int(total_epochs), 1)
+
+    def _freeze_teacher(self):
+        """Keep teacher fixed for distillation."""
+        self.teacher_model.eval()
+        for v in self.teacher_model.parameters():
+            if v.requires_grad:
+                v.requires_grad = False
+
+    def train(self, mode: bool = True):
+        """Set model train mode while keeping teacher frozen in eval mode."""
+        super().train(mode)
+        self._freeze_teacher()
+        return self
 
     def _distill_feature_weight(self) -> float:
         """Compute dynamic feature distillation weight from current epoch progress."""
@@ -147,11 +158,11 @@ class DistillationModel(nn.Module):
         loss_distill_box = torch.zeros(1, device=batch["img"].device)
         loss_distill_feature = torch.zeros(1, device=batch["img"].device)
         if self.distill_feature_loss == "sl2":
-            teacher_scores = teacher_feats[-1]['one2one']['scores']
+            teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"]
             parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
             teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
         if self.distill_box_loss == "siou":
-            teacher_scores = teacher_feats[-1]['one2one']['scores']
+            teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"]
         feature_main_masking = self.distill_area == "main" and self.distill_feature_loss in {"l1", "l2"}
         feature_fg_masks = None
         if feature_main_masking:
@@ -417,6 +428,15 @@ class DistillationModel(nn.Module):
         """Fuse model layers for inference speedup."""
         self.student_model.fuse(verbose)
         return self
+
+    def load_from_module(self, weights: dict | nn.Module, strict: bool = False):
+        """Load distillation weights from a checkpoint dict or module."""
+        module = weights["model"] if isinstance(weights, dict) else weights
+        if not isinstance(module, nn.Module):
+            raise TypeError(f"Expected nn.Module or checkpoint dict, got {type(weights).__name__}")
+        incompatible = self.load_state_dict(module.float().state_dict(), strict=strict)
+        self._freeze_teacher()
+        return incompatible
 
     def decouple_outputs(self, preds, shape_check=False, branch="one2one"):
         """Decouple outputs for teacher/student models."""
