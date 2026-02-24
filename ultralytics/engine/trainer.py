@@ -514,8 +514,11 @@ class BaseTrainer:
             # Validation
             final_epoch = epoch + 1 >= self.epochs
             val_period = max(self.args.val_period, 1)
-            should_val = self.args.val and (
-                (epoch + 1) % val_period == 0 or final_epoch or self.stopper.possible_stop or self.stop
+            should_val = (
+                (self.args.val and (epoch + 1) % val_period == 0)
+                or final_epoch
+                or self.stopper.possible_stop
+                or self.stop
             )
             if should_val:
                 self._clear_memory(threshold=0.5)  # prevent VRAM spike
@@ -530,7 +533,9 @@ class BaseTrainer:
                 # On non-val epochs, write empty val metrics so CSV doesn't carry stale values
                 val_metrics = self.metrics if should_val else {k: "" for k in self.metrics}
                 self.save_metrics(metrics={**self.label_loss_items(self.tloss), **val_metrics, **self.lr})
-                self.stop |= self.stopper(epoch + 1, self.fitness if should_val else None) or final_epoch
+                if should_val:
+                    self.stop |= self.stopper(epoch + 1, self.fitness)
+                self.stop |= final_epoch
                 if self.args.time:
                     self.stop |= (time.time() - self.train_time_start) > (self.args.time * 3600)
 
