@@ -163,16 +163,28 @@ class DetectionTrainer(BaseTrainer):
             (DetectionModel): YOLO detection model.
         """
         from ultralytics.nn.distill_model import DistillationModel
-        
-        # Check if weights is already a DistillationModel (e.g., when resuming from checkpoint)
+
+        # Rebuild distillation model on resume to avoid inheriting checkpoint module states (e.g., requires_grad flags).
         if isinstance(weights, DistillationModel):
-            # Return the complete DistillationModel directly to preserve teacher + student
+            # Build a fresh distillation wrapper and then load checkpoint weights into it.
             if verbose and RANK == -1:
-                LOGGER.info("Resuming DistillationModel with teacher and student from checkpoint")
-            weights.nc = self.data["nc"]  # update number of classes
-            weights.names = self.data["names"]  # update class names
-            return weights
-        
+                LOGGER.info("Resuming DistillationModel with rebuild-and-load from checkpoint weights")
+            student_model = DetectionModel(cfg, nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1)
+            student_model.args = self.args
+            model = DistillationModel(
+                student_model=student_model,
+                teacher_model=weights.teacher_model,
+                feats_idx=self.args.distill_layer,
+            )
+            incompatible = model.load_from_module(weights, strict=False)
+            if verbose and RANK == -1:
+                if incompatible.missing_keys:
+                    LOGGER.warning(f"Missing keys when loading distillation checkpoint: {incompatible.missing_keys}")
+                if incompatible.unexpected_keys:
+                    LOGGER.warning(f"Unexpected keys when loading distillation checkpoint: {incompatible.unexpected_keys}")
+            model.criterion = None
+            return model
+
         # Otherwise, create a new DetectionModel and load weights if provided
         model = DetectionModel(cfg, nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1)
         if weights:

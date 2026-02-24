@@ -266,6 +266,7 @@ class BaseTrainer:
         ckpt = self.setup_model()
         self.model = self.model.to(self.device)
         self.set_model_attributes()
+        model_ref = unwrap_model(self.model)
 
         # Compile model
         self.model = attempt_compile(self.model, device=self.device, mode=self.args.compile)
@@ -280,6 +281,8 @@ class BaseTrainer:
         )
         always_freeze_names = [".dfl"]  # always freeze these layers
         freeze_layer_names = [f"model.{x}." for x in freeze_list] + always_freeze_names
+        if isinstance(model_ref, DistillationModel):
+            freeze_layer_names.append("teacher_model.")
         self.freeze_layer_names = freeze_layer_names
         for k, v in self.model.named_parameters():
             # v.register_hook(lambda x: torch.nan_to_num(x))  # NaN to 0 (commented for erratic training results)
@@ -312,7 +315,8 @@ class BaseTrainer:
                 teacher_model=self.args.distill_model,
                 feats_idx=self.args.distill_layer,
             ).to(self.device)
-            self.freeze_layer_names += [f"teacher_model."]  # handle BN layers
+            if "teacher_model." not in self.freeze_layer_names:
+                self.freeze_layer_names += [f"teacher_model."]  # handle BN layers
         if self.world_size > 1:
             self.model = nn.parallel.DistributedDataParallel(self.model, device_ids=[RANK], find_unused_parameters=True)
         # Check imgsz
@@ -595,6 +599,12 @@ class BaseTrainer:
     def _model_train(self):
         """Set model in training mode."""
         self.model.train()
+        model_ref = unwrap_model(self.model)
+        if isinstance(model_ref, DistillationModel):
+            model_ref.teacher_model.eval()
+            for p in model_ref.teacher_model.parameters():
+                if p.requires_grad:
+                    p.requires_grad = False
         # Freeze BN stat
         for n, m in self.model.named_modules():
             if any(filter(lambda f: f in n, self.freeze_layer_names)) and isinstance(m, nn.BatchNorm2d):
