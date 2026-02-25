@@ -168,7 +168,7 @@ class DistillationModel(nn.Module):
         if feature_main_masking:
             feature_fg_masks = torch.split(targets["one2one"][0], [6400, 1600, 400], dim=-1)
         feature_level_idx = 0
-        feature_weight = self.distill_feature * self._distill_feature_weight()
+        feature_weight = self.distill_feature
         for i, feat_idx in enumerate(self.feats_idx):
             # handle head ouput
             teacher_feat = self.decouple_outputs(teacher_feats[i])
