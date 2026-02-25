@@ -460,6 +460,10 @@ class Stereo3DDetDataset(BaseDataset):
         idx = self.im_files.index(im_file)
         cached_label = self.labels[idx]
         label_list = cached_label["labels"]  # List of dict objects
+
+        # Filter by configured classes (e.g., Car-only dataset skips Ped/Cyc)
+        if self.names:
+            label_list = [obj for obj in label_list if obj["class_id"] in self.names]
         # Copy calibration so we don't mutate the cached original.
         calib = dict(cached_label["calibration"]) if cached_label["calibration"] else {}
 

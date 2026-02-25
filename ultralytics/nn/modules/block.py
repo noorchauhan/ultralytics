@@ -2208,28 +2208,34 @@ class StereoCostVolume(nn.Module):
         self.refine = nn.Sequential(*layers)
 
     def forward(self, x):
-        """Build cost volume from groups=2 stereo features.
+        """Build cost volume from stereo features.
 
         Args:
-            x: [B, C, H, W] from groups=2 layer (first C//2 = left, last C//2 = right).
+            x: Either a (left, right) tuple of [B, C, H, W] tensors (siamese mode),
+               or a single [B, 2C, H, W] tensor from groups=2 layer.
 
         Returns:
             [B, c2, H//2, W//2] refined cost volume features.
         """
-        B, C, H, W = x.shape
-        c = self.c_half
-        left = F.normalize(x[:, :c], dim=1)
-        right = F.normalize(x[:, c:], dim=1)
+        if isinstance(x, (tuple, list)):
+            left, right = x
+            B, C, H, W = left.shape
+        else:
+            B, C, H, W = x.shape
+            c = self.c_half
+            left, right = x[:, :c], x[:, c:]
+        left = F.normalize(left, dim=1)
+        right = F.normalize(right, dim=1)
 
         corrs = []
         for d in self.disparities:
             if d == 0:
                 corrs.append((left * right).sum(dim=1, keepdim=True))
             elif d >= W:
-                corrs.append(x.new_zeros(B, 1, H, W))
+                corrs.append(left.new_zeros(B, 1, H, W))
             else:
                 # Compare left[x] with right[x-d]: shift right features right by d pixels
-                corr = x.new_zeros(B, 1, H, W)
+                corr = left.new_zeros(B, 1, H, W)
                 corr[:, :, :, d:] = (left[:, :, :, d:] * right[:, :, :, :-d]).sum(dim=1, keepdim=True)
                 corrs.append(corr)
 
