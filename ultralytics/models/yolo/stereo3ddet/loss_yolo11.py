@@ -8,6 +8,11 @@ import torch.nn.functional as F
 from ultralytics.utils.loss import DFLoss, v8DetectionLoss
 from ultralytics.utils.tal import make_anchors
 
+# Reference nc for cls loss normalization — cls BCE sums over B*HW*nc, so fewer
+# classes means weaker cls signal, worse TAL assignments, and aux branch starvation.
+# Normalizing by nc makes cls loss magnitude (and thus TAL quality) nc-invariant.
+_CLS_NC_REF = 3
+
 
 class Stereo3DDetLossYOLO11(v8DetectionLoss):
     """Multi-scale loss for stereo 3D detection using YOLO-style bbox assignment.
@@ -15,8 +20,9 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
     Overrides loss() to add auxiliary 3D losses (lr_distance, depth, dimensions,
     orientation) on top of the standard detection losses (box, cls, dfl).
 
-    Aux losses are quality-weighted by TAL alignment scores, matching the BboxLoss
-    pattern. This makes the aux/det loss ratio invariant to nc (number of classes).
+    Key design: cls loss is normalized by nc to ensure stable TAL assignments
+    regardless of number of classes. Without this, nc=1 produces ~3x weaker cls
+    gradients, degrading TAL quality and causing aux branch collapse.
 
     Expected preds dict keys (from head's forward_head):
         - boxes, scores, feats: standard Detect outputs
@@ -51,18 +57,14 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         aux_gt: torch.Tensor,
         gt_idx: torch.Tensor,
         fg_mask: torch.Tensor,
-        weight: torch.Tensor,
-        target_scores_sum: float,
     ) -> torch.Tensor:
-        """Compute quality-weighted auxiliary loss on positives.
+        """Compute auxiliary loss on positives using gathered GT via target_gt_idx.
 
         Args:
             pred_map: [B, C, HW_total] — 3D flattened aux predictions.
             aux_gt: [B, max_n, C] — padded per-image GT.
             gt_idx: [B, HW_total] — assignment indices from TAL.
             fg_mask: [B, HW_total] — boolean foreground mask.
-            weight: [npos, 1] — TAL quality weight per fg anchor.
-            target_scores_sum: scalar normalization factor.
         """
         bs, c, n = pred_map.shape
         pred_flat = pred_map.permute(0, 2, 1)  # [B, HW_total, C]
@@ -80,8 +82,7 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         if pred_pos.numel() == 0:
             return pred_map.sum() * 0.0
 
-        raw = F.smooth_l1_loss(pred_pos, tgt_pos, reduction="none")  # [npos, C]
-        return (raw.mean(-1, keepdim=True) * weight).sum() / target_scores_sum
+        return F.smooth_l1_loss(pred_pos, tgt_pos, reduction="mean")
 
     def _compute_aux_losses(
         self,
@@ -89,10 +90,8 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         batch: dict[str, torch.Tensor],
         target_gt_idx: torch.Tensor,
         fg_mask: torch.Tensor,
-        weight: torch.Tensor,
-        target_scores_sum: float,
     ) -> dict[str, torch.Tensor]:
-        """Compute quality-weighted auxiliary losses for all 3D heads."""
+        """Compute auxiliary losses for all 3D heads."""
         aux_losses: dict[str, torch.Tensor] = {}
         aux_targets = batch.get("aux_targets", {})
 
@@ -104,11 +103,9 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
                 continue
             aux_gt = aux_targets[k].to(self.device)
             if k == "depth" and "depth_bins" in aux_preds:
-                aux_losses[k] = self._depth_bin_loss(
-                    aux_preds["depth_bins"], aux_gt, target_gt_idx, fg_mask, weight, target_scores_sum
-                )
+                aux_losses[k] = self._depth_bin_loss(aux_preds["depth_bins"], aux_gt, target_gt_idx, fg_mask)
             elif k in aux_preds:
-                aux_losses[k] = self._aux_loss(aux_preds[k], aux_gt, target_gt_idx, fg_mask, weight, target_scores_sum)
+                aux_losses[k] = self._aux_loss(aux_preds[k], aux_gt, target_gt_idx, fg_mask)
 
         return aux_losses
 
@@ -118,18 +115,14 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         aux_gt: torch.Tensor,
         gt_idx: torch.Tensor,
         fg_mask: torch.Tensor,
-        weight: torch.Tensor,
-        target_scores_sum: float,
     ) -> torch.Tensor:
-        """Compute quality-weighted DFL-style depth bin classification loss.
+        """Compute DFL-style depth bin classification loss.
 
         Args:
             pred_bins: [B, n_bins, HW_total] — raw logits from depth branch.
             aux_gt: [B, max_n, 1] — log-depth GT values.
             gt_idx: [B, HW_total] — TAL assignment indices.
             fg_mask: [B, HW_total] — boolean foreground mask.
-            weight: [npos, 1] — TAL quality weight per fg anchor.
-            target_scores_sum: scalar normalization factor.
         """
         n_bins = pred_bins.shape[1]
         if aux_gt.shape[1] == 0 or not fg_mask.any():
@@ -150,13 +143,13 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         if pred_fg.numel() == 0:
             return pred_bins.sum() * 0.0
 
-        raw = self.depth_dfl_loss(pred_fg, tgt_fg.unsqueeze(-1))  # [npos, 1]
-        return (raw * weight).sum() / target_scores_sum
+        return self.depth_dfl_loss(pred_fg, tgt_fg.unsqueeze(-1)).mean()
 
     def loss(self, preds: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-        """Calculate stereo 3D detection loss: det losses + quality-weighted aux 3D losses.
+        """Calculate stereo 3D detection loss: det losses + aux 3D losses.
 
-        Inlines TAL assignment from parent to access target_scores for quality weighting.
+        Inlines TAL assignment from parent. Cls loss is normalized by nc to keep
+        TAL assignment quality stable regardless of number of classes.
         """
         # Separate aux preds from detection preds
         aux_keys = {"lr_distance", "depth", "depth_bins", "dimensions", "orientation"}
@@ -193,8 +186,10 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
 
         target_scores_sum = max(target_scores.sum(), 1)
 
-        # Cls loss
-        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
+        # Cls loss — normalize by nc so TAL quality is nc-invariant.
+        # BCE sums over B*HW*nc, so nc=1 gives ~3x weaker cls than nc=3.
+        # Without this, weak cls → poor TAL → aux branch collapse for small nc.
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum * (_CLS_NC_REF / self.nc)
 
         # Bbox loss
         if fg_mask.sum():
@@ -210,11 +205,8 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         loss[1] *= self.hyp.cls
         # --- End inline TAL ---
 
-        # Quality weight for aux losses (same as BboxLoss pattern)
-        weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)  # [npos, 1]
-
-        # Aux losses (quality-weighted)
-        aux_losses = self._compute_aux_losses(aux_preds, batch, target_gt_idx, fg_mask, weight, target_scores_sum)
+        # Aux losses (simple mean reduction — stable gradients from all fg anchors)
+        aux_losses = self._compute_aux_losses(aux_preds, batch, target_gt_idx, fg_mask)
         for i, k in enumerate(["lr_distance", "depth", "dimensions", "orientation"], 2):
             if k in aux_losses:
                 loss[i] = aux_losses[k] * float(self.aux_w.get(k, 1.0))
