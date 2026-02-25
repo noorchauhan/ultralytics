@@ -934,7 +934,8 @@ class RTDETRDetectionModel(DetectionModel):
 
     def init_criterion(self):
         """Initialize the loss criterion for the RTDETRDetectionModel."""
-        from ultralytics.models.utils.loss import RTDETRDetectionLoss, RTDETRv4DetectionLoss
+        from ultralytics.models.utils.loss import RTDETRDetectionLoss
+        from ultralytics.models.utils.loss_dfine import RTDETRv4DetectionLoss
 
         loss_cfg = self.yaml.get("loss", {})
         loss_gain = loss_cfg.get("loss_gain", {}) if isinstance(loss_cfg, dict) else {}

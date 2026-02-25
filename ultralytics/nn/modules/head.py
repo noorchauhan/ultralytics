@@ -1949,7 +1949,8 @@ class RTDETRDecoder(nn.Module):
         xavier_uniform_(self.query_pos_head.layers[0].weight)
         xavier_uniform_(self.query_pos_head.layers[1].weight)
         for layer in self.input_proj:
-            xavier_uniform_(layer[0].weight)
+            if isinstance(layer, nn.Sequential) and len(layer) and hasattr(layer[0], "weight"):
+                xavier_uniform_(layer[0].weight)
 
 
 class DFineDecoder(RTDETRDecoder):
@@ -2010,8 +2011,11 @@ class DFineDecoder(RTDETRDecoder):
         if self.query_select_method not in {"default", "one2many"}:
             raise ValueError(f"Unsupported query_select_method: {self.query_select_method}")
 
-        # Backbone feature projection
-        self.input_proj = nn.ModuleList(nn.Sequential(nn.Conv2d(x, hd, 1, bias=False), nn.BatchNorm2d(hd)) for x in ch)
+        # Backbone feature projection (DEIM-style): keep identity when channels already match hidden dim.
+        self.input_proj = nn.ModuleList(
+            nn.Identity() if x == hd else nn.Sequential(nn.Conv2d(x, hd, 1, bias=False), nn.BatchNorm2d(hd))
+            for x in ch
+        )
 
         # Transformer module
         self.up = nn.Parameter(torch.tensor([0.5]), requires_grad=False)
