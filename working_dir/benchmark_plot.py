@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 BENCHMARK = "t4_new"
 
 # Default metric for Y axis.
-DEFAULT_METRIC = "ap_large"
+DEFAULT_METRIC = "ap"
 METRIC_LABELS = {
     "ap": "mAP50-95 (COCO)",
     "ap50": "AP50 (COCO)",
@@ -266,11 +266,23 @@ BENCHMARKS = {
                 ("ns", 2.5, {"ap": 47.7, "ap50": 65.1, "ap75": 51.5, "ap_small": 29.6, "ap_medium": 52.0, "ap_large": 64.0}),
                 ("s", 4.5, {"ap": 51.0, "ap50": 68.4, "ap75": 55.6, "ap_small": 34.3, "ap_medium": 54.7, "ap_large": 66.9}),
                 ("m", 6.9, {"ap": 54.0, "ap50": 71.5, "ap75": 58.5, "ap_small": 38.3, "ap_medium": 57.9, "ap_large": 68.8}),
-                ("l", 8.8, {"ap": 55.3, "ap50": 73.0, "ap75": 60.2, "ap_small": 39.6, "ap_medium": 59.3, "ap_large": 70.7}),
+                ("l", 8.6, {"ap": 55.3, "ap50": 73.0, "ap75": 60.2, "ap_small": 39.6, "ap_medium": 59.3, "ap_large": 70.7}),
                 ("x", 13.8, {"ap": 56.5, "ap50": 74.0, "ap75": 61.6, "ap_small": 41.1, "ap_medium": 60.8, "ap_large": 71.5}),
             ],
             "DINOv3-RTDETR": [
                 ("s", 4.5, {"ap": 50.3, "ap50": 69.0, "ap75": 54.4, "ap_small": 27.8, "ap_medium": 55.8, "ap_large": 72.5}),
+            ],
+            "DINOv3-STA-RTDETR": [
+                ("l3", 10.4, {"ap": 54.3, "ap50": 72.8, "ap75": 58.9, "ap_small": 35.1, "ap_medium": 59.7, "ap_large": 73.0}, 0.1),
+                ("l6", 11.4, {"ap": 55.0, "ap50": 73.7, "ap75": 59.6, "ap_small": 36.3, "ap_medium": 60.4, "ap_large": 74.3}, 0.1),
+            ],
+            "DEIMv2": [
+                ("pico", 1.7, {"ap": 38.5}),
+                ("n", 2.0, {"ap": 43.0}),
+                ("s", 4.8, {"ap": 50.9}),
+                ("m", 7.5, {"ap": 53.0}),
+                ("l", 10.2, {"ap": 56.0}),
+                ("x", 14.5, {"ap": 57.8}),
             ],
             "RF-DETR (TopK)": [
                 ("n", 2.8, {"ap": 48.4, "ap50": 67.5, "ap75": 51.7, "ap_small": 25.3, "ap_medium": 53.6, "ap_large": 71.0}),
@@ -412,6 +424,7 @@ MODEL_STYLES = {
     "YOLO26-reported": ("o", -12),
     "YOLO26_RTDETR": ("^", -12),
     "DINOv3-RTDETR": ("X", 8),
+    "DINOv3-STA-RTDETR": ("X", -12),
     "RF-DETR": ("s", -12),
     "RF-DETR (TopK)": ("s", -12),
     "RF-DETR-reported": ("s", 8),
