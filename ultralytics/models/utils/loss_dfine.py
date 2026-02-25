@@ -564,7 +564,10 @@ class RTDETRv4DetectionLoss(nn.Module):
             if pre_indices is not None:
                 merge_list.append(pre_indices)
             box_union_indices = self._merge_union_match_indices(main_indices, merge_list)
-            norm_boxes = self._global_num_matches(box_union_indices, pred_scores.device)
+            if self.training and torch.is_grad_enabled():
+                norm_boxes = self._global_num_matches(box_union_indices, pred_scores.device)
+            else:
+                norm_boxes = max(sum(len(src) for src, _ in box_union_indices), 1.0)
 
         main_box_indices = box_union_indices if box_union_indices is not None else main_indices
 
