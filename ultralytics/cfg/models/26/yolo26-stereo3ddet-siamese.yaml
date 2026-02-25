@@ -11,6 +11,7 @@
 nc: 3
 stereo: true
 siamese: true
+end2end: True
 scales:
   n: [0.50, 0.25, 1024]
   s: [0.50, 0.50, 1024]

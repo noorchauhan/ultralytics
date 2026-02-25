@@ -5,7 +5,7 @@ import math
 import torch
 import torch.nn.functional as F
 
-from ultralytics.utils.loss import DFLoss, v8DetectionLoss
+from ultralytics.utils.loss import DFLoss, E2ELoss, v8DetectionLoss
 from ultralytics.utils.tal import make_anchors
 
 # Reference nc for cls loss normalization — cls BCE sums over B*HW*nc, so fewer
@@ -37,12 +37,15 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         self,
         model,
         tal_topk: int = 10,
-        loss_weights: dict[str, float] | None = None,
-        use_bbox_loss: bool = True,
+        tal_topk2: int | None = None,
     ):
-        super().__init__(model, tal_topk=tal_topk)
-        self.aux_w = loss_weights or {}
-        self.use_bbox_loss = use_bbox_loss
+        super().__init__(model, tal_topk=tal_topk, tal_topk2=tal_topk2)
+
+        # Read loss config from model YAML (E2ELoss creates instances with just model+topk args)
+        yaml_cfg = getattr(model, "yaml", None) or {}
+        training_cfg = yaml_cfg.get("training", {})
+        self.aux_w = training_cfg.get("loss_weights", {})
+        self.use_bbox_loss = bool(training_cfg.get("use_bbox_loss", True))
 
         # Depth bin classification (DFL-style)
         from ultralytics.models.yolo.stereo3ddet.head_yolo11 import DEPTH_BINS, DEPTH_MAX, DEPTH_MIN
@@ -212,3 +215,21 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
                 loss[i] = aux_losses[k] * float(self.aux_w.get(k, 1.0))
 
         return loss * batch_size, loss.detach()
+
+
+class Stereo3DDetE2ELoss(E2ELoss):
+    """E2E loss wrapper for stereo 3D detection.
+
+    Logs one2many losses (which include aux branches) instead of one2one.
+    Handles flat preds from eval mode (validation) by falling back to one2many loss only.
+    """
+
+    def __call__(self, preds, batch):
+        """Compute weighted E2E loss, logging one2many losses (has all 6 components)."""
+        preds = self.one2many.parse_output(preds)
+        # Eval forward returns flat preds (no one2many/one2one wrapper)
+        if "one2many" not in preds:
+            return self.one2many.loss(preds, batch)
+        loss_o2m = self.one2many.loss(preds["one2many"], batch)
+        loss_o2o = self.one2one.loss(preds["one2one"], batch)
+        return loss_o2m[0] * self.o2m + loss_o2o[0] * self.o2o, loss_o2m[1]

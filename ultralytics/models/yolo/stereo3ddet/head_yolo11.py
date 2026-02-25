@@ -77,7 +77,7 @@ class Stereo3DDetHeadYOLO11(Detect):
     Args:
         nc: Number of classes.
         reg_max: DFL channels (forced to 1).
-        end2end: End-to-end mode (forced to False).
+        end2end: End-to-end mode for dual TAL training (one2many + one2one).
         ch: Tuple of per-scale input channels, e.g. (256, 512, 1024) or
             (256, 512, 1024, 64) where the 4th element is cost volume channels.
     """
@@ -91,16 +91,7 @@ class Stereo3DDetHeadYOLO11(Detect):
         self.cv_ch = ch.pop() if len(ch) > 3 else 0
         ch = tuple(ch)
 
-        super().__init__(nc=nc, reg_max=1, end2end=False, ch=ch)  # Force reg_max=1, end2end=False
-
-        # Force reg_max=1 (no DFL) — stereo 3D detection doesn't benefit from DFL
-        self.reg_max = 1
-        self.no = nc + 4  # 4 direct bbox offsets, no distribution
-        c2 = max(16, ch[0] // 4, 4)
-        self.cv2 = nn.ModuleList(
-            nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4, 1)) for x in ch
-        )
-        self.dfl = nn.Identity()
+        super().__init__(nc=nc, reg_max=1, end2end=end2end, ch=ch)  # reg_max=1, E2E from YAML
 
         self.aux_specs = dict(AUX_SPECS)  # mutable copy
         self.depth_dfl = DepthDFL(DEPTH_BINS, DEPTH_MIN, DEPTH_MAX)
@@ -172,3 +163,24 @@ class Stereo3DDetHeadYOLO11(Detect):
             preds["depth"] = self.depth_dfl(preds["depth"])  # decoded [B, 1, HW]
 
         return preds
+
+    def forward(self, x):
+        """Forward pass with E2E dual-TAL during training, one2many-only for inference.
+
+        Stereo always uses one2many for inference (aux branches needed for 3D construction).
+        E2E one2one path only computed during training for improved TAL learning.
+        """
+        preds = self.forward_head(x, **self.one2many)
+        if self.end2end and self.training:
+            x_detach = [xi.detach() for xi in x]
+            one2one = self.forward_head(x_detach, **self.one2one)
+            return {"one2many": preds, "one2one": one2one}
+        if self.training:
+            return preds
+        y = self._inference(preds)
+        return y if self.export else (y, preds)
+
+    def fuse(self):
+        """Remove one2one heads — stereo keeps one2many for aux branches at inference."""
+        if hasattr(self, "one2one_cv2"):
+            self.one2one_cv2 = self.one2one_cv3 = None

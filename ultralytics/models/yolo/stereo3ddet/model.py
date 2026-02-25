@@ -32,7 +32,6 @@ class Stereo3DDetModel(DetectionModel):
 
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
         self.task = "stereo3ddet"
-        self.end2end = False  # stereo uses custom geometric postprocessing, not NMS-free
 
         # Now enable siamese mode and find tap/cv layer indices
         if siamese:
@@ -106,17 +105,9 @@ class Stereo3DDetModel(DetectionModel):
         return x
 
     def init_criterion(self):
-        """Initialize the loss criterion."""
-        from ultralytics.models.yolo.stereo3ddet.loss_yolo11 import Stereo3DDetLossYOLO11
+        """Initialize the loss criterion — E2E when end2end, standard otherwise."""
+        from ultralytics.models.yolo.stereo3ddet.loss_yolo11 import Stereo3DDetE2ELoss, Stereo3DDetLossYOLO11
 
-        aux_w = None
-        use_bbox_loss = True
-        if hasattr(self, "yaml") and self.yaml is not None:
-            training_config = self.yaml.get("training", {})
-            if training_config:
-                if "loss_weights" in training_config:
-                    aux_w = training_config["loss_weights"]
-                if "use_bbox_loss" in training_config:
-                    use_bbox_loss = bool(training_config["use_bbox_loss"])
-
-        return Stereo3DDetLossYOLO11(self, loss_weights=aux_w, use_bbox_loss=use_bbox_loss)
+        if self.end2end:
+            return Stereo3DDetE2ELoss(self, Stereo3DDetLossYOLO11)
+        return Stereo3DDetLossYOLO11(self)

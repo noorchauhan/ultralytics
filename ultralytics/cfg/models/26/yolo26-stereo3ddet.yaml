@@ -7,7 +7,7 @@
 nc: 3 # number of classes (Car, Pedestrian, Cyclist)
 stereo: true # stereo mode flag
 input_channels: 6 # 6-channel input (RGB left + RGB right)
-end2end: True # head forces this to False
+end2end: True
 reg_max: 1
 scales: # model compound scaling constants
   # [depth, width, max_channels]
@@ -64,5 +64,5 @@ head:
   - [[-1, 10], 1, Concat, [1]] # cat head P5
   - [-1, 1, C3k2, [1024, True, 0.5, True]] # 22 (P5/32-large)
 
-  # Multi-scale head (reg_max=1 hard-coded in head, end2end forced to False)
+  # Multi-scale head (reg_max=1 hard-coded in head)
   - [[16, 19, 22], 1, Stereo3DDetHeadYOLO11, [nc]]
