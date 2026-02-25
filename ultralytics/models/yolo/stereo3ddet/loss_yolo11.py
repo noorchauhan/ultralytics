@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 
 from ultralytics.utils.loss import DFLoss, v8DetectionLoss
+from ultralytics.utils.tal import make_anchors
 
 
 class Stereo3DDetLossYOLO11(v8DetectionLoss):
@@ -13,6 +14,9 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
 
     Overrides loss() to add auxiliary 3D losses (lr_distance, depth, dimensions,
     orientation) on top of the standard detection losses (box, cls, dfl).
+
+    Aux losses are quality-weighted by TAL alignment scores, matching the BboxLoss
+    pattern. This makes the aux/det loss ratio invariant to nc (number of classes).
 
     Expected preds dict keys (from head's forward_head):
         - boxes, scores, feats: standard Detect outputs
@@ -47,14 +51,18 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         aux_gt: torch.Tensor,
         gt_idx: torch.Tensor,
         fg_mask: torch.Tensor,
+        weight: torch.Tensor,
+        target_scores_sum: float,
     ) -> torch.Tensor:
-        """Compute auxiliary loss on positives using gathered GT via target_gt_idx.
+        """Compute quality-weighted auxiliary loss on positives.
 
         Args:
             pred_map: [B, C, HW_total] — 3D flattened aux predictions.
             aux_gt: [B, max_n, C] — padded per-image GT.
             gt_idx: [B, HW_total] — assignment indices from TAL.
             fg_mask: [B, HW_total] — boolean foreground mask.
+            weight: [npos, 1] — TAL quality weight per fg anchor.
+            target_scores_sum: scalar normalization factor.
         """
         bs, c, n = pred_map.shape
         pred_flat = pred_map.permute(0, 2, 1)  # [B, HW_total, C]
@@ -72,7 +80,8 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         if pred_pos.numel() == 0:
             return pred_map.sum() * 0.0
 
-        return F.smooth_l1_loss(pred_pos, tgt_pos, reduction="mean")
+        raw = F.smooth_l1_loss(pred_pos, tgt_pos, reduction="none")  # [npos, C]
+        return (raw.mean(-1, keepdim=True) * weight).sum() / target_scores_sum
 
     def _compute_aux_losses(
         self,
@@ -80,8 +89,10 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         batch: dict[str, torch.Tensor],
         target_gt_idx: torch.Tensor,
         fg_mask: torch.Tensor,
+        weight: torch.Tensor,
+        target_scores_sum: float,
     ) -> dict[str, torch.Tensor]:
-        """Compute auxiliary losses for all 3D heads."""
+        """Compute quality-weighted auxiliary losses for all 3D heads."""
         aux_losses: dict[str, torch.Tensor] = {}
         aux_targets = batch.get("aux_targets", {})
 
@@ -93,9 +104,11 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
                 continue
             aux_gt = aux_targets[k].to(self.device)
             if k == "depth" and "depth_bins" in aux_preds:
-                aux_losses[k] = self._depth_bin_loss(aux_preds["depth_bins"], aux_gt, target_gt_idx, fg_mask)
+                aux_losses[k] = self._depth_bin_loss(
+                    aux_preds["depth_bins"], aux_gt, target_gt_idx, fg_mask, weight, target_scores_sum
+                )
             elif k in aux_preds:
-                aux_losses[k] = self._aux_loss(aux_preds[k], aux_gt, target_gt_idx, fg_mask)
+                aux_losses[k] = self._aux_loss(aux_preds[k], aux_gt, target_gt_idx, fg_mask, weight, target_scores_sum)
 
         return aux_losses
 
@@ -105,14 +118,18 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         aux_gt: torch.Tensor,
         gt_idx: torch.Tensor,
         fg_mask: torch.Tensor,
+        weight: torch.Tensor,
+        target_scores_sum: float,
     ) -> torch.Tensor:
-        """Compute DFL-style depth bin classification loss.
+        """Compute quality-weighted DFL-style depth bin classification loss.
 
         Args:
             pred_bins: [B, n_bins, HW_total] — raw logits from depth branch.
             aux_gt: [B, max_n, 1] — log-depth GT values.
             gt_idx: [B, HW_total] — TAL assignment indices.
             fg_mask: [B, HW_total] — boolean foreground mask.
+            weight: [npos, 1] — TAL quality weight per fg anchor.
+            target_scores_sum: scalar normalization factor.
         """
         n_bins = pred_bins.shape[1]
         if aux_gt.shape[1] == 0 or not fg_mask.any():
@@ -133,14 +150,13 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         if pred_fg.numel() == 0:
             return pred_bins.sum() * 0.0
 
-        return self.depth_dfl_loss(pred_fg, tgt_fg.unsqueeze(-1)).mean()
+        raw = self.depth_dfl_loss(pred_fg, tgt_fg.unsqueeze(-1))  # [npos, 1]
+        return (raw * weight).sum() / target_scores_sum
 
     def loss(self, preds: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-        """Calculate stereo 3D detection loss: det losses + aux 3D losses.
+        """Calculate stereo 3D detection loss: det losses + quality-weighted aux 3D losses.
 
-        Args:
-            preds: Dict with boxes, scores, feats, lr_distance, depth, dimensions, orientation.
-            batch: Batch dict with img, batch_idx, cls, bboxes, aux_targets.
+        Inlines TAL assignment from parent to access target_scores for quality weighting.
         """
         # Separate aux preds from detection preds
         aux_keys = {"lr_distance", "depth", "depth_bins", "dimensions", "orientation"}
@@ -148,21 +164,59 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
 
         loss = torch.zeros(6, device=self.device)  # box, cls, lr_dist, depth, dims, orient
 
-        # Get detection losses + TAL assignment results
-        (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor), det_loss, _ = (
-            self.get_assigned_targets_and_loss(preds, batch)
+        # --- Inline TAL assignment (from parent get_assigned_targets_and_loss) ---
+        pred_distri, pred_scores = (
+            preds["boxes"].permute(0, 2, 1).contiguous(),
+            preds["scores"].permute(0, 2, 1).contiguous(),
+        )
+        anchor_points, stride_tensor = make_anchors(preds["feats"], self.stride, 0.5)
+
+        dtype = pred_scores.dtype
+        batch_size = pred_scores.shape[0]
+        imgsz = torch.tensor(preds["feats"][0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
+
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
+
+        _, target_bboxes, target_scores, fg_mask, target_gt_idx = self.assigner(
+            pred_scores.detach().sigmoid(),
+            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+            anchor_points * stride_tensor,
+            gt_labels,
+            gt_bboxes,
+            mask_gt,
         )
 
-        if self.use_bbox_loss:
-            loss[0] = det_loss[0]  # box (already scaled by hyp.box)
-        loss[1] = det_loss[1]  # cls (already scaled by hyp.cls)
-        # det_loss[2] is dfl, which is 0 since reg_max=1
+        target_scores_sum = max(target_scores.sum(), 1)
 
-        # Aux losses
-        aux_losses = self._compute_aux_losses(aux_preds, batch, target_gt_idx, fg_mask)
+        # Cls loss
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
+
+        # Bbox loss
+        if fg_mask.sum():
+            box_loss, _ = self.bbox_loss(
+                pred_distri, pred_bboxes, anchor_points,
+                target_bboxes / stride_tensor, target_scores, target_scores_sum,
+                fg_mask, imgsz, stride_tensor,
+            )
+            if self.use_bbox_loss:
+                loss[0] = box_loss
+
+        loss[0] *= self.hyp.box
+        loss[1] *= self.hyp.cls
+        # --- End inline TAL ---
+
+        # Quality weight for aux losses (same as BboxLoss pattern)
+        weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)  # [npos, 1]
+
+        # Aux losses (quality-weighted)
+        aux_losses = self._compute_aux_losses(aux_preds, batch, target_gt_idx, fg_mask, weight, target_scores_sum)
         for i, k in enumerate(["lr_distance", "depth", "dimensions", "orientation"], 2):
             if k in aux_losses:
                 loss[i] = aux_losses[k] * float(self.aux_w.get(k, 1.0))
 
-        batch_size = preds["boxes"].shape[0]
         return loss * batch_size, loss.detach()
