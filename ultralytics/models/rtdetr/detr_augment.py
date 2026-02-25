@@ -224,7 +224,6 @@ class _RTDETRDEIMMosaic:
         # This matches DEIM's `T.Resize(size=output_size)` behaviour exactly.
         self._resize = T.Resize(size=self.half_size)
         self._affine = T.RandomAffine(degrees=10, translate=(0.1, 0.1), scale=(0.5, 1.5), fill=0)
-        self._sanitize = T.SanitizeBoundingBoxes(min_size=1)
 
     def _convert_to_pil(self, labels: dict[str, Any]) -> dict[str, Any]:
         img = labels.pop("img")
@@ -311,7 +310,6 @@ class _RTDETRDEIMMosaic:
 
         mosaic_labels = self._mosaic4(all_labels)
         mosaic_labels["image"], mosaic_labels["boxes"] = self._affine(mosaic_labels["image"], mosaic_labels["boxes"])
-        mosaic_labels = self._sanitize(mosaic_labels)
         return mosaic_labels
 
 

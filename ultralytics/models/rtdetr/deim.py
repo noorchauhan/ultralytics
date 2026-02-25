@@ -50,10 +50,11 @@ class _RTDETRDEIMBatchAugment:
     def __call__(self, batch: list[dict]) -> dict:
         new_batch = YOLODataset.collate_fn(batch)
         mixup_start, mixup_stop = self.mixup_epochs
+        copyblend_start, copyblend_stop = self.copyblend_epochs
         if mixup_start <= self.epoch < mixup_stop and random.random() < self.mixup_prob:
             new_batch = self._apply_mixup(new_batch)
-        copyblend_start, copyblend_stop = self.copyblend_epochs
-        if copyblend_start <= self.epoch < copyblend_stop and random.random() < self.copyblend_prob:
+        # DEIMv2 applies either MixUp or CopyBlend for a batch, not both.
+        elif copyblend_start <= self.epoch < copyblend_stop and random.random() < self.copyblend_prob:
             new_batch = self._apply_copyblend(new_batch)
         return new_batch
 
@@ -65,7 +66,8 @@ class _RTDETRDEIMBatchAugment:
 
         beta = random.uniform(0.45, 0.55)
         shifted_images = torch.roll(images, shifts=1, dims=0)
-        batch["img"] = ((1 - beta) * shifted_images + beta * images).to(images.dtype)
+        # Keep mixed images in float precision (DEIMv2 mixes on float tensors).
+        batch["img"] = (1 - beta) * shifted_images.to(torch.float32) + beta * images.to(torch.float32)
 
         bboxes = batch["bboxes"]
         cls = batch["cls"]
@@ -125,7 +127,8 @@ class _RTDETRDEIMBatchAugment:
             areas = (src_boxes_xyxy[:, 2] - src_boxes_xyxy[:, 0]).clamp(min=0) * (
                 src_boxes_xyxy[:, 3] - src_boxes_xyxy[:, 1]
             ).clamp(min=0)
-            object_indices = torch.nonzero(areas <= self._COPYBLEND_AREA_THRESHOLD).squeeze(1)
+            # Match DEIMv2: select objects above area threshold.
+            object_indices = torch.nonzero(areas >= self._COPYBLEND_AREA_THRESHOLD).squeeze(1)
             if object_indices.numel() == 0:
                 continue
 
@@ -343,6 +346,9 @@ class RTDETRDEIMTrainer(RTDETRTrainer):
         epoch = trainer.epoch
         dataset = trainer.train_loader.dataset
         dataset.set_epoch(epoch)
+        # InfiniteDataLoader keeps workers/iterator alive; reset so worker-side
+        # dataset transforms and collate_fn pick up the updated epoch.
+        trainer.train_loader.reset()
         stop_epoch = int(dataset.policy_epochs[-1])
         if epoch == stop_epoch and trainer.args.multi_scale > 0:
             trainer.args.multi_scale = 0.0
