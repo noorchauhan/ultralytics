@@ -150,12 +150,22 @@ class _RTDETRDEIMPolicy:
         fliplr: float,
         policy_epochs: tuple[int, int, int],
         mosaic_prob: float,
+        mosaic_use_cache: bool = False,
+        mosaic_max_cached_images: int = 50,
+        mosaic_random_pop: bool = True,
     ) -> None:
         import torchvision.transforms.v2 as T
 
         self.to_tv = _RTDETRToTvTensors()
         # DEIM Mosaic op itself runs with probability 1.0; branch routing is handled externally via mosaic_prob.
-        self.mosaic = _RTDETRDEIMMosaic(dataset, imgsz=imgsz, p=1.0)
+        self.mosaic = _RTDETRDEIMMosaic(
+            dataset,
+            imgsz=imgsz,
+            p=1.0,
+            use_cache=mosaic_use_cache,
+            max_cached_images=mosaic_max_cached_images,
+            random_pop=mosaic_random_pop,
+        )
         self.photometric = T.RandomPhotometricDistort(p=0.5)
         self.zoomout = T.RandomZoomOut(fill=0)
         self.ioucrop = _RTDETRRandomIoUCrop(p=0.8)
@@ -212,13 +222,25 @@ class _RTDETRDEIMPolicy:
 class _RTDETRDEIMMosaic:
     """DEIM-style Mosaic that keeps data in torchvision tv_tensor format."""
 
-    def __init__(self, dataset, imgsz: int = 640, p: float = 1.0) -> None:
+    def __init__(
+        self,
+        dataset,
+        imgsz: int = 640,
+        p: float = 1.0,
+        use_cache: bool = False,
+        max_cached_images: int = 50,
+        random_pop: bool = True,
+    ) -> None:
         import torchvision.transforms.v2 as T
         from torchvision import tv_tensors
 
         self.dataset = dataset
         self.half_size = imgsz // 2
         self.p = p
+        self.use_cache = bool(use_cache)
+        self.max_cached_images = max(1, int(max_cached_images))
+        self.random_pop = bool(random_pop)
+        self.mosaic_cache: list[dict[str, Any]] = []
         self._tv_tensors = tv_tensors
         # Single int → torchvision resizes the shorter edge to half_size, preserving aspect ratio.
         # This matches DEIM's `T.Resize(size=output_size)` behaviour exactly.
@@ -253,6 +275,19 @@ class _RTDETRDEIMMosaic:
         labels["boxes"] = self._tv_tensors.BoundingBoxes(boxes_tensor, format="XYXY", canvas_size=(h, w))
         labels["labels"] = cls_tensor
         return labels
+
+    def _clone_mosaic_labels(self, labels: dict[str, Any]) -> dict[str, Any]:
+        """Clone mosaic sample dict for cache re-use without shared mutable state."""
+        boxes = labels["boxes"]
+        return {
+            "image": labels["image"].copy(),
+            "boxes": self._tv_tensors.BoundingBoxes(
+                boxes.clone().to(torch.float32),
+                format="XYXY",
+                canvas_size=tuple(boxes.canvas_size),
+            ),
+            "labels": labels["labels"].clone(),
+        }
 
     def _mosaic4(self, labels_list: list[dict[str, Any]]) -> dict[str, Any]:
         # Derive canvas dimensions from the actual tile sizes after aspect-preserving resize.
@@ -293,13 +328,8 @@ class _RTDETRDEIMMosaic:
             "labels": final_cls,
         }
 
-    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
-        labels = self._convert_to_pil(labels)
-        if random.random() > self.p:
-            return labels
-
+    def _load_samples_from_dataset(self, labels: dict[str, Any]) -> list[dict[str, Any]]:
         labels["image"], labels["boxes"] = self._resize(labels["image"], labels["boxes"])
-
         sample_indices = random.choices(range(len(self.dataset)), k=3)
         all_labels = [labels]
         for idx in sample_indices:
@@ -307,6 +337,30 @@ class _RTDETRDEIMMosaic:
             other = self._convert_to_pil(other)
             other["image"], other["boxes"] = self._resize(other["image"], other["boxes"])
             all_labels.append(other)
+        return all_labels
+
+    def _load_samples_from_cache(self, labels: dict[str, Any]) -> list[dict[str, Any]]:
+        labels["image"], labels["boxes"] = self._resize(labels["image"], labels["boxes"])
+        self.mosaic_cache.append(self._clone_mosaic_labels(labels))
+        if len(self.mosaic_cache) > self.max_cached_images:
+            if self.random_pop and len(self.mosaic_cache) > 1:
+                pop_idx = random.randint(0, len(self.mosaic_cache) - 2)  # keep the latest sample
+            else:
+                pop_idx = 0
+            self.mosaic_cache.pop(pop_idx)
+
+        sample_indices = random.choices(range(len(self.mosaic_cache)), k=3)
+        all_labels = [self._clone_mosaic_labels(labels)]
+        for idx in sample_indices:
+            all_labels.append(self._clone_mosaic_labels(self.mosaic_cache[idx]))
+        return all_labels
+
+    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
+        labels = self._convert_to_pil(labels)
+        if random.random() > self.p:
+            return labels
+
+        all_labels = self._load_samples_from_cache(labels) if self.use_cache else self._load_samples_from_dataset(labels)
 
         mosaic_labels = self._mosaic4(all_labels)
         mosaic_labels["image"], mosaic_labels["boxes"] = self._affine(mosaic_labels["image"], mosaic_labels["boxes"])
@@ -361,10 +415,17 @@ def rtdetr_deim_transforms(
     if not hasattr(hyp, "fliplr"):
         raise AttributeError("rtdetr_deim_transforms requires 'fliplr' in hyp.")
     fliplr = float(hyp.fliplr)
+    # Hardcoded DEIMv2-style defaults for now (not exposed in default.yaml/hyp).
+    mosaic_use_cache = True
+    mosaic_max_cached_images = 50
+    mosaic_random_pop = True
     return _RTDETRDEIMPolicy(
         dataset=dataset,
         imgsz=imgsz,
         fliplr=fliplr,
         policy_epochs=policy_epochs,
         mosaic_prob=float(mosaic_prob),
+        mosaic_use_cache=mosaic_use_cache,
+        mosaic_max_cached_images=mosaic_max_cached_images,
+        mosaic_random_pop=mosaic_random_pop,
     )
