@@ -27,6 +27,8 @@ class _RTDETRDEIMBatchAugment:
 
     _COPYBLEND_AREA_THRESHOLD = 100.0
     _COPYBLEND_NUM_OBJECTS = 3
+    _COPYBLEND_RANDOM_NUM_OBJECTS = False
+    _COPYBLEND_TYPE = "blend"
     _COPYBLEND_WITH_EXPAND = True
     _COPYBLEND_EXPAND_RATIOS = (0.1, 0.25)
 
@@ -58,143 +60,252 @@ class _RTDETRDEIMBatchAugment:
             new_batch = self._apply_copyblend(new_batch)
         return new_batch
 
+    @staticmethod
+    def _boxes_area_xywhn(boxes: torch.Tensor, w: int, h: int) -> torch.Tensor:
+        """Compute absolute area from normalized xywh boxes."""
+        if boxes.numel() == 0:
+            return boxes.new_zeros((0,), dtype=torch.float32)
+        return boxes[:, 2].to(torch.float32) * float(w) * boxes[:, 3].to(torch.float32) * float(h)
+
+    @staticmethod
+    def _stack_or_empty(tensors: list[torch.Tensor], shape: tuple[int, ...], *, like: torch.Tensor) -> torch.Tensor:
+        """Stack or return empty tensor with desired shape/dtype/device."""
+        if tensors:
+            return torch.cat(tensors, dim=0)
+        return torch.empty(shape, device=like.device, dtype=like.dtype)
+
+    def _batch_to_targets(self, batch: dict) -> list[dict[str, torch.Tensor]]:
+        """Convert flattened Ultralytics target format into DEIMv2-style per-image targets."""
+        images = batch["img"]
+        bs, _, h, w = images.shape
+        bboxes = batch["bboxes"]
+        cls = batch["cls"]
+        batch_idx = batch["batch_idx"].view(-1).to(dtype=torch.long)
+        labels_flat = cls.view(-1)
+        mixup_flat = batch.get("mixup")
+        mixup_flat = mixup_flat.view(-1) if isinstance(mixup_flat, torch.Tensor) else None
+
+        targets = []
+        for i in range(bs):
+            mask = batch_idx == i
+            boxes_i = bboxes[mask]
+            labels_i = labels_flat[mask]
+            area_i = self._boxes_area_xywhn(boxes_i, w=w, h=h)
+            target = {"boxes": boxes_i.clone(), "labels": labels_i.clone(), "area": area_i}
+            if mixup_flat is not None and mixup_flat.numel() == bboxes.shape[0]:
+                target["mixup"] = mixup_flat[mask].clone()
+            targets.append(target)
+        return targets
+
+    def _targets_to_batch(self, batch: dict, targets: list[dict[str, torch.Tensor]]) -> dict:
+        """Convert DEIMv2-style per-image targets back to flattened Ultralytics format."""
+        ref_boxes = batch["bboxes"]
+        ref_cls = batch["cls"]
+        ref_batch_idx = batch["batch_idx"]
+
+        boxes_list, cls_list, batch_idx_list, mixup_list = [], [], [], []
+        has_mixup = any("mixup" in t for t in targets)
+
+        for i, target in enumerate(targets):
+            boxes = target["boxes"]
+            n = int(boxes.shape[0])
+            if n == 0:
+                continue
+
+            labels = target["labels"]
+            labels = labels.view(-1, 1) if ref_cls.ndim == 2 else labels.view(-1)
+
+            boxes_list.append(boxes.to(device=ref_boxes.device, dtype=ref_boxes.dtype))
+            cls_list.append(labels.to(device=ref_cls.device, dtype=ref_cls.dtype))
+            batch_idx_list.append(torch.full((n,), i, device=ref_batch_idx.device, dtype=ref_batch_idx.dtype))
+
+            if has_mixup:
+                if "mixup" in target:
+                    mixup_vals = target["mixup"]
+                else:
+                    mixup_vals = torch.ones((n,), device=ref_boxes.device, dtype=torch.float32)
+                mixup_list.append(mixup_vals.to(device=ref_boxes.device, dtype=torch.float32))
+
+        batch["bboxes"] = self._stack_or_empty(boxes_list, (0, ref_boxes.shape[1]), like=ref_boxes)
+        if ref_cls.ndim == 2:
+            batch["cls"] = self._stack_or_empty(cls_list, (0, ref_cls.shape[1]), like=ref_cls)
+        else:
+            batch["cls"] = self._stack_or_empty(cls_list, (0,), like=ref_cls)
+        batch["batch_idx"] = self._stack_or_empty(batch_idx_list, (0,), like=ref_batch_idx)
+
+        if has_mixup:
+            batch["mixup"] = self._stack_or_empty(mixup_list, (0,), like=ref_boxes).to(torch.float32)
+        elif "mixup" in batch:
+            batch.pop("mixup")
+
+        return batch
+
     def _apply_mixup(self, batch: dict) -> dict:
         images = batch["img"]
         bs = images.shape[0]
         if bs < 2:
             return batch
 
-        beta = random.uniform(0.45, 0.55)
-        shifted_images = torch.roll(images, shifts=1, dims=0)
-        # Keep mixed images in float precision (DEIMv2 mixes on float tensors).
-        batch["img"] = (1 - beta) * shifted_images.to(torch.float32) + beta * images.to(torch.float32)
+        targets = self._batch_to_targets(batch)
+        shifted_targets = targets[-1:] + targets[:-1]
+        updated_targets = []
 
-        bboxes = batch["bboxes"]
-        cls = batch["cls"]
-        batch_idx = batch["batch_idx"]
-        new_batch_idx = (batch_idx + 1) % bs
+        beta = round(random.uniform(0.45, 0.55), 6)
+        images_f = images.to(torch.float32)
+        shifted_images = torch.roll(images_f, shifts=1, dims=0)
+        batch["img"] = shifted_images.mul(1.0 - beta).add(images_f.mul(beta))
 
-        batch["bboxes"] = torch.cat([bboxes, bboxes], dim=0)
-        batch["cls"] = torch.cat([cls, cls], dim=0)
-        batch["batch_idx"] = torch.cat([batch_idx, new_batch_idx], dim=0)
-        return batch
+        for target, shifted_target in zip(targets, shifted_targets):
+            out = {
+                "boxes": torch.cat([target["boxes"], shifted_target["boxes"]], dim=0),
+                "labels": torch.cat([target["labels"], shifted_target["labels"]], dim=0),
+                "area": torch.cat([target["area"], shifted_target["area"]], dim=0),
+                "mixup": torch.tensor(
+                    [beta] * len(target["labels"]) + [1.0 - beta] * len(shifted_target["labels"]),
+                    device=batch["img"].device,
+                    dtype=torch.float32,
+                ),
+            }
+            updated_targets.append(out)
 
-    @staticmethod
-    def _xywhn_to_xyxy(boxes: torch.Tensor, w: int, h: int) -> torch.Tensor:
-        """Convert normalized xywh boxes to absolute xyxy."""
-        scale = boxes.new_tensor([w, h, w, h])
-        boxes_abs = boxes * scale
-        half_wh = boxes_abs[:, 2:4] / 2
-        out = boxes_abs.clone()
-        out[:, 0:2] = boxes_abs[:, 0:2] - half_wh
-        out[:, 2:4] = boxes_abs[:, 0:2] + half_wh
-        return out
-
-    @staticmethod
-    def _xyxy_to_xywhn(box: torch.Tensor, w: int, h: int) -> torch.Tensor:
-        """Convert one absolute xyxy box to normalized xywh."""
-        bw = (box[2] - box[0]).clamp(min=1.0)
-        bh = (box[3] - box[1]).clamp(min=1.0)
-        cx = box[0] + bw / 2
-        cy = box[1] + bh / 2
-        return torch.stack((cx / w, cy / h, bw / w, bh / h)).clamp(0.0, 1.0).to(dtype=torch.float32)
+        return self._targets_to_batch(batch, updated_targets)
 
     def _apply_copyblend(self, batch: dict) -> dict:
-        """Copy small objects across images in the same batch with blended paste."""
+        """CopyBlend implementation aligned with DEIMv2 collate behavior."""
         images = batch["img"]
         bs = images.shape[0]
         if bs < 2:
             return batch
 
-        _, h, w = images.shape[1:]
-        bboxes = batch["bboxes"]
-        cls = batch["cls"]
-        batch_idx = batch["batch_idx"]
+        images_f = images.to(torch.float32)
+        targets = self._batch_to_targets(batch)
+        beta = round(random.uniform(0.45, 0.55), 6)
+        img_height, img_width = images_f[0].shape[-2:]
 
-        new_boxes, new_cls, new_batch_idx = [], [], []
-        device = bboxes.device
+        objects_pool: dict[str, list[Any]] = {
+            "boxes": [],
+            "labels": [],
+            "areas": [],
+            "image_idx": [],
+            "image_height": [],
+            "image_width": [],
+        }
 
-        for dst_i in range(bs):
-            src_candidates = [i for i in range(bs) if i != dst_i]
-            src_i = random.choice(src_candidates)
+        for i in range(bs):
+            source_boxes = targets[i]["boxes"]
+            source_labels = targets[i]["labels"]
+            source_areas = targets[i]["area"]
 
-            src_mask = batch_idx == src_i
-            if not src_mask.any():
-                continue
+            valid_objects = [idx for idx in range(len(source_boxes)) if source_areas[idx] >= self._COPYBLEND_AREA_THRESHOLD]
+            for idx in valid_objects:
+                objects_pool["boxes"].append(source_boxes[idx])
+                objects_pool["labels"].append(source_labels[idx])
+                objects_pool["areas"].append(source_areas[idx])
+                objects_pool["image_idx"].append(i)
+                objects_pool["image_height"].append(img_height)
+                objects_pool["image_width"].append(img_width)
 
-            src_boxes_xyxy = self._xywhn_to_xyxy(bboxes[src_mask].to(dtype=torch.float32), w=w, h=h)
-            src_cls = cls[src_mask]
-            areas = (src_boxes_xyxy[:, 2] - src_boxes_xyxy[:, 0]).clamp(min=0) * (
-                src_boxes_xyxy[:, 3] - src_boxes_xyxy[:, 1]
-            ).clamp(min=0)
-            # Match DEIMv2: select objects above area threshold.
-            object_indices = torch.nonzero(areas >= self._COPYBLEND_AREA_THRESHOLD).squeeze(1)
-            if object_indices.numel() == 0:
-                continue
+        if len(objects_pool["boxes"]) == 0:
+            return batch
 
-            num_objects = min(self._COPYBLEND_NUM_OBJECTS, int(object_indices.numel()))
-            selected = random.sample(object_indices.tolist(), k=num_objects)
+        for key in ["boxes", "labels", "areas"]:
+            objects_pool[key] = torch.stack(objects_pool[key]) if objects_pool[key] else torch.tensor([])
 
-            for obj_idx in selected:
-                x1, y1, x2, y2 = src_boxes_xyxy[obj_idx].tolist()
-                bw = max(x2 - x1, 1.0)
-                bh = max(y2 - y1, 1.0)
+        updated_images = images_f.clone()
+        updated_targets = [
+            {k: (v.clone() if isinstance(v, torch.Tensor) else v) for k, v in target.items()} for target in targets
+        ]
+
+        for i in range(bs):
+            pool_size = len(objects_pool["boxes"])
+            if self._COPYBLEND_RANDOM_NUM_OBJECTS:
+                num_objects = random.randint(1, min(self._COPYBLEND_NUM_OBJECTS, pool_size))
+            else:
+                num_objects = min(self._COPYBLEND_NUM_OBJECTS, pool_size)
+
+            selected_indices = random.sample(range(pool_size), num_objects)
+            blend_boxes, blend_labels, blend_areas, blend_mixup_ratios = [], [], [], []
+
+            for idx in selected_indices:
+                box = objects_pool["boxes"][idx]
+                label = objects_pool["labels"][idx]
+                area = objects_pool["areas"][idx]
+                source_idx = objects_pool["image_idx"][idx]
+                source_height = objects_pool["image_height"][idx]
+                source_width = objects_pool["image_width"][idx]
+
+                cx, cy, bw, bh = box.tolist()
+                x1_src = int((cx - bw / 2) * source_width)
+                y1_src = int((cy - bh / 2) * source_height)
+                x2_src = int((cx + bw / 2) * source_width)
+                y2_src = int((cy + bh / 2) * source_height)
+
+                x1_src = max(x1_src, 0)
+                y1_src = max(y1_src, 0)
+                x2_src = min(x2_src, img_width)
+                y2_src = min(y2_src, img_height)
+                new_w_px = x2_src - x1_src
+                new_h_px = y2_src - y1_src
+                if new_w_px <= 0 or new_h_px <= 0:
+                    continue
+
+                x1 = random.randint(0, img_width - new_w_px) if new_w_px < img_width else 0
+                y1 = random.randint(0, img_height - new_h_px) if new_h_px < img_height else 0
+                x2, y2 = x1 + new_w_px, y1 + new_h_px
+
+                new_cx = (x1 + new_w_px / 2) / img_width
+                new_cy = (y1 + new_h_px / 2) / img_height
+                new_w = new_w_px / img_width
+                new_h = new_h_px / img_height
+
+                blend_boxes.append(torch.tensor([new_cx, new_cy, new_w, new_h], device=box.device, dtype=box.dtype))
+                blend_labels.append(label)
+                blend_areas.append(area)
+                blend_mixup_ratios.append(1.0 - beta)
 
                 if self._COPYBLEND_WITH_EXPAND:
-                    expand_ratio = random.uniform(*self._COPYBLEND_EXPAND_RATIOS)
-                    padw = bw * expand_ratio
-                    padh = bh * expand_ratio
+                    alpha = round(random.uniform(self._COPYBLEND_EXPAND_RATIOS[0], self._COPYBLEND_EXPAND_RATIOS[1]), 6)
+                    expand_w = int(new_w_px * alpha)
+                    expand_h = int(new_h_px * alpha)
+
+                    x1_expand = x1_src - max(x1_src - expand_w, 0)
+                    y1_expand = y1_src - max(y1_src - expand_h, 0)
+                    x2_expand = min(x2_src + expand_w, img_width) - x2_src
+                    y2_expand = min(y2_src + expand_h, img_height) - y2_src
+
+                    new_x1_expand = x1 - max(x1 - x1_expand, 0)
+                    new_y1_expand = y1 - max(y1 - y1_expand, 0)
+                    new_x2_expand = min(x2 + x2_expand, img_width) - x2
+                    new_y2_expand = min(y2 + y2_expand, img_height) - y2
+
+                    x1_src, y1_src = x1_src - new_x1_expand, y1_src - new_y1_expand
+                    x2_src, y2_src = x2_src + new_x2_expand, y2_src + new_y2_expand
+                    x1, y1 = x1 - new_x1_expand, y1 - new_y1_expand
+                    x2, y2 = x2 + new_x2_expand, y2 + new_y2_expand
+
+                copy_patch_orig = images_f[source_idx, :, y1_src:y2_src, x1_src:x2_src]
+                if self._COPYBLEND_TYPE == "blend":
+                    blended_patch = updated_images[i, :, y1:y2, x1:x2] * beta + copy_patch_orig * (1 - beta)
+                    updated_images[i, :, y1:y2, x1:x2] = blended_patch
                 else:
-                    padw, padh = 0.0, 0.0
+                    updated_images[i, :, y1:y2, x1:x2] = copy_patch_orig
 
-                sx1 = max(0, min(w - 1, math.floor(x1 - padw)))
-                sy1 = max(0, min(h - 1, math.floor(y1 - padh)))
-                sx2 = max(sx1 + 1, min(w, math.ceil(x2 + padw)))
-                sy2 = max(sy1 + 1, min(h, math.ceil(y2 + padh)))
-                patch_h, patch_w = sy2 - sy1, sx2 - sx1
-                if patch_h <= 0 or patch_w <= 0:
-                    continue
+            if blend_boxes:
+                blend_boxes_t = torch.stack(blend_boxes)
+                blend_labels_t = torch.stack(blend_labels)
+                blend_areas_t = torch.stack(blend_areas)
 
-                max_x = w - patch_w
-                max_y = h - patch_h
-                if max_x < 0 or max_y < 0:
-                    continue
-                dx1 = random.randint(0, max_x)
-                dy1 = random.randint(0, max_y)
-                dx2, dy2 = dx1 + patch_w, dy1 + patch_h
-
-                src_patch = images[src_i, :, sy1:sy2, sx1:sx2]
-                dst_patch = images[dst_i, :, dy1:dy2, dx1:dx2]
-                alpha = random.uniform(0.45, 0.55)
-                blended = (1.0 - alpha) * dst_patch.to(torch.float32) + alpha * src_patch.to(torch.float32)
-                if images.dtype.is_floating_point:
-                    images[dst_i, :, dy1:dy2, dx1:dx2] = blended.to(images.dtype)
-                else:
-                    images[dst_i, :, dy1:dy2, dx1:dx2] = blended.round().to(images.dtype)
-
-                ox1 = float(dx1 + (x1 - sx1))
-                oy1 = float(dy1 + (y1 - sy1))
-                ox2 = ox1 + bw
-                oy2 = oy1 + bh
-                ox1 = max(0.0, min(ox1, w - 2.0))
-                oy1 = max(0.0, min(oy1, h - 2.0))
-                ox2 = max(ox1 + 1.0, min(ox2, w - 1.0))
-                oy2 = max(oy1 + 1.0, min(oy2, h - 1.0))
-                new_box = torch.tensor(
-                    [ox1, oy1, ox2, oy2],
-                    device=device,
+                updated_targets[i]["mixup"] = torch.tensor(
+                    [1.0] * len(updated_targets[i]["boxes"]) + blend_mixup_ratios,
+                    device=blend_boxes_t.device,
                     dtype=torch.float32,
                 )
-                new_boxes.append(self._xyxy_to_xywhn(new_box, w=w, h=h).to(device=device, dtype=bboxes.dtype))
-                new_cls.append(src_cls[obj_idx].to(device=device, dtype=cls.dtype))
-                new_batch_idx.append(torch.tensor(float(dst_i), device=device, dtype=batch_idx.dtype))
+                updated_targets[i]["boxes"] = torch.cat([updated_targets[i]["boxes"], blend_boxes_t])
+                updated_targets[i]["labels"] = torch.cat([updated_targets[i]["labels"], blend_labels_t])
+                updated_targets[i]["area"] = torch.cat([updated_targets[i]["area"], blend_areas_t])
 
-        if new_boxes:
-            batch["img"] = images
-            batch["bboxes"] = torch.cat([bboxes, torch.stack(new_boxes, dim=0)], dim=0)
-            batch["cls"] = torch.cat([cls, torch.stack(new_cls, dim=0)], dim=0)
-            batch["batch_idx"] = torch.cat([batch_idx, torch.stack(new_batch_idx, dim=0)], dim=0)
-        return batch
+        batch["img"] = updated_images
+        return self._targets_to_batch(batch, updated_targets)
 
 
 class RTDETRDEIMDataset(RTDETRDataset):
