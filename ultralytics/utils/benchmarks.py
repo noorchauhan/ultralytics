@@ -36,6 +36,7 @@ import platform
 import re
 import shutil
 import time
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -101,7 +102,6 @@ def benchmark(
     device = select_device(device, verbose=False)
     if isinstance(model, (str, Path)):
         model = YOLO(model)
-    is_end2end = getattr(model.model.model[-1], "end2end", False)
     data = data or TASK2DATA[model.task]  # task to dataset, i.e. coco8.yaml for task=detect
     key = TASK2METRIC[model.task]  # task to metric, i.e. metrics/mAP50-95(B) for task=detect
 
@@ -135,40 +135,34 @@ def benchmark(
             if format == "paddle":
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 Paddle exports not supported yet"
                 assert model.task != "obb", "Paddle OBB bug https://github.com/PaddlePaddle/Paddle/issues/72024"
-                assert not is_end2end, "End-to-end models not supported by PaddlePaddle yet"
                 assert (LINUX and not IS_JETSON) or MACOS, "Windows and Jetson Paddle exports not supported yet"
             if format == "mnn":
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 MNN exports not supported yet"
             if format == "ncnn":
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 NCNN exports not supported yet"
             if format == "imx":
-                assert not is_end2end
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 IMX exports not supported"
-                assert model.task in {"detect", "classify", "pose"}, (
-                    "IMX export is only supported for detection, classification and pose estimation tasks"
+                assert model.task in {"detect", "classify", "pose", "segment"}, (
+                    "IMX export is only supported for detection, classification, pose estimation and segmentation tasks"
                 )
                 assert "C2f" in model.__str__(), "IMX only supported for YOLOv8n and YOLO11n"
             if format == "rknn":
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 RKNN exports not supported yet"
-                assert not is_end2end, "End-to-end models not supported by RKNN yet"
                 assert LINUX, "RKNN only supported on Linux"
                 assert not is_rockchip(), "RKNN Inference only supported on Rockchip devices"
             if format == "executorch":
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 ExecuTorch exports not supported yet"
-                assert not is_end2end, "End-to-end models not supported by ExecuTorch yet"
             if "cpu" in device.type:
                 assert cpu, "inference not supported on CPU"
             if "cuda" in device.type:
                 assert gpu, "inference not supported on GPU"
-            if format == "ncnn":
-                assert not is_end2end, "End-to-end torch.topk operation is not supported for NCNN prediction yet"
 
             # Export
             if format == "-":
                 filename = model.pt_path or model.ckpt_path or model.model_name
-                exported_model = model  # PyTorch format
+                exported_model = deepcopy(model)  # PyTorch format
             else:
-                filename = model.export(
+                filename = deepcopy(model).export(
                     imgsz=imgsz, format=format, half=half, int8=int8, data=data, device=device, verbose=False, **kwargs
                 )
                 exported_model = YOLO(filename, task=model.task)
@@ -177,7 +171,6 @@ def benchmark(
 
             # Predict
             assert model.task != "pose" or format != "pb", "GraphDef Pose inference is not supported"
-            assert model.task != "pose" or format != "executorch", "ExecuTorch Pose inference is not supported"
             assert format not in {"edgetpu", "tfjs"}, "inference not supported"
             assert format != "coreml" or platform.system() == "Darwin", "inference only supported on macOS>=10.13"
             exported_model.predict(ASSETS / "bus.jpg", imgsz=imgsz, device=device, half=half, verbose=False)
@@ -226,14 +219,14 @@ def benchmark(
 
 
 class RF100Benchmark:
-    """Benchmark YOLO model performance across various formats for speed and accuracy.
+    """Benchmark YOLO model performance on the RF100 dataset collection.
 
-    This class provides functionality to benchmark YOLO models on the RF100 dataset collection.
+    This class provides functionality to download, process, and evaluate YOLO models on the RF100 datasets.
 
     Attributes:
         ds_names (list[str]): Names of datasets used for benchmarking.
         ds_cfg_list (list[Path]): List of paths to dataset configuration files.
-        rf (Roboflow): Roboflow instance for accessing datasets.
+        rf (Roboflow | None): Roboflow instance for accessing datasets.
         val_metrics (list[str]): Metrics used for validation.
 
     Methods:
@@ -244,7 +237,7 @@ class RF100Benchmark:
     """
 
     def __init__(self):
-        """Initialize the RF100Benchmark class for benchmarking YOLO model performance across various formats."""
+        """Initialize the RF100Benchmark class for benchmarking YOLO model performance on RF100 datasets."""
         self.ds_names = []
         self.ds_cfg_list = []
         self.rf = None
@@ -273,8 +266,7 @@ class RF100Benchmark:
             ds_link_txt (str): Path to the file containing dataset links.
 
         Returns:
-            ds_names (list[str]): List of dataset names.
-            ds_cfg_list (list[Path]): List of paths to dataset configuration files.
+            (tuple[list[str], list[Path]]): List of dataset names and list of paths to dataset configuration files.
 
         Examples:
             >>> benchmark = RF100Benchmark()
@@ -511,7 +503,7 @@ class ProfileModels:
 
     @staticmethod
     def get_onnx_model_info(onnx_file: str):
-        """Extract metadata from an ONNX model file including parameters, GFLOPs, and input shape."""
+        """Extract metadata from an ONNX model file including layers, parameters, gradients, and FLOPs."""
         return 0.0, 0.0, 0.0, 0.0  # return (num_layers, num_params, num_gradients, num_flops)
 
     @staticmethod
@@ -543,8 +535,7 @@ class ProfileModels:
             eps (float): Small epsilon value to prevent division by zero.
 
         Returns:
-            mean_time (float): Mean inference time in milliseconds.
-            std_time (float): Standard deviation of inference time in milliseconds.
+            (tuple[float, float]): Mean and standard deviation of inference time in milliseconds.
         """
         if not self.trt or not Path(engine_file).is_file():
             return 0.0, 0.0
@@ -586,8 +577,7 @@ class ProfileModels:
             eps (float): Small epsilon value to prevent division by zero.
 
         Returns:
-            mean_time (float): Mean inference time in milliseconds.
-            std_time (float): Standard deviation of inference time in milliseconds.
+            (tuple[float, float]): Mean and standard deviation of inference time in milliseconds.
         """
         check_requirements([("onnxruntime", "onnxruntime-gpu")])  # either package meets requirements
         import onnxruntime as ort
