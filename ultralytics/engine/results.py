@@ -459,6 +459,7 @@ class Results(SimpleClass, DataExportMixin):
         filename: str | None = None,
         color_mode: str = "class",
         txt_color: tuple[int, int, int] = (255, 255, 255),
+        show_speed = True
     ) -> np.ndarray:
         """Plot detection results on an input BGR image.
 
@@ -568,6 +569,20 @@ class Results(SimpleClass, DataExportMixin):
                     kpt_color=colors(i, True) if color_mode == "instance" else None,
                 )
 
+        if show_speed and any(v is not None for v in self.speed.values()):
+            total_ms  = self.speed.get("inference") or 0.0
+            fps = 1000.0 / total_ms if total_ms > 0 else 0.0
+            speed_text = (
+                f"{total_ms:.1f}ms/{fps:.1f}FPS"
+            )
+            x_pos = round(self.orig_shape[1] * 0.01)   # 1% from left
+            y_pos = round(self.orig_shape[0] * 0.97)   # 97% from top (bottom-left)
+            annotator.text(
+                [x_pos, y_pos],
+                speed_text,
+                txt_color=(255, 255, 255),
+                box_color=(0, 0, 0, 160))  # semi-transparent black background
+        
         # Show results
         if show:
             annotator.show(self.path)
