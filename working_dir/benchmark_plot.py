@@ -276,6 +276,11 @@ BENCHMARKS = {
                 ("l3", 10.4, {"ap": 54.3, "ap50": 72.8, "ap75": 58.9, "ap_small": 35.1, "ap_medium": 59.7, "ap_large": 73.0}, 0.1),
                 ("l6", 11.4, {"ap": 55.0, "ap50": 73.7, "ap75": 59.6, "ap_small": 36.3, "ap_medium": 60.4, "ap_large": 74.3}, 0.1),
             ],
+            "DINOv3-STA-RTDETR (obj365)": [
+                # NOTE: AP metrics are provided as fractional values in logs; converted here to percentage points.
+                # Latency is kept equal to the current l6 entry until a dedicated obj365 latency measurement is available.
+                ("l6", 11.4, {"ap": 56.8, "ap50": 75.2, "ap75": 61.8, "ap_small": 39.9, "ap_medium": 61.4, "ap_large": 74.5}, 0.1),
+            ],
             "DEIMv2": [
                 ("pico", 1.7, {"ap": 38.5}),
                 ("n", 2.0, {"ap": 43.0}),
@@ -425,6 +430,7 @@ MODEL_STYLES = {
     "YOLO26_RTDETR": ("^", -12),
     "DINOv3-RTDETR": ("X", 8),
     "DINOv3-STA-RTDETR": ("X", -12),
+    "DINOv3-STA-RTDETR (obj365)": ("X", 8),
     "RF-DETR": ("s", -12),
     "RF-DETR (TopK)": ("s", -12),
     "RF-DETR-reported": ("s", 8),
