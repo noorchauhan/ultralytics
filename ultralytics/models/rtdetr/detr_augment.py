@@ -372,6 +372,7 @@ def compute_policy_epochs(hyp: IterableSimpleNamespace) -> tuple[int, int, int]:
 
     Supports optional DEIM-style schedule key:
       - flat_epoch: explicit stage-2 end / stage-3 start epoch
+      - no_aug_epoch: explicit no-augmentation tail length at the end of training
     """
     if not hasattr(hyp, "epochs"):
         raise AttributeError("compute_policy_epochs requires 'epochs' in hyp.")
@@ -379,15 +380,20 @@ def compute_policy_epochs(hyp: IterableSimpleNamespace) -> tuple[int, int, int]:
     epochs = max(1, int(hyp.epochs))
     start = min(4, max(0, epochs - 1))
 
-    # Mimic DEIM RT schedules from total epochs only:
-    #   60 -> 2 no-aug epochs, 120 -> 3 no-aug epochs.
-    # Keep classic 50-epoch behavior with no final no-aug tail.
-    if epochs >= 100:
-        no_aug_epoch = 3
-    elif epochs >= 60:
-        no_aug_epoch = 2
+    if getattr(hyp, "no_aug_epoch", None) is not None:
+        no_aug_epoch = int(hyp.no_aug_epoch)
+        if no_aug_epoch < 0:
+            raise ValueError(f"compute_policy_epochs got invalid no_aug_epoch={no_aug_epoch}. Expected >= 0.")
     else:
-        no_aug_epoch = 0
+        # Mimic DEIM RT schedules from total epochs only:
+        #   60 -> 2 no-aug epochs, 120 -> 3 no-aug epochs.
+        # Keep classic 50-epoch behavior with no final no-aug tail.
+        if epochs >= 100:
+            no_aug_epoch = 3
+        elif epochs >= 60:
+            no_aug_epoch = 2
+        else:
+            no_aug_epoch = 0
 
     stop = epochs - no_aug_epoch
     if stop < 0:
