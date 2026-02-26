@@ -52,6 +52,8 @@ class RTDETRv4DetectionLoss(nn.Module):
             loss_gain = {"class": 1, "bbox": 5, "giou": 2, "fgl": 0.15, "ddf": 1.5}
         if matcher is None:
             matcher = {}
+        else:
+            matcher = dict(matcher)
 
         self.nc = nc
         self.reg_max = reg_max
@@ -64,6 +66,7 @@ class RTDETRv4DetectionLoss(nn.Module):
         self.uni_match_ind = uni_match_ind
 
         self.matcher = HungarianMatcher(**matcher)
+        self.matcher._dfine_clamp_wh_for_giou = True
         self.fl = FocalLoss(gamma, alpha) if use_fl else None
         self.vfl = VarifocalLoss(gamma, alpha) if use_vfl else None
         self.mal = MALoss(gamma, alpha) if use_mal else None
@@ -198,7 +201,9 @@ class RTDETRv4DetectionLoss(nn.Module):
             return {name_bbox: zero, name_giou: zero}
 
         loss_bbox = self.loss_gain["bbox"] * F.l1_loss(pred_bboxes, gt_bboxes, reduction="sum") / norm_boxes
-        loss_giou = 1.0 - bbox_iou(pred_bboxes, gt_bboxes, xywh=True, GIoU=True)
+        pred_bboxes_xyxy = box_cxcywh_to_xyxy(pred_bboxes)
+        gt_bboxes_xyxy = box_cxcywh_to_xyxy(gt_bboxes)
+        loss_giou = 1.0 - bbox_iou(pred_bboxes_xyxy, gt_bboxes_xyxy, xywh=False, GIoU=True)
         loss_giou = self.loss_gain["giou"] * (loss_giou.sum() / norm_boxes)
         return {name_bbox: loss_bbox.squeeze(), name_giou: loss_giou.squeeze()}
 
@@ -224,7 +229,7 @@ class RTDETRv4DetectionLoss(nn.Module):
             pred_assigned_cls = pred_bboxes[(cls_batch_idx, cls_src_idx)]
             gt_assigned_cls = gt_bboxes[cls_gt_idx]
             gt_scores[(cls_batch_idx, cls_src_idx)] = bbox_iou(
-                pred_assigned_cls.detach(), gt_assigned_cls, xywh=True
+                box_cxcywh_to_xyxy(pred_assigned_cls.detach()), box_cxcywh_to_xyxy(gt_assigned_cls), xywh=False
             ).squeeze(-1)
 
         (box_batch_idx, box_src_idx), box_gt_idx = self._get_index(box_indices, pred_scores.device)
@@ -369,7 +374,7 @@ class RTDETRv4DetectionLoss(nn.Module):
         target_corners, weight_right, weight_left = target_cache
         pred_corners_sel = pred_corners[idx].reshape(-1, self.reg_max + 1)
 
-        ious = bbox_iou(pred_bboxes[idx], target_boxes, xywh=True).squeeze(-1)
+        ious = bbox_iou(box_cxcywh_to_xyxy(pred_bboxes[idx]), box_cxcywh_to_xyxy(target_boxes), xywh=False).squeeze(-1)
         weight_targets = ious.unsqueeze(-1).repeat(1, 4).reshape(-1).detach()
         loss_fgl = self._unimodal_distribution_focal_loss(
             pred_corners_sel,

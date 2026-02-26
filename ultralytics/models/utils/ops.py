@@ -129,8 +129,16 @@ class HungarianMatcher(nn.Module):
         # Compute L1 cost between boxes
         cost_bbox = (pred_bboxes.unsqueeze(1) - gt_bboxes.unsqueeze(0)).abs().sum(-1)  # (bs*num_queries, num_gt)
 
-        # Compute GIoU cost between boxes, (bs*num_queries, num_gt)
-        cost_giou = 1.0 - bbox_iou(pred_bboxes.unsqueeze(1), gt_bboxes.unsqueeze(0), xywh=True, GIoU=True).squeeze(-1)
+        # Compute GIoU cost between boxes, (bs*num_queries, num_gt).
+        # DFine-only optional clamping to avoid invalid finite boxes destabilizing GIoU.
+        if getattr(self, "_dfine_clamp_wh_for_giou", False):
+            pred_for_giou = torch.cat((pred_bboxes[:, :2], pred_bboxes[:, 2:].clamp(min=0.0)), dim=-1)
+            gt_for_giou = torch.cat((gt_bboxes[:, :2], gt_bboxes[:, 2:].clamp(min=0.0)), dim=-1)
+            cost_giou = 1.0 - bbox_iou(
+                pred_for_giou.unsqueeze(1), gt_for_giou.unsqueeze(0), xywh=True, GIoU=True
+            ).squeeze(-1)
+        else:
+            cost_giou = 1.0 - bbox_iou(pred_bboxes.unsqueeze(1), gt_bboxes.unsqueeze(0), xywh=True, GIoU=True).squeeze(-1)
 
         # Combine costs into final cost matrix
         C = (
@@ -143,10 +151,8 @@ class HungarianMatcher(nn.Module):
         if self.with_mask:
             C += self._cost_mask(bs, gt_groups, masks, gt_mask)
 
-        # Set invalid values (NaNs and infinities) to 0
-        C[C.isnan() | C.isinf()] = 0.0
-
         C = C.view(bs, nq, -1).cpu()
+        C = torch.nan_to_num(C, nan=1.0)
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(gt_groups, -1))]
         gt_groups = torch.as_tensor([0, *gt_groups[:-1]]).cumsum_(0)  # (idx for queries, idx for gt)
         return [
