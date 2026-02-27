@@ -18,17 +18,22 @@ from PIL import Image
 
 from ultralytics.utils import (
     ARM64,
-    IS_DOCKER,
     IS_JETSON,
     LINUX,
     LOGGER,
     PYTHON_VERSION,
     ROOT,
-    TORCH_VERSION,
     YAML,
     is_jetson,
 )
-from ultralytics.utils.checks import check_requirements, check_suffix, check_uv, check_version, check_yaml, is_rockchip
+from ultralytics.utils.checks import (
+    check_executorch_requirements,
+    check_requirements,
+    check_suffix,
+    check_version,
+    check_yaml,
+    is_rockchip,
+)
 from ultralytics.utils.downloads import attempt_download_asset, is_url
 from ultralytics.utils.nms import non_max_suppression
 
@@ -63,7 +68,7 @@ def check_class_names(names: list | dict) -> dict[int, str]:
 
 
 def default_class_names(data: str | Path | None = None) -> dict[int, str]:
-    """Apply default class names to an input YAML file or return numerical class names.
+    """Load class names from a YAML file or return numerical class names.
 
     Args:
         data (str | Path, optional): Path to YAML file containing class names.
@@ -334,7 +339,7 @@ class AutoBackend(nn.Module):
                 batch = metadata["batch"]
                 dynamic = metadata.get("args", {}).get("dynamic", dynamic)
             # OpenVINO inference modes are 'LATENCY', 'THROUGHPUT' (not recommended), or 'CUMULATIVE_THROUGHPUT'
-            inference_mode = "CUMULATIVE_THROUGHPUT" if batch > 1 and dynamic else "LATENCY"
+            inference_mode = "CUMULATIVE_THROUGHPUT" if dynamic and batch > 1 else "LATENCY"
             ov_compiled_model = core.compile_model(
                 ov_model,
                 device_name=device_name,
@@ -628,27 +633,7 @@ class AutoBackend(nn.Module):
         elif pte:
             LOGGER.info(f"Loading {w} for ExecuTorch inference...")
 
-            # BUG executorch build on arm64 Docker requires packaging>=22.0 https://github.com/pypa/setuptools/issues/4483
-            if LINUX and ARM64 and IS_DOCKER:
-                check_requirements("packaging>=22.0")
-
-            check_requirements("ruamel.yaml<0.19.0")
-
-            # Attempt stable first with the current torch version as forced guard for resolution
-            torch_version = TORCH_VERSION.split("+")[0]
-            if not check_requirements(
-                requirements=["executorch", "flatbuffers", "torchao"],
-                cmds=f"torch=={torch_version}",
-            ):
-                # Fallback to nightly if resolution fails
-                cmd_prerelease = "--prerelease=allow" if (not ARM64 and check_uv()) else "--pre"
-                check_requirements(
-                    requirements=["executorch", "flatbuffers", "torchao"],
-                    cmds=f"torch=={torch_version} --extra-index-url https://download.pytorch.org/whl/nightly {cmd_prerelease}",
-                )
-
-            # Pin numpy to avoid coremltools errors with numpy>=2.4.0, must be separate
-            check_requirements("numpy<=2.3.5")
+            check_executorch_requirements()
 
             from executorch.runtime import Runtime
 
@@ -715,7 +700,7 @@ class AutoBackend(nn.Module):
             im (torch.Tensor): The image tensor to perform inference on.
             augment (bool): Whether to perform data augmentation during inference.
             visualize (bool): Whether to visualize the output predictions.
-            embed (list, optional): A list of feature vectors/embeddings to return.
+            embed (list, optional): A list of layer indices to return embeddings from.
             **kwargs (Any): Additional keyword arguments for model configuration.
 
         Returns:
@@ -947,7 +932,7 @@ class AutoBackend(nn.Module):
         return torch.tensor(x).to(self.device) if isinstance(x, np.ndarray) else x
 
     def warmup(self, imgsz: tuple[int, int, int, int] = (1, 3, 640, 640)) -> None:
-        """Warm up the model by running one forward pass with a dummy input.
+        """Warm up the model by running forward pass(es) with a dummy input.
 
         Args:
             imgsz (tuple[int, int, int, int]): Dummy input shape in (batch, channels, height, width) format.
