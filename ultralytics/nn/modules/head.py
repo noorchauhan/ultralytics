@@ -17,7 +17,13 @@ from ultralytics.utils.torch_utils import TORCH_1_11, fuse_conv_and_bn, smart_in
 
 from .block import DFL, SAVPE, BNContrastiveHead, ContrastiveHead, Proto, Proto26, RealNVP, Residual, SwiGLUFFN
 from .conv import Conv, DWConv
-from .dfine_transformer import DFineTransformerDecoder, DFineTransformerDecoderLayer, Integral
+from .dfine_transformer import (
+    DFineTransformerDecoder,
+    DFineTransformerDecoderLayer,
+    DeimTransformerDecoder,
+    DeimTransformerDecoderLayer,
+    Integral,
+)
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init
 
@@ -25,6 +31,7 @@ __all__ = (
     "OBB",
     "Classify",
     "Detect",
+    "DeimDecoder",
     "DFineDecoder",
     "Pose",
     "RTDETRDecoder",
@@ -1800,6 +1807,47 @@ class RTDETRDecoder(nn.Module):
         """Select top-k indices based on max class confidence."""
         return torch.topk(outputs_logits.max(-1).values, topk, dim=1).indices
 
+    def _project_encoder_features(self, feats: torch.Tensor) -> torch.Tensor:
+        """Project encoder memory before proposal scoring. Subclasses may override projection behavior."""
+        return self.enc_output(self.valid_mask * feats)
+
+    def _prepare_encoder_topk(
+        self, feats: torch.Tensor, shapes: list[list[int]]
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Build top-k encoder proposals shared by RTDETR/DFine/DEIM decoder variants."""
+        bs = feats.shape[0]
+        if self.dynamic or self.shapes != shapes:
+            self.anchors, self.valid_mask = self._generate_anchors(shapes, dtype=feats.dtype, device=feats.device)
+            self.shapes = shapes
+
+        features = self._project_encoder_features(feats)
+        enc_outputs_scores = self.enc_score_head(features)
+
+        k = self.one_to_many_groups if (self.training and self.one_to_many_groups > 0) else 0
+        num_o2m = self.num_queries * k
+        total_queries = self.num_queries + num_o2m
+        if num_o2m > 0 and self.o2m_topk_mode == "unshared":
+            topk_ind_o2o = self._select_topk(enc_outputs_scores, self.num_queries)
+            topk_ind_o2m = self._select_topk(enc_outputs_scores, num_o2m)
+            topk_ind = torch.cat([topk_ind_o2o, topk_ind_o2m], dim=1)
+        else:
+            topk_ind = self._select_topk(enc_outputs_scores, total_queries)
+
+        topk_ind = topk_ind.reshape(-1)
+        batch_ind = (
+            torch.arange(end=bs, dtype=topk_ind.dtype, device=topk_ind.device)
+            .unsqueeze(-1)
+            .repeat(1, total_queries)
+            .reshape(-1)
+        )
+
+        top_k_features = features[batch_ind, topk_ind].view(bs, total_queries, -1)
+        top_k_anchors = self.anchors[:, topk_ind].view(bs, total_queries, -1)
+        refer_bbox = self.enc_bbox_head(top_k_features) + top_k_anchors
+        enc_bboxes = refer_bbox.sigmoid()
+        enc_scores = enc_outputs_scores[batch_ind, topk_ind].view(bs, total_queries, -1)
+        return top_k_features, refer_bbox, enc_bboxes, enc_scores
+
     def _get_decoder_input(
         self,
         feats: torch.Tensor,
@@ -1857,46 +1905,7 @@ class RTDETRDecoder(nn.Module):
 
         else:
             # ========== ENCODER-BASED QUERY PATH (ORIGINAL RTDETR) ==========
-            if self.dynamic or self.shapes != shapes:
-                self.anchors, self.valid_mask = self._generate_anchors(shapes, dtype=feats.dtype, device=feats.device)
-                self.shapes = shapes
-
-            # Prepare input for decoder
-            features = self.enc_output(self.valid_mask * feats)  # bs, h*w, 256
-            enc_outputs_scores = self.enc_score_head(features)  # (bs, h*w, nc)
-
-            # === H-DETR style: Select TopK = o2o + o2m total proposals ===
-            # During training with o2m:
-            # - shared: select all (o2o + o2m) in one top-k pass (disjoint by construction).
-            # - unshared: select o2o and o2m with separate top-k passes (can overlap).
-            # During inference: always select only num_queries.
-            k = self.one_to_many_groups if (self.training and self.one_to_many_groups > 0) else 0
-            num_o2m = self.num_queries * k
-            total_queries = self.num_queries + num_o2m
-            if num_o2m > 0 and self.o2m_topk_mode == "unshared":
-                topk_ind_o2o = self._select_topk(enc_outputs_scores, self.num_queries)
-                topk_ind_o2m = self._select_topk(enc_outputs_scores, num_o2m)
-                topk_ind = torch.cat([topk_ind_o2o, topk_ind_o2m], dim=1)
-            else:
-                topk_ind = self._select_topk(enc_outputs_scores, total_queries)
-            topk_ind = topk_ind.reshape(-1)
-            batch_ind = (
-                torch.arange(end=bs, dtype=topk_ind.dtype, device=topk_ind.device)
-                .unsqueeze(-1)
-                .repeat(1, total_queries)
-                .reshape(-1)
-            )
-
-            # (bs, total_queries, 256)
-            top_k_features = features[batch_ind, topk_ind].view(bs, total_queries, -1)
-            # (bs, total_queries, 4)
-            top_k_anchors = self.anchors[:, topk_ind].view(bs, total_queries, -1)
-
-            # Dynamic anchors + static content
-            refer_bbox = self.enc_bbox_head(top_k_features) + top_k_anchors
-
-            enc_bboxes = refer_bbox.sigmoid()
-            enc_scores = enc_outputs_scores[batch_ind, topk_ind].view(bs, total_queries, -1)
+            top_k_features, refer_bbox, enc_bboxes, enc_scores = self._prepare_encoder_topk(feats, shapes)
 
             # Handle denoising - insert at beginning: [dn | o2o | o2m]
             if dn_bbox is not None:
@@ -2173,6 +2182,174 @@ class DFineDecoder(RTDETRDecoder):
         super()._reset_parameters()
         constant_(self.pre_bbox_head.layers[-1].weight, 0.0)
         constant_(self.pre_bbox_head.layers[-1].bias, 0.0)
+
+
+class DeimDecoder(DFineDecoder):
+    """DEIMv2 decoder head built on top of the DFine output contract."""
+
+    def __init__(
+        self,
+        nc: int = 80,
+        ch: tuple = (512, 1024, 2048),
+        hd: int = 256,
+        nq: int = 300,
+        ndp: int = 4,
+        nh: int = 8,
+        ndl: int = 6,
+        d_ffn: int = 1024,
+        dropout: float = 0.0,
+        act: str = "relu",
+        eval_idx: int = -1,
+        nd: int = 100,
+        label_noise_ratio: float = 0.5,
+        box_noise_scale: float = 1.0,
+        learnt_init_query: bool = False,
+        enable_cuda_acceleration: bool = False,
+        one_to_many_groups: int = 0,
+        dab_sine_embedding: bool = False,
+        efficient_msdeformable_attn: bool = False,
+        query_select_method: str = "default",
+        reg_max: int = 32,
+        reg_scale: float = 4.0,
+        layer_scale: float = 1.0,
+        mlp_act: str = "relu",
+        o2m_topk_mode: str = "unshared",
+        use_gateway: bool = True,
+        share_bbox_head: bool = False,
+        share_score_head: bool = False,
+    ):
+        nn.Module.__init__(self)
+        self.hidden_dim = hd
+        self.nhead = nh
+        self.nl = len(ch)
+        self.nc = nc
+        self.num_queries = nq
+        self.num_decoder_layers = ndl
+        self.reg_max = reg_max
+        self.layer_scale = layer_scale
+        self.query_select_method = query_select_method
+        self.one_to_many_groups = one_to_many_groups
+        self.query_noise_scale = 0.0
+        self.o2m_topk_mode = o2m_topk_mode
+        self.learnt_init_query = learnt_init_query
+        if self.learnt_init_query:
+            raise ValueError("DeimDecoder does not support learnt_init_query=True.")
+
+        if dab_sine_embedding:
+            raise ValueError("DeimDecoder does not support dab_sine_embedding.")
+        if efficient_msdeformable_attn:
+            raise ValueError("DeimDecoder does not support efficient_msdeformable_attn.")
+        if self.query_select_method not in {"default", "one2many"}:
+            raise ValueError(f"Unsupported query_select_method: {self.query_select_method}")
+
+        act_layer = self._select_activation(act)
+        act_mlp = self._select_activation(mlp_act)
+        scaled_dim = round(layer_scale * hd)
+
+        self.input_proj = nn.ModuleList(
+            nn.Identity() if x == hd else nn.Sequential(nn.Conv2d(x, hd, 1, bias=False), nn.BatchNorm2d(hd))
+            for x in ch
+        )
+
+        self.up = nn.Parameter(torch.tensor([0.5]), requires_grad=False)
+        self.reg_scale = nn.Parameter(torch.tensor([reg_scale]), requires_grad=False)
+        decoder_layer = DeimTransformerDecoderLayer(
+            hd,
+            nh,
+            d_ffn,
+            dropout,
+            act_layer,
+            self.nl,
+            ndp,
+            enable_cuda_acceleration=enable_cuda_acceleration,
+            use_gateway=use_gateway,
+        )
+        decoder_layer_wide = DeimTransformerDecoderLayer(
+            hd,
+            nh,
+            d_ffn,
+            dropout,
+            act_layer,
+            self.nl,
+            ndp,
+            enable_cuda_acceleration=enable_cuda_acceleration,
+            layer_scale=layer_scale if layer_scale > 1 else None,
+            use_gateway=use_gateway,
+        )
+        self.decoder = DeimTransformerDecoder(
+            hd,
+            decoder_layer,
+            decoder_layer_wide,
+            ndl,
+            nh,
+            reg_max,
+            self.reg_scale,
+            self.up,
+            eval_idx,
+            layer_scale,
+            act=act_layer,
+        )
+
+        self.denoising_class_embed = nn.Embedding(nc, hd)
+        self.num_denoising = nd
+        self.label_noise_ratio = label_noise_ratio
+        self.box_noise_scale = box_noise_scale
+
+        if learnt_init_query:
+            self.tgt_embed = nn.Embedding(nq, hd)
+
+        self.enc_score_head = nn.Linear(hd, nc)
+        self.enc_bbox_head = MLP(hd, hd, 4, num_layers=3, act=act_mlp)
+        self.query_pos_head = MLP(4, hd, hd, num_layers=3, act=act_mlp)
+
+        self.pre_bbox_head = MLP(hd, hd, 4, num_layers=3, act=act_mlp)
+        self.integral = Integral(reg_max)
+
+        self.eval_idx = eval_idx if eval_idx >= 0 else ndl + eval_idx
+        score_head = nn.Linear(hd, nc)
+        self.dec_score_head = nn.ModuleList(
+            [score_head if share_score_head else copy.deepcopy(score_head) for _ in range(self.eval_idx + 1)]
+            + [copy.deepcopy(score_head) for _ in range(ndl - self.eval_idx - 1)]
+        )
+        bbox_head = MLP(hd, hd, 4 * (reg_max + 1), num_layers=3, act=act_mlp)
+        self.dec_bbox_head = nn.ModuleList(
+            [bbox_head if share_bbox_head else copy.deepcopy(bbox_head) for _ in range(self.eval_idx + 1)]
+            + [
+                MLP(scaled_dim, scaled_dim, 4 * (reg_max + 1), num_layers=3, act=act_mlp)
+                for _ in range(ndl - self.eval_idx - 1)
+            ]
+        )
+
+        self._reset_parameters()
+
+    def _project_encoder_features(self, feats: torch.Tensor) -> torch.Tensor:
+        """DEIM path: skip enc_output projection and score directly from masked encoder memory."""
+        return self.valid_mask.to(feats.dtype) * feats
+
+    def _reset_parameters(self):
+        bias_cls = bias_init_with_prob(0.01)
+        if self.num_denoising > 0:
+            nn.init.normal_(self.denoising_class_embed.weight)
+        constant_(self.enc_score_head.bias, bias_cls)
+        constant_(self.enc_bbox_head.layers[-1].weight, 0.0)
+        constant_(self.enc_bbox_head.layers[-1].bias, 0.0)
+        constant_(self.pre_bbox_head.layers[-1].weight, 0.0)
+        constant_(self.pre_bbox_head.layers[-1].bias, 0.0)
+
+        for cls_, reg_ in zip(self.dec_score_head, self.dec_bbox_head):
+            constant_(cls_.bias, bias_cls)
+            if hasattr(reg_, "layers"):
+                constant_(reg_.layers[-1].weight, 0.0)
+                constant_(reg_.layers[-1].bias, 0.0)
+
+        if self.learnt_init_query:
+            xavier_uniform_(self.tgt_embed.weight)
+        xavier_uniform_(self.query_pos_head.layers[0].weight)
+        xavier_uniform_(self.query_pos_head.layers[1].weight)
+        xavier_uniform_(self.query_pos_head.layers[-1].weight)
+        for layer in self.input_proj:
+            if isinstance(layer, nn.Sequential) and len(layer) and hasattr(layer[0], "weight"):
+                xavier_uniform_(layer[0].weight)
 
 
 class v10Detect(Detect):

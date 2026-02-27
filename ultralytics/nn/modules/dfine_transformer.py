@@ -365,7 +365,7 @@ class DFineTransformerDecoder(nn.Module):
             up,
             eval_idx=-1,
             layer_scale=2,
-            act=nn.ReLU):
+            act=nn.ReLU()):
         super(DFineTransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -377,6 +377,7 @@ class DFineTransformerDecoder(nn.Module):
             copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)] +
             [copy.deepcopy(decoder_layer_wide) for _ in range(num_layers - self.eval_idx - 1)])
         self.lqe_layers = nn.ModuleList([copy.deepcopy(LQE(4, 64, 2, reg_max, act=act)) for _ in range(num_layers)])
+        self.fixed_query_pos = False
 
     def value_op(self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes):
         """
@@ -424,14 +425,19 @@ class DFineTransformerDecoder(nn.Module):
             project = self.project
 
         ref_points_detach = F.sigmoid(ref_points_unact)
+        query_pos_fixed = query_pos_head(ref_points_detach).clamp(min=-10, max=10) if self.fixed_query_pos else None
 
         for i, layer in enumerate(self.layers):
             ref_points_input = ref_points_detach.unsqueeze(2)
-            query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
+            query_pos_embed = query_pos_fixed
+            if query_pos_embed is None:
+                query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
 
             # TODO Adjust scale if needed for detachable wider layers
             if i >= self.eval_idx + 1 and self.layer_scale > 1:
                 query_pos_embed = F.interpolate(query_pos_embed, scale_factor=self.layer_scale)
+                if self.fixed_query_pos:
+                    query_pos_fixed = query_pos_embed
                 value = self.value_op(memory, None, query_pos_embed.shape[-1], memory_mask, spatial_shapes)
                 output = F.interpolate(output, size=query_pos_embed.shape[-1])
                 output_detach = output.detach()
@@ -466,3 +472,118 @@ class DFineTransformerDecoder(nn.Module):
 
         return torch.stack(dec_out_bboxes), torch.stack(dec_out_logits), \
                torch.stack(dec_out_pred_corners), torch.stack(dec_out_refs), pre_bboxes, pre_scores
+
+
+class DEIMRMSNorm(nn.Module):
+    """RMSNorm used by DEIMv2 decoder layers."""
+
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.scale = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x):
+        normed = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        return normed * self.scale
+
+
+class DEIMSwiGLUFFN(nn.Module):
+    """SwiGLU FFN used by DEIMv2 decoder layers."""
+
+    def __init__(self, in_features: int, hidden_features: int, out_features: int, bias: bool = True) -> None:
+        super().__init__()
+        self.w12 = nn.Linear(in_features, 2 * hidden_features, bias=bias)
+        self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        init.xavier_uniform_(self.w12.weight)
+        init.constant_(self.w12.bias, 0)
+        init.xavier_uniform_(self.w3.weight)
+        init.constant_(self.w3.bias, 0)
+
+    def forward(self, x):
+        x1, x2 = self.w12(x).chunk(2, dim=-1)
+        return self.w3(F.silu(x1) * x2)
+
+
+class DeimGate(nn.Module):
+    """DEIM gate with optional RMSNorm."""
+
+    def __init__(self, d_model: int, use_rmsnorm: bool = False):
+        super().__init__()
+        self.gate = nn.Linear(2 * d_model, 2 * d_model)
+        bias = bias_init_with_prob(0.5)
+        init.constant_(self.gate.bias, bias)
+        init.constant_(self.gate.weight, 0)
+        self.norm = DEIMRMSNorm(d_model) if use_rmsnorm else nn.LayerNorm(d_model)
+
+    def forward(self, x1, x2):
+        gate1, gate2 = torch.sigmoid(self.gate(torch.cat([x1, x2], dim=-1))).chunk(2, dim=-1)
+        return self.norm(gate1 * x1 + gate2 * x2)
+
+
+class DeimTransformerDecoderLayer(nn.Module):
+    """DEIMv2 decoder layer (RMSNorm + SwiGLU)."""
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        n_heads: int = 8,
+        d_ffn: int = 1024,
+        dropout: float = 0.0,
+        act: nn.Module = nn.ReLU(),
+        n_levels: int = 4,
+        n_points: int = 4,
+        enable_cuda_acceleration: bool = False,
+        cross_attn_method: str = "default",
+        layer_scale=None,
+        use_gateway: bool = False,
+    ):
+        super().__init__()
+        del act, enable_cuda_acceleration
+        if layer_scale is not None:
+            d_ffn = round(layer_scale * d_ffn)
+            d_model = round(layer_scale * d_model)
+
+        self.self_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.dropout1 = nn.Dropout(dropout)
+        self.norm1 = DEIMRMSNorm(d_model)
+
+        self.cross_attn = MSDeformableAttention(d_model, n_heads, n_levels, n_points, method=cross_attn_method)
+        self.dropout2 = nn.Dropout(dropout)
+        self.use_gateway = use_gateway
+        if use_gateway:
+            self.gateway = DeimGate(d_model, use_rmsnorm=True)
+        else:
+            self.norm2 = DEIMRMSNorm(d_model)
+
+        self.swish_ffn = DEIMSwiGLUFFN(d_model, d_ffn // 2, d_model)
+        self.dropout4 = nn.Dropout(dropout)
+        self.norm3 = DEIMRMSNorm(d_model)
+
+    @staticmethod
+    def with_pos_embed(tensor, pos):
+        return tensor if pos is None else tensor + pos
+
+    def forward(self, target, reference_points, value, spatial_shapes, attn_mask=None, query_pos_embed=None):
+        q = k = self.with_pos_embed(target, query_pos_embed)
+        target2, _ = self.self_attn(q, k, value=target, attn_mask=attn_mask)
+        target = self.norm1(target + self.dropout1(target2))
+
+        target2 = self.cross_attn(self.with_pos_embed(target, query_pos_embed), reference_points, value, spatial_shapes)
+        if self.use_gateway:
+            target = self.gateway(target, self.dropout2(target2))
+        else:
+            target = self.norm2(target + self.dropout2(target2))
+
+        target2 = self.swish_ffn(target)
+        return self.norm3((target + self.dropout4(target2)).clamp(min=-65504, max=65504))
+
+
+class DeimTransformerDecoder(DFineTransformerDecoder):
+    """DEIMv2 decoder wrapper using DFine forward path with fixed query-position embeddings."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fixed_query_pos = True
