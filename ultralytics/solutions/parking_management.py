@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import gc
 import json
+import time
 from typing import Any
 
 import cv2
@@ -202,6 +204,13 @@ class ParkingManagement(BaseSolution):
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the parking management system with a YOLO model and visualization settings."""
+        model_arg = str(kwargs.get("model", "") or "").lower()
+        device_arg = str(kwargs.get("device", "") or "").lower()
+        if device_arg.startswith("intel:") and not (model_arg.endswith(".xml") or "_openvino_model" in model_arg):
+            raise ValueError(
+                "Intel devices (intel:cpu/intel:gpu/intel:npu) require an OpenVINO model "
+                "path (e.g. '*_openvino_model' directory or '*.xml')."
+            )
         super().__init__(**kwargs)
 
         self.json_file = self.CFG["json_file"]  # Load parking regions JSON data
@@ -217,6 +226,207 @@ class ParkingManagement(BaseSolution):
         self.arc = (0, 0, 255)  # Available region color
         self.occ = (0, 255, 0)  # Occupied region color
         self.dc = (255, 0, 189)  # Centroid color for each box
+        self.active_device = str(self.CFG.get("device", "intel:cpu")).lower()
+        self.last_switch_time = 0.0
+        self.switch_cooldown_s = 2.0
+
+    def _is_openvino_model(self) -> bool:
+        """Return True if the loaded model path points to an OpenVINO export."""
+        model_path = str(self.CFG.get("model", "")).lower()
+        return model_path.endswith(".xml") or "_openvino_model" in model_path
+
+    def set_device(self, device: str) -> str:
+        """Switch runtime device for tracking inference.
+
+        Supports OpenVINO Intel runtime devices: `intel:cpu`, `intel:gpu`, and `intel:npu`.
+
+        Args:
+            device (str): Target device string.
+
+        Returns:
+            (str): Resolved device string applied to this solution.
+        """
+        if not self._is_openvino_model():
+            raise ValueError(
+                "Device switching to intel:* requires an OpenVINO model. "
+                "Use model='*_openvino_model' or model='*.xml'."
+            )
+        device = str(device).strip().lower()
+        valid_devices = {"intel:cpu", "intel:gpu", "intel:npu"}
+        if device not in valid_devices:
+            raise ValueError("Valid devices are `intel:cpu`, `intel:gpu`, and `intel:npu`.")
+        if device == self.active_device:
+            return device
+        now = time.perf_counter()
+        if now - self.last_switch_time < self.switch_cooldown_s:
+            LOGGER.info("Ignoring rapid device switch request. Please wait a moment before switching again.")
+            return self.active_device
+
+        # Release previous predictor/backend resources before re-initializing on the new device.
+        if getattr(self.model, "predictor", None) is not None:
+            self.model.predictor = None
+            gc.collect()
+
+        self.device = device
+        self.active_device = device
+        self.CFG["device"] = device
+        self.track_add_args["device"] = device
+        self.track_history.clear()  # Reset tracker state after backend swap to avoid id drift.
+        self.last_switch_time = now
+        LOGGER.info(f"Switched parking management device to '{device}'.")
+        return device
+
+    def visualize(
+        self,
+        source: str | int = 0,
+        loop: bool = True,
+        allow_device_hotkeys: bool = True,
+        show_perf_overlay: bool = True,
+        show_device_buttons: bool = True,
+    ) -> None:
+        """Run real-time parking visualization in a frame loop.
+
+        Args:
+            source (str | int): Video source path/URL or camera index.
+            loop (bool): If True, restart from frame 0 when source ends.
+            allow_device_hotkeys (bool): If True, map hotkeys to device switching.
+            show_perf_overlay (bool): If True, render device and FPS metrics on output frames.
+            show_device_buttons (bool): If True, render clickable device selection buttons in the output window.
+        """
+        cap = cv2.VideoCapture(source)
+        if not cap.isOpened():
+            raise ValueError(f"Unable to open source: {source}")
+
+        window_name = "Ultralytics Parking Management"
+        device_options = ["intel:cpu", "intel:gpu", "intel:npu"]
+        button_w, button_h, gap, margin = 92, 32, 8, 12
+        pending_device = {"value": None}
+
+        def _button_rects(frame_w: int) -> dict[str, tuple[int, int, int, int]]:
+            x0 = margin
+            y0 = margin
+            return {
+                dev: (x0 + i * (button_w + gap), y0, x0 + i * (button_w + gap) + button_w, y0 + button_h)
+                for i, dev in enumerate(device_options)
+            }
+
+        def _on_mouse(event, x, y, flags, param) -> None:
+            if event != cv2.EVENT_LBUTTONDOWN or not show_device_buttons:
+                return
+            rects = param or {}
+            for dev, (x1, y1, x2, y2) in rects.items():
+                if x1 <= x <= x2 and y1 <= y <= y2:
+                    pending_device["value"] = dev
+                    break
+
+        if self.env_check:
+            if allow_device_hotkeys:
+                hotkeys = " | 1: CPU, 2: GPU, 3: NPU"
+            else:
+                hotkeys = ""
+            LOGGER.info(f"Press 'q' to quit{hotkeys}.")
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+            cv2.setMouseCallback(window_name, _on_mouse, {})
+
+        show_state = self.CFG["show"]
+        self.CFG["show"] = False  # Manual visualization for hotkey handling in this loop.
+        t_prev = None
+        fps_ema = 0.0
+
+        try:
+            while cap.isOpened():
+                success, im0 = cap.read()
+                if not success:
+                    if loop:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        continue
+                    break
+
+                # Apply pending UI device switches before inference so the next frame reflects the new backend.
+                switched = False
+                if pending_device["value"] is not None:
+                    try:
+                        prev_device = self.active_device
+                        self.set_device(pending_device["value"])
+                        switched = self.active_device != prev_device
+                    except ValueError as e:
+                        LOGGER.warning(str(e))
+                    finally:
+                        pending_device["value"] = None
+
+                if switched:
+                    # Restart solution runtime only (predictor/tracker state), not the video stream position.
+                    t_prev = None
+                    fps_ema = 0.0
+                    continue
+
+                # Enforce sticky device selection each frame.
+                self.track_add_args["device"] = self.active_device
+                results = self(im0)
+                if self.env_check:
+                    if show_perf_overlay:
+                        t_now = time.perf_counter()
+                        if switched or t_prev is None:
+                            # Skip FPS update on the switching frame to avoid unrealistic spike values.
+                            t_prev = t_now
+                            fps_ema = 0.0
+                        else:
+                            dt = max(t_now - t_prev, 1e-9)
+                            t_prev = t_now
+                            fps = 1.0 / dt
+                            fps_ema = fps if fps_ema == 0.0 else 0.9 * fps_ema + 0.1 * fps
+                        text_y = button_h + (2 * margin) + 22
+                        cv2.putText(
+                            results.plot_im,
+                            f"Device: {self.active_device}",
+                            (margin, text_y),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.9,
+                            (255, 255, 255),
+                            3,
+                            cv2.LINE_AA,
+                        )
+                        cv2.putText(
+                            results.plot_im,
+                            f"FPS: {'--' if fps_ema == 0.0 else f'{fps_ema:.1f}'}",
+                            (margin, text_y + 36),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.9,
+                            (255, 255, 255),
+                            3,
+                            cv2.LINE_AA,
+                        )
+                    if show_device_buttons:
+                        rects = _button_rects(results.plot_im.shape[1])
+                        cv2.setMouseCallback(window_name, _on_mouse, rects)
+                        for dev, (x1, y1, x2, y2) in rects.items():
+                            active = self.active_device == dev
+                            face = (54, 165, 88) if active else (45, 45, 45)
+                            cv2.rectangle(results.plot_im, (x1, y1), (x2, y2), face, -1)
+                            cv2.rectangle(results.plot_im, (x1, y1), (x2, y2), (255, 255, 255), 1)
+                            cv2.putText(
+                                results.plot_im,
+                                dev.split(":")[1].upper(),
+                                (x1 + 12, y1 + 23),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.68,
+                                (255, 255, 255),
+                                2,
+                                cv2.LINE_AA,
+                            )
+                    cv2.imshow(window_name, results.plot_im)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord("q"):
+                        break
+                    if allow_device_hotkeys and key in (ord("1"), ord("2"), ord("3")):
+                        target = {ord("1"): "intel:cpu", ord("2"): "intel:gpu", ord("3"): "intel:npu"}[key]
+                        if target == self.active_device:
+                            continue
+                        pending_device["value"] = target
+        finally:
+            self.CFG["show"] = show_state
+            cap.release()
+            cv2.destroyAllWindows()
 
     def process(self, im0: np.ndarray) -> SolutionResults:
         """Process the input image for parking lot management and visualization.
