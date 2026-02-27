@@ -45,6 +45,12 @@ class RTDETRTrainer(DetectionTrainer):
         - AMP training can lead to NaN outputs and may produce errors during bipartite graph matching.
     """
 
+    def preprocess_batch(self, batch: dict) -> dict:
+        """Preprocess a batch and attach epoch for RT-DETR loss-side scheduling."""
+        batch = super().preprocess_batch(batch)
+        batch["epoch"] = int(self.epoch)
+        return batch
+
     def get_model(self, cfg: dict | None = None, weights: str | None = None, verbose: bool = True):
         """Initialize and return an RT-DETR model for object detection tasks.
 
