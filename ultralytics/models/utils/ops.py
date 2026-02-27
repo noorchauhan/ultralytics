@@ -54,6 +54,9 @@ class HungarianMatcher(nn.Module):
         num_sample_points: int = 12544,
         alpha: float = 0.25,
         gamma: float = 2.0,
+        change_matcher: bool = False,
+        iou_order_alpha: float = 1.0,
+        matcher_change_epoch: int = 10000,
     ):
         """Initialize HungarianMatcher for optimal assignment of predicted and ground truth bounding boxes.
 
@@ -65,6 +68,9 @@ class HungarianMatcher(nn.Module):
             num_sample_points (int): Number of sample points used in mask cost calculation.
             alpha (float): Alpha factor in Focal Loss calculation.
             gamma (float): Gamma factor in Focal Loss calculation.
+            change_matcher (bool): Enable DEIMv2-style matcher switch at a target epoch.
+            iou_order_alpha (float): Exponent for IoU in switched matcher cost.
+            matcher_change_epoch (int): Epoch at/after which switched matcher cost is used.
         """
         super().__init__()
         if cost_gain is None:
@@ -75,6 +81,9 @@ class HungarianMatcher(nn.Module):
         self.num_sample_points = num_sample_points
         self.alpha = alpha
         self.gamma = gamma
+        self.change_matcher = change_matcher
+        self.iou_order_alpha = iou_order_alpha
+        self.matcher_change_epoch = matcher_change_epoch
 
     def forward(
         self,
@@ -85,6 +94,7 @@ class HungarianMatcher(nn.Module):
         gt_groups: list[int],
         masks: torch.Tensor | None = None,
         gt_mask: list[torch.Tensor] | None = None,
+        epoch: int = 0,
     ) -> list[tuple[torch.Tensor, torch.Tensor]]:
         """Compute optimal assignment between predictions and ground truth using Hungarian algorithm.
 
@@ -100,6 +110,7 @@ class HungarianMatcher(nn.Module):
             gt_groups (list[int]): Number of ground truth boxes for each image in the batch.
             masks (torch.Tensor, optional): Predicted masks with shape (batch_size, num_queries, height, width).
             gt_mask (list[torch.Tensor], optional): Ground truth masks, each with shape (num_masks, Height, Width).
+            epoch (int): Current training epoch for optional DEIMv2 matcher schedule.
 
         Returns:
             (list[tuple[torch.Tensor, torch.Tensor]]): A list of size batch_size, each element is a tuple (index_i,
@@ -116,36 +127,39 @@ class HungarianMatcher(nn.Module):
         pred_scores = pred_scores.detach().view(-1, nc)
         pred_scores = F.sigmoid(pred_scores) if self.use_fl else F.softmax(pred_scores, dim=-1)
         pred_bboxes = pred_bboxes.detach().view(-1, 4)
+        # Clamp width/height for IoU-based costs to avoid invalid boxes destabilizing matching.
+        pred_for_iou = torch.cat((pred_bboxes[:, :2], pred_bboxes[:, 2:].clamp(min=0.0)), dim=-1)
+        gt_for_iou = torch.cat((gt_bboxes[:, :2], gt_bboxes[:, 2:].clamp(min=0.0)), dim=-1)
 
-        # Compute classification cost
-        pred_scores = pred_scores[:, gt_cls]
-        if self.use_fl:
-            neg_cost_class = (1 - self.alpha) * (pred_scores**self.gamma) * (-(1 - pred_scores + 1e-8).log())
-            pos_cost_class = self.alpha * ((1 - pred_scores) ** self.gamma) * (-(pred_scores + 1e-8).log())
-            cost_class = pos_cost_class - neg_cost_class
+        # DEIMv2-style dynamic matcher switch (late-epoch class*IoU ordering).
+        if self.change_matcher and epoch >= self.matcher_change_epoch:
+            class_score = pred_scores[:, gt_cls]
+            iou_score = bbox_iou(pred_for_iou.unsqueeze(1), gt_for_iou.unsqueeze(0), xywh=True).squeeze(-1)
+            C = -(class_score * torch.pow(iou_score, self.iou_order_alpha))
         else:
-            cost_class = -pred_scores
+            # Compute classification cost
+            pred_scores = pred_scores[:, gt_cls]
+            if self.use_fl:
+                neg_cost_class = (1 - self.alpha) * (pred_scores**self.gamma) * (-(1 - pred_scores + 1e-8).log())
+                pos_cost_class = self.alpha * ((1 - pred_scores) ** self.gamma) * (-(pred_scores + 1e-8).log())
+                cost_class = pos_cost_class - neg_cost_class
+            else:
+                cost_class = -pred_scores
 
-        # Compute L1 cost between boxes
-        cost_bbox = (pred_bboxes.unsqueeze(1) - gt_bboxes.unsqueeze(0)).abs().sum(-1)  # (bs*num_queries, num_gt)
+            # Compute L1 cost between boxes
+            cost_bbox = (pred_bboxes.unsqueeze(1) - gt_bboxes.unsqueeze(0)).abs().sum(-1)  # (bs*num_queries, num_gt)
 
-        # Compute GIoU cost between boxes, (bs*num_queries, num_gt).
-        # DFine-only optional clamping to avoid invalid finite boxes destabilizing GIoU.
-        if getattr(self, "_dfine_clamp_wh_for_giou", False):
-            pred_for_giou = torch.cat((pred_bboxes[:, :2], pred_bboxes[:, 2:].clamp(min=0.0)), dim=-1)
-            gt_for_giou = torch.cat((gt_bboxes[:, :2], gt_bboxes[:, 2:].clamp(min=0.0)), dim=-1)
-            cost_giou = 1.0 - bbox_iou(
-                pred_for_giou.unsqueeze(1), gt_for_giou.unsqueeze(0), xywh=True, GIoU=True
-            ).squeeze(-1)
-        else:
-            cost_giou = 1.0 - bbox_iou(pred_bboxes.unsqueeze(1), gt_bboxes.unsqueeze(0), xywh=True, GIoU=True).squeeze(-1)
+            # Compute GIoU cost between boxes, (bs*num_queries, num_gt), with clamped widths/heights.
+            cost_giou = 1.0 - bbox_iou(pred_for_iou.unsqueeze(1), gt_for_iou.unsqueeze(0), xywh=True, GIoU=True).squeeze(
+                -1
+            )
 
-        # Combine costs into final cost matrix
-        C = (
-            self.cost_gain["class"] * cost_class
-            + self.cost_gain["bbox"] * cost_bbox
-            + self.cost_gain["giou"] * cost_giou
-        )
+            # Combine costs into final cost matrix
+            C = (
+                self.cost_gain["class"] * cost_class
+                + self.cost_gain["bbox"] * cost_bbox
+                + self.cost_gain["giou"] * cost_giou
+            )
 
         # Add mask costs if available
         if self.with_mask:

@@ -25,8 +25,8 @@ def _global_num_gts(num_gts: int, device: torch.device) -> float:
     return max(t.item(), 1.0)
 
 
-class RTDETRv4DetectionLoss(nn.Module):
-    """Standalone RT-DETRv4 loss with DFine local terms and union-set support."""
+class DfineLoss(nn.Module):
+    """Standalone DFine/DEIM-style loss with local terms and union-set support."""
 
     supports_dfine = True
 
@@ -66,7 +66,6 @@ class RTDETRv4DetectionLoss(nn.Module):
         self.uni_match_ind = uni_match_ind
 
         self.matcher = HungarianMatcher(**matcher)
-        self.matcher._dfine_clamp_wh_for_giou = True
         self.fl = FocalLoss(gamma, alpha) if use_fl else None
         self.vfl = VarifocalLoss(gamma, alpha) if use_vfl else None
         self.mal = MALoss(gamma, alpha) if use_mal else None
@@ -80,6 +79,7 @@ class RTDETRv4DetectionLoss(nn.Module):
         self.num_pos = None
         self.num_neg = None
         self.device = None
+        self.matcher_epoch = 0
 
     def _clear_local_cache(self) -> None:
         """Clear per-forward local-loss caches."""
@@ -87,6 +87,17 @@ class RTDETRv4DetectionLoss(nn.Module):
         self.fgl_targets_dn = None
         self.num_pos = None
         self.num_neg = None
+
+    def _match(
+        self,
+        pred_bboxes: torch.Tensor,
+        pred_scores: torch.Tensor,
+        gt_bboxes: torch.Tensor,
+        gt_cls: torch.Tensor,
+        gt_groups: list[int],
+    ) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        """Wrapper over matcher to inject current epoch for DEIMv2 dynamic matcher schedule."""
+        return self.matcher(pred_bboxes, pred_scores, gt_bboxes, gt_cls, gt_groups, epoch=self.matcher_epoch)
 
     @staticmethod
     def _global_num_matches(match_indices: list[tuple[torch.Tensor, torch.Tensor]], device: torch.device) -> float:
@@ -357,7 +368,7 @@ class RTDETRv4DetectionLoss(nn.Module):
             zero = torch.tensor(0.0, device=pred_bboxes.device)
             return {name_fgl: zero, name_ddf: zero}
         if match_indices is None:
-            match_indices = self.matcher(pred_bboxes, pred_scores, gt_bboxes, gt_cls, gt_groups)
+            match_indices = self._match(pred_bboxes, pred_scores, gt_bboxes, gt_cls, gt_groups)
 
         idx, gt_idx = self._get_index(match_indices, pred_bboxes.device)
         if gt_idx.numel() == 0:
@@ -483,11 +494,11 @@ class RTDETRv4DetectionLoss(nn.Module):
         if pred_bboxes.shape[0] <= 1:
             return []
         if self.use_uni_match and shared_if_enabled:
-            shared = self.matcher(
+            shared = self._match(
                 pred_bboxes[self.uni_match_ind], pred_scores[self.uni_match_ind], gt_bboxes, gt_cls, gt_groups
             )
             return [shared for _ in range(pred_bboxes.shape[0] - 1)]
-        return [self.matcher(b, s, gt_bboxes, gt_cls, gt_groups) for b, s in zip(pred_bboxes[:-1], pred_scores[:-1])]
+        return [self._match(b, s, gt_bboxes, gt_cls, gt_groups) for b, s in zip(pred_bboxes[:-1], pred_scores[:-1])]
 
     def _prepare_pre_indices(
         self,
@@ -504,7 +515,7 @@ class RTDETRv4DetectionLoss(nn.Module):
             return None, None, None
         pre_bboxes = pre_bboxes.contiguous()
         pre_logits = pre_logits.contiguous()
-        pre_indices = self.matcher(pre_bboxes, pre_logits, gt_bboxes, gt_cls, gt_groups)
+        pre_indices = self._match(pre_bboxes, pre_logits, gt_bboxes, gt_cls, gt_groups)
         return pre_bboxes, pre_logits, pre_indices
 
     def _compute_pre_losses(
@@ -545,10 +556,12 @@ class RTDETRv4DetectionLoss(nn.Module):
         dn_scores: torch.Tensor | None = None,
         dn_meta: dict[str, Any] | None = None,
         dfine_meta: dict[str, Any] | None = None,
+        matcher_epoch: int = 0,
     ) -> dict[str, torch.Tensor]:
         pred_bboxes, pred_scores = preds
         self.device = pred_scores.device
         self._clear_local_cache()
+        self.matcher_epoch = int(matcher_epoch)
 
         if self.training and torch.is_grad_enabled():
             global_num_gts = _global_num_gts(len(batch["bboxes"]), pred_scores.device)
@@ -556,7 +569,7 @@ class RTDETRv4DetectionLoss(nn.Module):
             global_num_gts = max(len(batch["bboxes"]), 1.0)
 
         gt_cls, gt_bboxes, gt_groups = batch["cls"], batch["bboxes"], batch["gt_groups"]
-        main_indices = self.matcher(pred_bboxes[-1], pred_scores[-1], gt_bboxes, gt_cls, gt_groups)
+        main_indices = self._match(pred_bboxes[-1], pred_scores[-1], gt_bboxes, gt_cls, gt_groups)
         aux_indices = self._prepare_aux_indices(pred_bboxes, pred_scores, gt_bboxes, gt_cls, gt_groups)
         pre_bboxes, pre_logits, pre_indices = self._prepare_pre_indices(dfine_meta, gt_bboxes, gt_cls, gt_groups)
 

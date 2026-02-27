@@ -936,13 +936,13 @@ class RTDETRDetectionModel(DetectionModel):
     def init_criterion(self):
         """Initialize the loss criterion for the RTDETRDetectionModel."""
         from ultralytics.models.utils.loss import RTDETRDetectionLoss
-        from ultralytics.models.utils.loss_dfine import RTDETRv4DetectionLoss
+        from ultralytics.models.utils.loss_dfine import DfineLoss
 
         loss_cfg = self.yaml.get("loss", {})
         loss_gain = loss_cfg.get("loss_gain", {}) if isinstance(loss_cfg, dict) else {}
         has_dfine_gain = any(k in loss_gain for k in ("fgl", "ddf"))
         if has_dfine_gain:
-            return RTDETRv4DetectionLoss(nc=self.nc, **loss_cfg)
+            return DfineLoss(nc=self.nc, **loss_cfg)
         return RTDETRDetectionLoss(nc=self.nc, **loss_cfg)
 
     def loss(self, batch, preds=None):
@@ -984,6 +984,9 @@ class RTDETRDetectionModel(DetectionModel):
         dfine_meta_o2m = None
         if supports_dfine and dfine_meta is not None:
             dfine_meta, dfine_meta_o2m = self._split_dfine_meta(dfine_meta, dn_meta)
+        matcher_epoch = 0
+        if supports_dfine and "epoch" in batch:
+            matcher_epoch = int(batch["epoch"])
         dn_bboxes = split_outputs["dn_bboxes"]
         dn_scores = split_outputs["dn_scores"]
         dec_bboxes = split_outputs["o2o_bboxes"]
@@ -1005,6 +1008,7 @@ class RTDETRDetectionModel(DetectionModel):
         loss_kwargs = {"dn_bboxes": dn_bboxes, "dn_scores": dn_scores, "dn_meta": dn_meta}
         if supports_dfine:
             loss_kwargs["dfine_meta"] = dfine_meta
+            loss_kwargs["matcher_epoch"] = matcher_epoch
         loss = self.criterion((dec_bboxes, dec_scores), targets, **loss_kwargs)
 
         # One-to-many loss (auxiliary)
@@ -1018,6 +1022,7 @@ class RTDETRDetectionModel(DetectionModel):
             loss_o2m_kwargs = {"dn_bboxes": None, "dn_scores": None, "dn_meta": None}
             if supports_dfine:
                 loss_o2m_kwargs["dfine_meta"] = dfine_meta_o2m
+                loss_o2m_kwargs["matcher_epoch"] = matcher_epoch
             loss_o2m = self.criterion((o2m_bboxes, o2m_scores), targets_o2m, **loss_o2m_kwargs)
             # Combine one-to-many losses for all available coefficients (main + aux + optional DFine terms).
             # Denoising is disabled for o2m branch, so *_dn keys are placeholder zeros and are skipped.

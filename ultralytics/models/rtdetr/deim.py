@@ -377,6 +377,21 @@ class RTDETRDEIMDataset(RTDETRDataset):
 class RTDETRDEIMValidator(RTDETRValidator):
     """Validator that builds the DEIM dataset variant."""
 
+    def __call__(self, trainer=None, model=None):
+        """Persist current train epoch so preprocess can attach it to validation batches."""
+        if trainer is not None:
+            self._val_epoch = int(trainer.epoch)
+        return super().__call__(trainer=trainer, model=model)
+
+    def preprocess(self, batch):
+        """Inject epoch into validation batches during training for DFine matcher scheduling."""
+        batch = super().preprocess(batch)
+        if self.training:
+            if not hasattr(self, "_val_epoch"):
+                raise KeyError("RTDETRDEIM validation requires epoch, but validator state is missing.")
+            batch["epoch"] = int(self._val_epoch)
+        return batch
+
     def build_dataset(self, img_path, mode="val", batch=None):
         return RTDETRDEIMDataset(
             img_path=img_path,
