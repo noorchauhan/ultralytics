@@ -272,6 +272,9 @@ BENCHMARKS = {
             "DINOv3-RTDETR": [
                 ("s", 4.5, {"ap": 50.3, "ap50": 69.0, "ap75": 54.4, "ap_small": 27.8, "ap_medium": 55.8, "ap_large": 72.5}),
             ],
+            "DINOv3-RTDETR (obj365)": [
+                ("s", 4.5, {"ap": 52.3, "ap50": 71.1, "ap75": 56.7, "ap_small": 33.6, "ap_medium": 57.6, "ap_large": 70.0}),
+            ],
             "DINOv3-STA-RTDETR": [
                 ("l3", 10.4, {"ap": 54.3, "ap50": 72.8, "ap75": 58.9, "ap_small": 35.1, "ap_medium": 59.7, "ap_large": 73.0}, 0.1),
                 ("l6", 11.4, {"ap": 55.0, "ap50": 73.7, "ap75": 59.6, "ap_small": 36.3, "ap_medium": 60.4, "ap_large": 74.3}, 0.1),
@@ -429,6 +432,7 @@ MODEL_STYLES = {
     "YOLO26-reported": ("o", -12),
     "YOLO26_RTDETR": ("^", -12),
     "DINOv3-RTDETR": ("X", 8),
+    "DINOv3-RTDETR (obj365)": ("X", -12),
     "DINOv3-STA-RTDETR": ("X", -12),
     "DINOv3-STA-RTDETR (obj365)": ("X", 8),
     "RF-DETR": ("s", -12),
