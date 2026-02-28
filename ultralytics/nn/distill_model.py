@@ -44,7 +44,16 @@ class DistillationModel(nn.Module):
             for student_out, teacher_out in zip(student_output, teacher_output):
                 student_dim = self.decouple_outputs(student_out, shape_check=True).shape[1]
                 teacher_dim = self.decouple_outputs(teacher_out, shape_check=True).shape[1]
-                projectors.append(nn.Conv2d(student_dim, teacher_dim, kernel_size=1, stride=1, padding=0))
+                if self.student_model.args.distill_projector == "linear":
+                    projectors.append(nn.Conv2d(student_dim, teacher_dim, kernel_size=1, stride=1, padding=0))
+                else:
+                    projectors.append(
+                        nn.Sequential(
+                            nn.Conv2d(student_dim, teacher_dim, kernel_size=1, stride=1, padding=0),
+                            nn.ReLU(inplace=True),
+                            nn.Conv2d(teacher_dim, teacher_dim, kernel_size=1, stride=1, padding=0),
+                        )
+                    )
             self.projector = nn.ModuleList(projectors)
         if self.distill_feature_loss == "mgd":
             generations = []
@@ -157,7 +166,7 @@ class DistillationModel(nn.Module):
         loss_distill_cls = torch.zeros(1, device=batch["img"].device)
         loss_distill_box = torch.zeros(1, device=batch["img"].device)
         loss_distill_feature = torch.zeros(1, device=batch["img"].device)
-        if self.distill_feature_loss == "sl2":
+        if self.distill_feature_loss == "sl2" or self.distill_feature_loss == "scosine":
             teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"]
             parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
             teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
@@ -238,7 +247,7 @@ class DistillationModel(nn.Module):
                             teacher_feat = teacher_feat.permute(0, 2, 3, 1).reshape(teacher_feat.shape[0], h * w, -1)[fg_mask]
                         else:
                             continue
-                    if self.distill_feature_loss == "sl2":
+                    if self.distill_feature_loss == "sl2" or self.distill_feature_loss == "scosine":
                         loss_distill_feature += self.feature_kd_loss(student_feat, teacher_feat, feat_idx=i, teacher_scores=teacher_scores) * feature_weight
                     else:
                         loss_distill_feature += self.feature_kd_loss(student_feat, teacher_feat, feat_idx=i) * feature_weight
@@ -296,6 +305,23 @@ class DistillationModel(nn.Module):
         dis_loss = F.mse_loss(student_feat, teacher_feat, reduction='none')
         dis_loss = dis_loss * teacher_score
         dis_loss = dis_loss.sum() / (teacher_score.sum() * C + 1e-9)
+        return dis_loss
+
+    def loss_s_cosine(self, student_feat, teacher_feat, feat_idx=0, teacher_scores=None):
+        teacher_score = teacher_scores[feat_idx]  # (B, 1, N)
+        B, C, H, W = student_feat.shape
+
+        student_feat = F.normalize(student_feat, p=2, dim=1, eps=1e-9)
+        teacher_feat = F.normalize(teacher_feat, p=2, dim=1, eps=1e-9)
+
+        student_feat = student_feat.view(B, C, -1)
+        teacher_feat = teacher_feat.view(B, C, -1)
+
+        cos_sim = (student_feat * teacher_feat).sum(dim=1, keepdim=True)  # (B, 1, N)
+        loss_map = 1.0 - cos_sim
+
+        dis_loss = loss_map * teacher_score
+        dis_loss = dis_loss.sum() / (teacher_score.sum() + 1e-9)
         return dis_loss
 
     def bbox_decode(self, anchor_points, pred_dist):
@@ -396,6 +422,8 @@ class DistillationModel(nn.Module):
             return self.loss_cwd(student_feat, teacher_feat, feat_idx=feat_idx)
         elif self.distill_feature_loss == "sl2":
             return self.loss_sl2(student_feat, teacher_feat, feat_idx=feat_idx, teacher_scores=teacher_scores)
+        elif self.distill_feature_loss == "scosine":
+            return self.loss_s_cosine(student_feat, teacher_feat, feat_idx=feat_idx, teacher_scores=teacher_scores)
         else:
             raise ValueError(f"Unknown feature distillation loss: {self.distill_feature_loss}")
 
