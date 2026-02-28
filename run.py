@@ -9,7 +9,7 @@ Usage:
 zones.json:
     [ { "points": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] }, ... ]
 
-Keys: Q / ESC = quit  |  click CPU / GPU / NPU to switch device
+Keys: Q / ESC = quit  |  click CPU / GPU / NPU or press 1/2/3 to switch device
 
 NOTE: yolov8n-obb.pt is trained on DOTA (aerial imagery).
       Its vehicle classes are "small-vehicle" and "large-vehicle".
@@ -30,6 +30,8 @@ from ultralytics import YOLO
 # If your model uses different names, add them here.
 # Run once and check the terminal output to see all available class names.
 VEHICLE_CLASS_NAMES = {
+    # Visdrone dataset
+    "bicycle", "car", "van", "truck", "tricycle", "awning-tricycle", "bus", "motor",
     # DOTA dataset (yolov8n-obb.pt default)
     "small-vehicle", "large-vehicle",
     # COCO (standard yolov8 models)
@@ -44,7 +46,7 @@ BUTTON_W           = 90
 BUTTON_H           = 34
 BUTTON_MARGIN      = 12
 BUTTON_Y           = 12
-COLOR_ACTIVE       = (0, 180, 0)
+COLOR_ACTIVE       = (165, 35, 19)
 COLOR_INACTIVE     = (60, 60, 60)
 COLOR_TEXT         = (255, 255, 255)
 COLOR_INFO_BG      = (20, 20, 20)
@@ -52,83 +54,14 @@ COLOR_FREE         = (0, 220, 0)
 COLOR_OCCUPIED     = (0, 0, 220)
 FONT               = cv2.FONT_HERSHEY_SIMPLEX
 ZONE_ALPHA         = 0.25
-OBB_OVERLAP_THRESH = 0.50   # 50% of vehicle box must overlap zone to count as occupied
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Sutherland–Hodgman polygon clipping → intersection area
-# ──────────────────────────────────────────────────────────────────────────────
-def _clip_edge(poly, p1, p2):
-    if len(poly) == 0:
-        return poly
-    def inside(pt):
-        return (p2[0]-p1[0])*(pt[1]-p1[1]) - (p2[1]-p1[1])*(pt[0]-p1[0]) >= 0
-    def intersect(a, b):
-        da, dp = b-a, p2-p1
-        d = da[0]*dp[1] - da[1]*dp[0]
-        if abs(d) < 1e-10: return a
-        t = ((p1[0]-a[0])*dp[1] - (p1[1]-a[1])*dp[0]) / d
-        return a + t*da
-    out, n = [], len(poly)
-    for i in range(n):
-        c, p = poly[i].astype(np.float32), poly[i-1].astype(np.float32)
-        if inside(c):
-            if not inside(p): out.append(intersect(p, c))
-            out.append(c)
-        elif inside(p):
-            out.append(intersect(p, c))
-    return np.array(out, dtype=np.float32) if out else np.empty((0, 2), dtype=np.float32)
-
-
-def poly_intersect_area(a, b):
-    clipped = a.astype(np.float32)
-    for i in range(len(b)):
-        clipped = _clip_edge(clipped, b[i].astype(np.float32), b[(i+1) % len(b)].astype(np.float32))
-        if len(clipped) == 0: return 0.0
-    if len(clipped) < 3: return 0.0
-    x, y = clipped[:, 0], clipped[:, 1]
-    return float(0.5 * abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
-
-
-def poly_area(pts):
-    x, y = pts[:, 0].astype(float), pts[:, 1].astype(float)
-    return float(0.5 * abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
-
-
-def ensure_ccw(pts):
-    pts = pts.astype(np.float32)
-    return pts[::-1].copy() if np.cross(pts[1:]-pts[0], pts[:-1]-pts[0]).sum() < 0 else pts.copy()
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# OBB → polygon
-# ──────────────────────────────────────────────────────────────────────────────
-def obb_xywhr_to_poly(xywhr):
-    """[cx, cy, w, h, angle_rad] → (4,2) rotated rectangle polygon."""
-    cx, cy, w, h, a = (float(v) for v in xywhr[:5])
-    c, s = np.cos(a), np.sin(a)
-    corners = np.array([[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]], dtype=np.float32)
-    rot = np.array([[c,-s],[s,c]], dtype=np.float32)
-    poly = corners @ rot.T
-    poly[:, 0] += cx
-    poly[:, 1] += cy
-    return poly
-
-
-def xyxy_to_poly(x1, y1, x2, y2):
-    return np.array([[x1,y1],[x2,y1],[x2,y2],[x1,y2]], dtype=np.float32)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Occupancy check
 # ──────────────────────────────────────────────────────────────────────────────
-def zone_is_occupied(zone_pts, vehicle_polys):
-    zone_ccw = ensure_ccw(zone_pts.astype(np.float32))
-    for vp in vehicle_polys:
-        vp_ccw = ensure_ccw(vp)
-        area = poly_area(vp_ccw)
-        if area < 1.0: continue
-        if poly_intersect_area(vp_ccw, zone_ccw) / area >= OBB_OVERLAP_THRESH:
+def zone_is_occupied(zone_poly, vehicle_centers):
+    for cx, cy in vehicle_centers:
+        if cv2.pointPolygonTest(zone_poly, (float(cx), float(cy)), False) >= 0:
             return True
     return False
 
@@ -176,15 +109,13 @@ def draw_buttons(frame, active, rects):
                     FONT, 0.55, COLOR_TEXT, 1, cv2.LINE_AA)
 
 
-def draw_info(frame, device, inf_ms, fps, n_vehicles, is_obb):
+def draw_info(frame, device, inf_ms, fps):
     lines = [
-        f"Device  : {device.split(':')[-1].upper()}",
-        f"Infer   : {inf_ms:.1f} ms",
-        f"FPS     : {fps:.1f}",
-        f"Vehicles: {n_vehicles}",
-        f"Mode    : {'OBB' if is_obb else 'BOX'}",
+        f"Device    : {device.split(':')[-1].upper()}",
+        f"Inference : {inf_ms:.1f} ms",
+        f"FPS       : {fps:.1f}",
     ]
-    pad, lh, bw = 8, 20, 220
+    pad, lh, bw = 8, 24, 240
     bh = pad*2 + lh*len(lines)
     x0, y0 = frame.shape[1]-bw-BUTTON_MARGIN, BUTTON_MARGIN
     ov = frame.copy()
@@ -192,7 +123,7 @@ def draw_info(frame, device, inf_ms, fps, n_vehicles, is_obb):
     cv2.addWeighted(ov, 0.65, frame, 0.35, 0, frame)
     for j, line in enumerate(lines):
         cv2.putText(frame, line, (x0+pad, y0+pad+lh*(j+1)-4),
-                    FONT, 0.45, COLOR_TEXT, 1, cv2.LINE_AA)
+                    FONT, 0.55, COLOR_TEXT, 1, cv2.LINE_AA)
 
 
 def hit_test(x, y, rects):
@@ -252,6 +183,15 @@ def mouse_cb(event, x, y, flags, param):
             state.clicked_device = DEVICES[idx]
 
 
+def hotkey_to_device(key: int):
+    """Map numeric hotkeys to available devices."""
+    if key in (ord("1"), ord("2"), ord("3")):
+        idx = int(chr(key)) - 1
+        if 0 <= idx < len(DEVICES):
+            return DEVICES[idx]
+    return None
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Main loop
 # ──────────────────────────────────────────────────────────────────────────────
@@ -263,8 +203,10 @@ def load_zones(path):
 
 def main(model_path, source, zones_path, default_device):
     zones = []
+    zone_polys = []
     if zones_path and Path(zones_path).exists():
         zones = load_zones(zones_path)
+        zone_polys = [pts.astype(np.float32).reshape((-1, 1, 2)) for pts in zones]
         print(f"[INFO] Loaded {len(zones)} zone(s) from {zones_path}")
     elif zones_path:
         print(f"[WARN] Zones file not found: {zones_path}")
@@ -281,6 +223,7 @@ def main(model_path, source, zones_path, default_device):
     current_device = default_device
     model = load_model(model_path, current_device)
     vehicle_ids = get_vehicle_ids(model)
+    print("[INFO] Hotkeys: 1 -> INTEL:CPU, 2 -> INTEL:GPU, 3 -> INTEL:NPU")
 
     inf_ms, fps, t_prev = 0.0, 0.0, time.perf_counter()
     using_obb = False
@@ -302,7 +245,8 @@ def main(model_path, source, zones_path, default_device):
 
         # Inference
         t0 = time.perf_counter()
-        results = model.predict(frame, device=current_device, verbose=False)
+        classes_filter = sorted(vehicle_ids) if vehicle_ids else None
+        results = model.predict(frame, device=current_device, classes=classes_filter, verbose=False)
         inf_ms = (time.perf_counter() - t0) * 1000
 
         now = time.perf_counter()
@@ -312,34 +256,38 @@ def main(model_path, source, zones_path, default_device):
         result = results[0]
         using_obb = is_obb_result(result)
 
-        # Extract vehicle polygons
-        vehicle_polys = []
+        # Extract vehicle centers (cx, cy)
+        vehicle_centers = []
         if using_obb:
             xywhr_all = result.obb.xywhr.cpu().numpy()
             cls_all   = result.obb.cls.cpu().numpy()
             for xywhr, cls_id in zip(xywhr_all, cls_all):
                 if int(cls_id) in vehicle_ids:
-                    vehicle_polys.append(obb_xywhr_to_poly(xywhr))
+                    vehicle_centers.append((float(xywhr[0]), float(xywhr[1])))
         else:
             if result.boxes is not None:
                 for box in result.boxes:
                     if int(box.cls[0]) in vehicle_ids:
                         x1, y1, x2, y2 = box.xyxy[0].tolist()
-                        vehicle_polys.append(xyxy_to_poly(x1, y1, x2, y2))
+                        vehicle_centers.append(((x1 + x2) / 2.0, (y1 + y2) / 2.0))
 
         # Draw
         annotated = result.plot()
 
         if zones:
-            occupied = [zone_is_occupied(pts, vehicle_polys) for pts in zones]
+            occupied = [zone_is_occupied(zone_poly, vehicle_centers) for zone_poly in zone_polys]
             draw_zones(annotated, zones, occupied)
             draw_counter(annotated, sum(1 for o in occupied if not o), len(zones))
 
         draw_buttons(annotated, current_device, rects)
-        draw_info(annotated, current_device, inf_ms, fps, len(vehicle_polys), using_obb)
+        draw_info(annotated, current_device, inf_ms, fps)
 
         cv2.imshow(win, annotated)
-        if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+        key = cv2.waitKey(1) & 0xFF
+        hk_device = hotkey_to_device(key)
+        if hk_device is not None:
+            state.clicked_device = hk_device
+        if key in (ord("q"), 27):
             break
 
     cap.release()
