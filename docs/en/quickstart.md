@@ -21,7 +21,7 @@ Ultralytics offers a variety of installation methods, including pip, conda, and 
 
 !!! example "Install"
 
-    <p align="left" style="margin-bottom: -20px;">![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ultralytics?logo=python&logoColor=gold)<p>
+    <p align="left" style="margin-bottom: -20px;">![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ultralytics?logo=python&logoColor=gold)</p>
 
     === "Pip install (recommended)"
 
