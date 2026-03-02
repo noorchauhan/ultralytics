@@ -5,21 +5,24 @@ from __future__ import annotations
 import math
 import random
 from copy import copy
+from pathlib import Path
 from typing import Any
 
 import torch
+from torch import distributed as dist
 from torch import optim
 
 from ultralytics.data import YOLODataset
 from ultralytics.data.augment import Compose, Format
-from ultralytics.utils import LOGGER, colorstr
-from ultralytics.utils.torch_utils import one_cycle
+from ultralytics.nn.tasks import load_checkpoint
+from ultralytics.utils import LOGGER, RANK, colorstr
+from ultralytics.utils.torch_utils import one_cycle, strip_optimizer, unwrap_model
 
 from .detr_augment import compute_policy_epochs, rtdetr_deim_transforms
 from .train import RTDETRTrainer
 from .val import RTDETRDataset, RTDETRValidator
 
-__all__ = ("RTDETRDEIMDataset", "RTDETRDEIMValidator", "RTDETRDEIMTrainer")
+__all__ = ("RTDETRDEIMDataset", "RTDETRDEIMValidator", "RTDETRDEIMTrainer", "RTDETRDEIMTrainerV2")
 
 
 class _RTDETRDEIMBatchAugment:
@@ -505,3 +508,142 @@ class RTDETRDEIMTrainer(RTDETRTrainer):
             loss_names.extend(["giou_o2m", "cls_o2m", "l1_o2m"])
         self.loss_names = tuple(loss_names)
         return RTDETRDEIMValidator(self.test_loader, save_dir=self.save_dir, args=copy(self.args))
+
+
+class RTDETRDEIMTrainerV2(RTDETRDEIMTrainer):
+    """DEIM trainer with DEIMv2-like stage checkpointing and EMA refresh at stage switch."""
+
+    _deim_v2_callback_registered = False
+    _deim_ema_restart_decay = 0.9999  # DEIMv2 default
+
+    def _dist_barrier(self) -> None:
+        """Synchronize all ranks if running distributed training."""
+        if dist.is_available() and dist.is_initialized():
+            dist.barrier()
+
+    def _ckpt_fitness(self, path: Path) -> float:
+        """Read checkpoint fitness safely."""
+        if not path.exists():
+            return float("-inf")
+        try:
+            _, ckpt = load_checkpoint(path)
+            return float(ckpt.get("best_fitness", float("-inf")))
+        except Exception as e:
+            LOGGER.warning(f"Could not read checkpoint fitness from {path}: {e}")
+            return float("-inf")
+
+    def _init_stage_state(self) -> None:
+        """Initialize DEIMv2 stage-control state once training loader is ready."""
+        if getattr(self, "_deim_stage_state_initialized", False):
+            return
+
+        dataset = getattr(getattr(self, "train_loader", None), "dataset", None)
+        if dataset is None or not hasattr(dataset, "policy_epochs"):
+            return
+
+        self.best_stg1 = self.wdir / "best_stg1.pt"
+        self.best_stg2 = self.wdir / "best_stg2.pt"
+        self._deim_stop_epoch = int(dataset.policy_epochs[-1])
+        self._deim_stage_switched = bool(self.start_epoch >= self._deim_stop_epoch)
+        self._deim_stage1_best_fitness = self._ckpt_fitness(self.best_stg1)
+        self._deim_stage2_best_fitness = self._ckpt_fitness(self.best_stg2)
+        self._deim_ema_restart_decay = float(getattr(self.args, "ema_restart_decay", self._deim_ema_restart_decay))
+        self._deim_stage_state_initialized = True
+
+    def _set_ema_restart_decay(self) -> None:
+        """Rebind EMA decay schedule to restart value."""
+        if not self.ema:
+            return
+        decay = float(self._deim_ema_restart_decay)
+        tau = 2000.0  # Ultralytics ModelEMA default
+        self.ema.decay = lambda x, d=decay, t=tau: d * (1.0 - math.exp(-x / t))
+
+    def _reload_stage1_anchor(self) -> bool:
+        """Reload stage-1 best checkpoint into model/optimizer/scaler/EMA."""
+        source = self.best_stg1 if self.best_stg1.exists() else (self.best if self.best.exists() else self.last)
+        if source is None or not source.exists():
+            LOGGER.warning("DEIMv2 stage switch requested but no checkpoint was found for stage-1 anchor reload.")
+            return False
+
+        _, ckpt = load_checkpoint(source)
+        if ckpt.get("ema") is None:
+            LOGGER.warning(f"Checkpoint {source} has no EMA state; skipping DEIMv2 stage-1 anchor reload.")
+            return False
+
+        ema_state = ckpt["ema"].float().state_dict()
+        if not all(torch.isfinite(v).all() for v in ema_state.values() if isinstance(v, torch.Tensor)):
+            LOGGER.warning(f"Checkpoint {source} contains NaN/Inf EMA tensors; skipping DEIMv2 stage-1 reload.")
+            return False
+
+        unwrap_model(self.model).load_state_dict(ema_state)
+        self._load_checkpoint_state(ckpt)
+        self._set_ema_restart_decay()
+        LOGGER.info(
+            f"DEIMv2 stage switch: loaded stage-1 anchor {source} and refreshed EMA decay to {self._deim_ema_restart_decay:.4f}."
+        )
+        return True
+
+    def _on_fit_epoch_end_v2(self, trainer=None):
+        """Track stage-wise best checkpoints similar to DEIMv2."""
+        trainer = trainer or self
+        self._init_stage_state()
+        if not getattr(self, "_deim_stage_state_initialized", False):
+            return
+
+        fitness = trainer.fitness
+        if fitness is None:
+            return
+        fitness = float(fitness)
+        epoch = int(trainer.epoch)
+
+        if epoch < self._deim_stop_epoch:
+            if fitness > self._deim_stage1_best_fitness and trainer.last.exists():
+                self._deim_stage1_best_fitness = fitness
+                if RANK in {-1, 0}:
+                    self.best_stg1.write_bytes(trainer.last.read_bytes())
+        else:
+            if fitness > self._deim_stage2_best_fitness and trainer.last.exists():
+                self._deim_stage2_best_fitness = fitness
+                if RANK in {-1, 0}:
+                    self.best_stg2.write_bytes(trainer.last.read_bytes())
+
+    def _on_train_epoch_start(self, trainer=None):
+        """Apply base DEIM policy update and perform stage-switch anchor reload once."""
+        super()._on_train_epoch_start(trainer=trainer)
+        trainer = trainer or self
+        self._init_stage_state()
+        if not getattr(self, "_deim_stage_state_initialized", False):
+            return
+
+        epoch = int(trainer.epoch)
+        if self._deim_stage_switched or epoch != self._deim_stop_epoch:
+            return
+
+        if RANK in {-1, 0} and (not self.best_stg1.exists()) and self.best.exists():
+            self.best_stg1.write_bytes(self.best.read_bytes())
+        self._dist_barrier()
+        self._deim_stage_switched = self._reload_stage1_anchor()
+
+    def train(self, *args, **kwargs):
+        """Register V2 callbacks and run training."""
+        self._deim_stage_state_initialized = False
+        if not self._deim_v2_callback_registered:
+            self.add_callback("on_fit_epoch_end", self._on_fit_epoch_end_v2)
+            self._deim_v2_callback_registered = True
+        return super().train(*args, **kwargs)
+
+    def final_eval(self):
+        """Prefer stage-2 best for final evaluation when available."""
+        self._init_stage_state()
+        stage2 = getattr(self, "best_stg2", None)
+        if stage2 is not None and stage2.exists():
+            best_orig = self.best
+            self.best = stage2
+            try:
+                super().final_eval()
+            finally:
+                self.best = best_orig
+            if RANK in {-1, 0} and best_orig.exists():
+                strip_optimizer(best_orig)
+            return
+        super().final_eval()

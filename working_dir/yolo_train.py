@@ -1,6 +1,6 @@
 import torch
 import argparse
-from ultralytics import RTDETR, RTDETRDEIM, YOLO
+from ultralytics import RTDETR, RTDETRDEIM, RTDETRDEIMv2, YOLO
 import yaml
 
 
@@ -21,7 +21,7 @@ def parse_args():
         '--model-class',
         type=str,
         default='RTDETR',
-        choices=['RTDETR', 'RTDETRDEIM', 'YOLO'],
+        choices=['RTDETR', 'RTDETRDEIM', 'RTDETRDEIMv2', 'YOLO'],
         help='Model wrapper class to use'
     )
     parser.add_argument(
@@ -75,6 +75,7 @@ def main():
     model_classes = {
         'RTDETR': RTDETR,
         'RTDETRDEIM': RTDETRDEIM,
+        'RTDETRDEIMv2': RTDETRDEIMv2,
         'YOLO': YOLO,
     }
     model = model_classes[args.model_class](args.model)

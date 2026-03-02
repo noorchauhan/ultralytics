@@ -13,7 +13,7 @@ from ultralytics.engine.model import Model
 from ultralytics.nn.tasks import RTDETRDetectionModel
 from ultralytics.utils.torch_utils import TORCH_1_11
 
-from .deim import RTDETRDEIMTrainer, RTDETRDEIMValidator
+from .deim import RTDETRDEIMTrainer, RTDETRDEIMTrainerV2, RTDETRDEIMValidator
 from .predict import RTDETRPredictor
 from .train import RTDETRTrainer
 from .val import RTDETRValidator
@@ -75,6 +75,22 @@ class RTDETRDEIM(RTDETR):
                 "predictor": RTDETRPredictor,
                 "validator": RTDETRDEIMValidator,
                 "trainer": RTDETRDEIMTrainer,
+                "model": RTDETRDetectionModel,
+            }
+        }
+
+
+class RTDETRDEIMv2(RTDETR):
+    """RT-DETR interface that routes training through DEIM v2 trainer with stage-switch EMA refresh."""
+
+    @property
+    def task_map(self) -> dict:
+        """Return a task map that uses DEIM v2 trainer implementation."""
+        return {
+            "detect": {
+                "predictor": RTDETRPredictor,
+                "validator": RTDETRDEIMValidator,
+                "trainer": RTDETRDEIMTrainerV2,
                 "model": RTDETRDetectionModel,
             }
         }
