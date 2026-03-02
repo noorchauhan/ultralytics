@@ -442,9 +442,10 @@ class RTDETRDEIMTrainer(RTDETRTrainer):
             self.lf = one_cycle(1, self.args.lrf, self.epochs)
         elif scheduler_name in {"flatcosine", "flat_cosine", "flatcos"}:
             # Flat phase keeps LR constant, then cosine anneals to lrf.
-            warmup_epochs = max(float(self.args.warmup_epochs), 0.0)
-            default_flat_epoch = min(self.epochs, max(int(math.ceil(warmup_epochs)), 4) + self.epochs // 2)
-            flat_epoch = default_flat_epoch if self.args.flat_epoch is None else int(self.args.flat_epoch)
+            if self.args.flat_epoch is None:
+                _, flat_epoch, _ = compute_policy_epochs(self.args)
+            else:
+                flat_epoch = int(self.args.flat_epoch)
             if not (0 <= flat_epoch <= self.epochs):
                 raise ValueError(
                     f"flatcosine got invalid flat_epoch={flat_epoch} for epochs={self.epochs}. "

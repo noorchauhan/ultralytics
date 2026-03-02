@@ -378,9 +378,9 @@ def compute_policy_epochs(hyp: IterableSimpleNamespace) -> tuple[int, int, int]:
         raise AttributeError("compute_policy_epochs requires 'epochs' in hyp.")
 
     epochs = max(1, int(hyp.epochs))
-    start = min(4, max(0, epochs - 1))
 
-    if getattr(hyp, "no_aug_epoch", None) is not None:
+    explicit_no_aug = getattr(hyp, "no_aug_epoch", None) is not None
+    if explicit_no_aug:
         no_aug_epoch = int(hyp.no_aug_epoch)
         if no_aug_epoch < 0:
             raise ValueError(f"compute_policy_epochs got invalid no_aug_epoch={no_aug_epoch}. Expected >= 0.")
@@ -399,8 +399,15 @@ def compute_policy_epochs(hyp: IterableSimpleNamespace) -> tuple[int, int, int]:
     if stop < 0:
         raise ValueError(f"compute_policy_epochs got invalid no_aug_epoch={no_aug_epoch} for epochs={epochs}.")
 
+    # DEIM-style policy epochs are derived on the active-augmentation span when no_aug is explicit.
+    effective_epochs = stop if explicit_no_aug else epochs
+    start = min(4, max(0, effective_epochs - 1))
+
     flat_epoch = hyp.flat_epoch
-    mid = min(stop, start + epochs // 2) if flat_epoch is None else int(flat_epoch)
+    if flat_epoch is None:
+        mid = min(stop, start + effective_epochs // 2)
+    else:
+        mid = int(flat_epoch)
     if not (0 <= start <= mid <= stop <= epochs):
         raise ValueError(
             f"compute_policy_epochs produced invalid boundaries: start={start}, mid={mid}, stop={stop}, epochs={epochs}."
