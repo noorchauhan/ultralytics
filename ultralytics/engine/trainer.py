@@ -1021,17 +1021,17 @@ class BaseTrainer:
         if use_muon:
             num_params[0] = len(g[3])  # update number of params
             g[3] = {"params": g[3], **optim_args, "weight_decay": decay, "use_muon": True, "param_group": "muon"}
-            # import re
-            #
-            # # higher lr for certain parameters in MuSGD when funetuning
-            # pattern = re.compile(r"(?=.*23)(?=.*cv3)|proto\.semseg")
-            # g_ = []  # new param groups
-            # for x in g:
-            #     p = x.pop("params")
-            #     p1 = [v for k, v in p.items() if pattern.search(k)]
-            #     p2 = [v for k, v in p.items() if not pattern.search(k)]
-            #     g_.extend([{"params": p1, **x, "lr": lr * 3}, {"params": p2, **x}])
-            # g = g_
+            import re
+
+            # higher lr for certain parameters in MuSGD when funetuning
+            pattern = re.compile(r"(?=.*23)(?=.*cv3)|proto\.semseg")
+            g_ = []  # new param groups
+            for x in g:
+                p = x.pop("params")
+                p1 = [v for k, v in p.items() if pattern.search(k)]
+                p2 = [v for k, v in p.items() if not pattern.search(k)]
+                g_.extend([{"params": p1, **x, "lr": lr * 1}, {"params": p2, **x}])
+            g = g_
         optimizer = getattr(optim, name, partial(MuSGD, muon=muon, sgd=sgd))(params=g)
 
         LOGGER.info(
