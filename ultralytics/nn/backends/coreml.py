@@ -30,8 +30,6 @@ class CoreMLBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.coreml = True
-        self.nhwc = True
         self.device = torch.device("cpu")  # CoreML uses CPU
 
     def load_model(self) -> None:

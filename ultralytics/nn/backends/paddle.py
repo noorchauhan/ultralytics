@@ -29,7 +29,6 @@ class PaddleBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.paddle = True
         self.predictor = None
         self.input_handle = None
         self.output_names = None

@@ -35,9 +35,8 @@ class TensorFlowBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.saved_model = is_savedmodel
+        self.saved_model = is_savedmodel  # Keep to distinguish SavedModel vs GraphDef
         self.pb = not is_savedmodel
-        self.nhwc = True
         self.frozen_func = None
 
     def load_model(self) -> None:
@@ -137,9 +136,7 @@ class TFLiteBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.tflite = True
-        self.edgetpu = edgetpu
-        self.nhwc = True
+        self.edgetpu = edgetpu  # Keep to distinguish Edge TPU vs regular TFLite
         self.interpreter = None
         self.input_details = None
         self.output_details = None

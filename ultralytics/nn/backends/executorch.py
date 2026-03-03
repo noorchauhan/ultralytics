@@ -28,7 +28,6 @@ class ExecuTorchBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.pte = True
         self.program = None
         self.model = None
 

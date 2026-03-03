@@ -46,7 +46,6 @@ class PyTorchBackend(BaseBackend):
             self._model_instance = None
         self.fuse = fuse
         self.verbose = verbose
-        self.pt = True
 
     def load_model(self) -> None:
         """Load the PyTorch model."""
@@ -116,7 +115,6 @@ class TorchScriptBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.jit = True
         self.metadata = None
 
     def load_model(self) -> None:

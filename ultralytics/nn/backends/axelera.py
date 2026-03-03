@@ -29,7 +29,6 @@ class AxeleraBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.axelera = True
         self.ax_model = None
 
     def load_model(self) -> None:

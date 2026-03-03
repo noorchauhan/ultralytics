@@ -28,8 +28,6 @@ class RKNNBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.rknn = True
-        self.nhwc = True
         self.rknn_model = None
 
     def load_model(self) -> None:

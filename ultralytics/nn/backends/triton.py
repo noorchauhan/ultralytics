@@ -27,7 +27,6 @@ class TritonBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.triton = True
         self.fp16 &= fp16  # Triton supports FP16
 
     def load_model(self) -> None:

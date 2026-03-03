@@ -30,7 +30,6 @@ class MNNBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.mnn = True
         self.rt = None
         self.net = None
 

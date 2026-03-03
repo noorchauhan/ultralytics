@@ -30,8 +30,7 @@ class ONNXBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.dnn = dnn
-        self.onnx = not dnn
+        self.dnn = dnn  # Keep this to distinguish DNN vs ONNX Runtime
         self.session = None
         self.net = None
         self.output_names = None
@@ -161,8 +160,6 @@ class ONNXIMXBackend(ONNXBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.onnx = False
-        self.imx = True
         self.device = torch.device("cpu")  # IMX always uses CPU
 
     def load_model(self) -> None:

@@ -31,7 +31,6 @@ class TensorRTBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.engine = True
         self.context = None
         self.bindings = None
         self.binding_addrs = None

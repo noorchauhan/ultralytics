@@ -29,7 +29,6 @@ class OpenVINOBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.xml = True
         self.ov = None
         self.ov_compiled_model = None
         self.input_name = None

@@ -29,8 +29,6 @@ class NCNNBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.ncnn = True
-        self.nhwc = True
         self.net = None
         self.pyncnn = None
 
