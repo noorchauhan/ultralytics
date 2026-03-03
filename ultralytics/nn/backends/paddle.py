@@ -1,0 +1,95 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+
+from ultralytics.utils import ARM64, LOGGER
+from ultralytics.utils.checks import check_requirements
+from ultralytics.nn.backends.base import BaseBackend
+
+
+class PaddleBackend(BaseBackend):
+    """PaddlePaddle inference backend.
+
+    Supports loading and inference with PaddlePaddle models (*_paddle_model/ directories).
+    """
+
+    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
+        """Initialize PaddlePaddle backend.
+
+        Args:
+            weights: Path to the PaddlePaddle model directory.
+            device: Device to run inference on.
+            fp16: Whether to use FP16 precision.
+            **kwargs: Additional arguments.
+        """
+        super().__init__(weights, device, fp16, **kwargs)
+        self.paddle = True
+        self.predictor = None
+        self.input_handle = None
+        self.output_names = None
+
+    def load_model(self) -> None:
+        """Load the PaddlePaddle model."""
+        cuda = torch.cuda.is_available()
+        
+        LOGGER.info(f"Loading {self.weights} for PaddlePaddle inference...")
+        if cuda:
+            check_requirements(
+                "paddlepaddle-gpu>=3.0.0,!=3.3.0"
+            )
+        elif ARM64:
+            check_requirements("paddlepaddle==3.0.0")
+        else:
+            check_requirements("paddlepaddle>=3.0.0,!=3.3.0")
+            
+        import paddle.inference as pdi
+
+        w = Path(self.weights)
+        model_file, params_file = None, None
+        
+        if w.is_dir():
+            model_file = next(w.rglob("*.json"), None)
+            params_file = next(w.rglob("*.pdiparams"), None)
+        elif w.suffix == ".pdiparams":
+            model_file = w.with_name("model.json")
+            params_file = w
+
+        if not (model_file and params_file and model_file.is_file() and params_file.is_file()):
+            raise FileNotFoundError(f"Paddle model not found in {w}. Both .json and .pdiparams files are required.")
+
+        config = pdi.Config(str(model_file), str(params_file))
+        if torch.cuda.is_available() and self.device.type != "cpu":
+            config.enable_use_gpu(memory_pool_init_size_mb=2048, device_id=0)
+            
+        self.predictor = pdi.create_predictor(config)
+        self.input_handle = self.predictor.get_input_handle(self.predictor.get_input_names()[0])
+        self.output_names = self.predictor.get_output_names()
+        
+        # Load metadata
+        metadata_file = w / "metadata.yaml"
+        if metadata_file.exists():
+            from ultralytics.utils import YAML
+            self.metadata = YAML.load(metadata_file)
+
+    def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+        """Run PaddlePaddle inference.
+
+        Args:
+            im: Input image tensor in BCHW format.
+            **kwargs: Additional arguments.
+
+        Returns:
+            Model output tensor(s).
+        """
+        im_np = im.cpu().numpy().astype(np.float32)
+        self.input_handle.copy_from_cpu(im_np)
+        self.predictor.run()
+        y = [self.predictor.get_output_handle(x).copy_to_cpu() for x in self.output_names]
+
+        return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])
