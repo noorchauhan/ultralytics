@@ -420,7 +420,9 @@ class AutoBackend(nn.Module):
         Returns:
             (torch.Tensor | list[torch.Tensor]): The raw output tensor(s) from the model.
         """
-        _b, _ch, h, w = im.shape
+        _, _, h, w = im.shape
+        if self.nhwc:
+            im = im.permute(0, 2, 3, 1)  # torch BCHW to numpy BHWC shape(1,320,192,3)
 
         # Build forward kwargs based on backend type
         if self.pt or self.nn_module:
