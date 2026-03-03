@@ -199,6 +199,8 @@ class TFLiteBackend(BaseBackend):
         Returns:
             Model output tensor(s).
         """
+        if self.nhwc:
+            im = im.permute(0, 2, 3, 1)  # torch BCHW to numpy BHWC shape(1,320,192,3)
         im_np = im.cpu().numpy()
         h, w = kwargs.get("h", im.shape[2]), kwargs.get("w", im.shape[3])
 
