@@ -224,6 +224,7 @@ class AutoBackend(nn.Module):
             pte,
             axelera,
             triton,
+            format,
         ) = model_types
 
         fp16 &= pt or jit or onnx or xml or engine or nn_module or triton  # FP16
@@ -248,90 +249,52 @@ class AutoBackend(nn.Module):
             self.nn_module = nn_module
             backend_kwargs["fuse"] = fuse
             backend_kwargs["verbose"] = verbose
-            self.backend = PyTorchBackend(w if not nn_module else model, **backend_kwargs)
-            self.backend.load_model()
         elif jit:
             self.jit = True
-            self.backend = TorchScriptBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif dnn:
             self.onnx = True
             self.dnn = True
             backend_kwargs["dnn"] = True
-            self.backend = ONNXBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif onnx:
             self.onnx = True
-            self.backend = ONNXBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif imx:
             self.imx = True
-            self.backend = ONNXIMXBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif xml:
             self.xml = True
-            self.backend = OpenVINOBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif engine:
             self.engine = True
-            self.backend = TensorRTBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif coreml:
             self.coreml = True
-            self.backend = CoreMLBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif saved_model:
             self.saved_model = True
             backend_kwargs["is_savedmodel"] = True
-            self.backend = TensorFlowBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif pb:
             self.pb = True
             backend_kwargs["is_savedmodel"] = False
-            self.backend = TensorFlowBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif tflite:
             self.tflite = True
             backend_kwargs["edgetpu"] = False
-            self.backend = TFLiteBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif edgetpu:
             self.edgetpu = True
             self.tflite = True  # Edge TPU is a type of TFLite
             backend_kwargs["edgetpu"] = True
-            self.backend = TFLiteBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif tfjs:
             self.tfjs = True
             raise NotImplementedError("Ultralytics TF.js inference is not currently supported.")
         elif paddle:
             self.paddle = True
-            self.backend = PaddleBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif mnn:
             self.mnn = True
-            self.backend = MNNBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif ncnn:
             self.ncnn = True
-            self.backend = NCNNBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif rknn:
             self.rknn = True
-            self.backend = RKNNBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif triton:
             self.triton = True
-            self.backend = TritonBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif pte:
             self.pte = True
-            self.backend = ExecuTorchBackend(w, **backend_kwargs)
-            self.backend.load_model()
         elif axelera:
             self.axelera = True
-            self.backend = AxeleraBackend(w, **backend_kwargs)
-            self.backend.load_model()
         else:
             from ultralytics.engine.exporter import export_formats
 
@@ -340,6 +303,8 @@ class AutoBackend(nn.Module):
                 f"Ultralytics supports: {export_formats()['Format']}\n"
                 f"See https://docs.ultralytics.com/modes/predict for help."
             )
+        self.backend = self._BACKEND_MAP[format](w, **backend_kwargs)
+        self.backend.load_model()
 
         # Determine NHWC based on format
         self.nhwc = self._get_active_format() in self._NHWC_FORMATS
@@ -553,6 +518,7 @@ class AutoBackend(nn.Module):
         types = [s in name for s in sf]
         types[5] |= name.endswith(".mlmodel")
         types[8] &= not types[9]
+        format = next((f for i, f in enumerate(export_formats()["Argument"]) if types[i]), None)
 
         if any(types):
             triton = False
@@ -562,4 +528,4 @@ class AutoBackend(nn.Module):
             url = urlsplit(p)
             triton = bool(url.netloc) and bool(url.path) and url.scheme in {"http", "grpc"}
 
-        return [*types, triton]
+        return [*types, triton, format]
