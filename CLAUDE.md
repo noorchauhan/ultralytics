@@ -104,9 +104,9 @@ This repo includes a stereo 3D detection implementation in `models/yolo/stereo3d
 - KITTI AP3D evaluation metrics
 - Stereo-specific augmentations in `augment.py`
 - Geometric 3D construction in `geometric.py`
-- Dense alignment for sub-pixel refinement in `dense_align.py`
+- Dense alignment for sub-pixel refinement in `dense_align_optimized.py`
 
-Model configs: `cfg/models/stereo/centernet-{n,s,m}.yaml`
+Model config: `cfg/models/26/yolo26-stereo3ddet-siamese.yaml`
 Dataset config: `cfg/datasets/kitti-stereo.yaml`
 
 ### Configuration

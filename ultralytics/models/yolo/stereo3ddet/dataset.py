@@ -245,7 +245,7 @@ class Stereo3DDetDataset(BaseDataset):
                     # If we have cached original shape, use it; otherwise we'll need to load to get it
                     if self.im_hw0[i] is not None:
                         h0, w0 = self.im_hw0[i]
-                except Exception as e:
+                except (OSError, ValueError) as e:
                     LOGGER.warning(f"{self.prefix}Removing corrupt *.npy image file {fn} due to: {e}")
                     Path(fn).unlink(missing_ok=True)
                     # Fall through to load from file
@@ -361,7 +361,7 @@ class Stereo3DDetDataset(BaseDataset):
                     labels = cache["labels"]
                     LOGGER.info(f"{self.prefix}Loaded {len(labels)} labels from cache: {cache_path}")
                     return labels
-            except Exception as e:
+            except (OSError, ValueError) as e:
                 LOGGER.warning(f"{self.prefix}Cache loading failed: {e}")
 
         # Parse labels
@@ -398,7 +398,7 @@ class Stereo3DDetDataset(BaseDataset):
         try:
             save_dataset_cache_file(self.prefix, cache_path, {"labels": labels}, "1.0.0")
             LOGGER.info(f"{self.prefix}Saved {len(labels)} labels to cache: {cache_path}")
-        except Exception as e:
+        except OSError as e:
             LOGGER.warning(f"{self.prefix}Cache saving failed: {e}")
 
         return labels

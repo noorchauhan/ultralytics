@@ -25,7 +25,6 @@ class Stereo3DDetModel(DetectionModel):
         # Siamese uses 3ch backbone; disable siamese during __init__ so stride
         # computation uses standard forward (model not fully set up yet)
         self._siamese = False
-        self._dense_depth_head = None
         if siamese:
             ch = 3  # force 3ch backbone regardless of what trainer passes
         elif ch is None:
@@ -43,16 +42,6 @@ class Stereo3DDetModel(DetectionModel):
                     self._cv_layer = m.i  # StereoCostVolume layer index
                     self._siamese = True
                     break
-
-        # Create stride-4 DenseDepthHead for photometric loss (siamese only)
-        if self._siamese:
-            training_cfg = (self.yaml or {}).get("training", {})
-            photo_w = float(training_cfg.get("loss_weights", {}).get("photometric", 0.0))
-            if photo_w > 0:
-                from ultralytics.models.yolo.stereo3ddet.head_yolo11 import DenseDepthHead
-
-                tap_ch = self.model[self._cv_layer].c_half * 2  # Full channel width at tap layer
-                self._dense_depth_head = DenseDepthHead(tap_ch)
 
         # Apply depth_mode from YAML (prune unused aux branches)
         depth_mode = (self.yaml or {}).get("training", {}).get("depth_mode", "both")
@@ -114,10 +103,6 @@ class Stereo3DDetModel(DetectionModel):
                 embeddings.append(torch.nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))
                 if m.i == max_idx:
                     return torch.unbind(torch.cat(embeddings, 1), dim=0)
-
-        # Stride-4 dense depth for photometric loss (training only)
-        if self.training and self._dense_depth_head is not None:
-            x["dense_depth"] = self._dense_depth_head(y[self._tap_layer])
 
         return x
 

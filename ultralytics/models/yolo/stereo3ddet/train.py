@@ -53,51 +53,6 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         if criterion is not None:
             criterion.epoch_frac = trainer.epoch / max(trainer.epochs, 1)
 
-    def build_optimizer(self, model, name="auto", lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
-        """Build optimizer with optional LR boost for depth/lr_distance aux branches.
-
-        Reads `training.aux_lr_mult` from model YAML. When > 1.0, depth and lr_distance
-        branch parameters get a separate param group with boosted LR, helping escape
-        the "predict mean depth" local minimum that plagues nc=1 training.
-        """
-        optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
-
-        aux_lr_mult = self._get_model_yaml().get("training", {}).get("aux_lr_mult", 1.0)
-        if aux_lr_mult <= 1.0:
-            return optimizer
-
-        # Find depth/lr_distance aux branch param IDs
-        head = unwrap_model(model).model[-1]
-        aux_ids = set()
-        if hasattr(head, "aux"):
-            for branch_name in ("lr_distance", "depth"):
-                if branch_name in head.aux:
-                    for p in head.aux[branch_name].parameters():
-                        aux_ids.add(id(p))
-
-        if not aux_ids:
-            return optimizer
-
-        # Split aux params into new groups with boosted LR
-        n_boosted = 0
-        new_groups = []
-        for group in optimizer.param_groups:
-            all_params = list(group["params"])
-            keep = [p for p in all_params if id(p) not in aux_ids]
-            boost = [p for p in all_params if id(p) in aux_ids]
-            if boost:
-                group["params"] = keep
-                new_group = {k: v for k, v in group.items() if k != "params"}
-                new_group["params"] = boost
-                new_group["lr"] = group["lr"] * aux_lr_mult
-                new_groups.append(new_group)
-                n_boosted += len(boost)
-        for g in new_groups:
-            optimizer.add_param_group(g)
-
-        LOGGER.info(f"stereo3ddet: {n_boosted} depth/lr_distance params at {aux_lr_mult}x LR")
-        return optimizer
-
     def get_validator(self):
         """Return a Stereo3DDetValidator, currently extending DetectionValidator."""
         # T204: Determine loss names dynamically from model before creating validator
@@ -112,19 +67,9 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             val.metrics.nc = len(names)
         return val
 
-    def _get_model_yaml(self):
-        """Get model YAML dict, handling DDP wrapper."""
-        model = getattr(self, "model", None)
-        if model is None:
-            return {}
-        # Unwrap DDP/DataParallel
-        if hasattr(model, "module"):
-            model = model.module
-        return getattr(model, "yaml", None) or {}
-
     def _determine_loss_names(self):
         """Set loss names for stereo 3D detection."""
-        self.loss_names = ("box", "cls", "lr_dist", "depth", "dims", "orient", "divers", "photo")
+        self.loss_names = ("box", "cls", "lr_dist", "depth", "dims", "orient")
 
     def progress_string(self):
         """Return a formatted string showing training progress with dynamically determined loss branches.
@@ -250,19 +195,16 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             # Determine output_size from model if available, otherwise use default (8x downsampling)
             output_size = None
             if hasattr(self, "model") and self.model is not None:
-                try:
-                    with torch.no_grad():
-                        n_ch = self.data.get("channels", 6)
-                        dummy_img = torch.zeros(1, n_ch, imgsz_hw[0], imgsz_hw[1], device=self.device)
-                        dummy_output = self.model(dummy_img)
-                        # Training returns dict with "feats" (list of [B,C,H,W] feature maps)
-                        if isinstance(dummy_output, dict) and "feats" in dummy_output:
-                            feats = dummy_output["feats"]
-                            if isinstance(feats, list) and len(feats) > 0:
-                                _, _, output_h, output_w = feats[0].shape
-                                output_size = (output_h, output_w)
-                except Exception:
-                    pass
+                with torch.no_grad():
+                    n_ch = self.data.get("channels", 6)
+                    dummy_img = torch.zeros(1, n_ch, imgsz_hw[0], imgsz_hw[1], device=self.device)
+                    dummy_output = self.model(dummy_img)
+                    # Training returns dict with "feats" (list of [B,C,H,W] feature maps)
+                    if isinstance(dummy_output, dict) and "feats" in dummy_output:
+                        feats = dummy_output["feats"]
+                        if isinstance(feats, list) and len(feats) > 0:
+                            _, _, output_h, output_w = feats[0].shape
+                            output_size = (output_h, output_w)
             
             # Get mean_dims from dataset config
             mean_dims = self.data.get("mean_dims")

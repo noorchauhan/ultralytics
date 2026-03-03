@@ -48,10 +48,7 @@ def _load_stereo3ddet_config() -> dict:
         / "stereo3ddet_full.yaml"
     )
     if config_path.exists():
-        try:
-            return YAML.load(str(config_path))
-        except Exception as e:
-            LOGGER.debug("Failed to load stereo3ddet config: %s", e)
+        return YAML.load(str(config_path))
     return {}
 
 

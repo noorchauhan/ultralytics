@@ -11,23 +11,6 @@ from ultralytics.utils.loss import DFLoss, v8DetectionLoss
 LOGGER = logging.getLogger(__name__)
 
 
-def _ssim(x: torch.Tensor, y: torch.Tensor, C1: float = 1e-4, C2: float = 9e-4) -> torch.Tensor:
-    """Compute per-pixel SSIM between two images (assumed [0,1] range).
-
-    Returns [B, 1, H, W] SSIM map in [-1, 1] (1 = identical).
-    """
-    pad = 1  # kernel_size=3, pad=1
-    mu_x = F.avg_pool2d(x, 3, 1, pad)
-    mu_y = F.avg_pool2d(y, 3, 1, pad)
-    sigma_x2 = F.avg_pool2d(x * x, 3, 1, pad) - mu_x * mu_x
-    sigma_y2 = F.avg_pool2d(y * y, 3, 1, pad) - mu_y * mu_y
-    sigma_xy = F.avg_pool2d(x * y, 3, 1, pad) - mu_x * mu_y
-    ssim_map = ((2 * mu_x * mu_y + C1) * (2 * sigma_xy + C2)) / (
-        (mu_x ** 2 + mu_y ** 2 + C1) * (sigma_x2 + sigma_y2 + C2)
-    )
-    return ssim_map.mean(dim=1, keepdim=True)  # average over RGB → [B, 1, H, W]
-
-
 class Stereo3DDetLossYOLO11(v8DetectionLoss):
     """Multi-scale loss for stereo 3D detection using YOLO-style bbox assignment.
 
@@ -55,8 +38,6 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         self.aux_w = loss_weights or {}
         self.use_bbox_loss = use_bbox_loss
         self.cls_label_smoothing = cls_label_smoothing
-        self.photo_w = float(self.aux_w.get("photometric", 0.0))
-        self.smooth_w = float(self.aux_w.get("smoothness", 0.001))
 
         # Depth bin classification (DFL-style)
         from ultralytics.models.yolo.stereo3ddet.head_yolo11 import DEPTH_BINS, DEPTH_MAX, DEPTH_MIN
@@ -217,92 +198,6 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
             return (raw * aux_weights).sum() / aux_weights.sum().clamp(min=1.0)
         return raw.mean()
 
-    def _photometric_loss(
-        self,
-        dense_log_depth: torch.Tensor,
-        batch: dict[str, torch.Tensor],
-    ) -> torch.Tensor:
-        """Self-supervised photometric reconstruction loss.
-
-        Warps the right image to the left viewpoint using predicted dense depth,
-        then penalizes SSIM + L1 difference. Provides dense depth supervision
-        that bypasses TAL assignments — critical for nc=1 training.
-
-        Args:
-            dense_log_depth: [B, 1, Hd, Wd] dense log-depth at feature stride.
-            batch: Batch dict with img [B, 6, H, W] and calib list.
-
-        Returns:
-            Scalar photometric + smoothness loss.
-        """
-        B, _, Hd, Wd = dense_log_depth.shape
-        device = dense_log_depth.device
-
-        # Split stereo pair and downsample to feature resolution
-        img = batch["img"]
-        stride = img.shape[2] / Hd  # dynamic stride (4 for tap features, 8 for P3)
-        left = F.interpolate(img[:, :3], size=(Hd, Wd), mode="bilinear", align_corners=False)
-        right = F.interpolate(img[:, 3:], size=(Hd, Wd), mode="bilinear", align_corners=False)
-
-        # Build per-image fx and baseline tensors [B, 1, 1, 1]
-        calibs = batch.get("calib", [{}] * B)
-        fx_vals = torch.tensor([c.get("fx", 721.0) for c in calibs], device=device, dtype=left.dtype)
-        bl_vals = torch.tensor([c.get("baseline", 0.54) for c in calibs], device=device, dtype=left.dtype)
-        fx_scaled = (fx_vals / stride).view(B, 1, 1, 1)  # scale focal length to feature resolution
-        baseline = bl_vals.view(B, 1, 1, 1)
-
-        # Log-depth → disparity in feature pixels
-        depth_m = dense_log_depth.exp().clamp(min=0.1, max=200.0)
-        disparity = fx_scaled * baseline / depth_m  # [B, 1, Hd, Wd]
-
-        # Build sampling grid: for left pixel (u,v), source is right pixel (u - disp, v)
-        u = torch.linspace(-1, 1, Wd, device=device, dtype=left.dtype)
-        v = torch.linspace(-1, 1, Hd, device=device, dtype=left.dtype)
-        grid_v, grid_u = torch.meshgrid(v, u, indexing="ij")  # [Hd, Wd]
-        base_u = grid_u.unsqueeze(0).expand(B, -1, -1)  # [B, Hd, Wd]
-        base_v = grid_v.unsqueeze(0).expand(B, -1, -1)
-
-        # Convert disparity from pixels to normalized [-1,1] coordinates
-        disp_norm = disparity.squeeze(1) * 2.0 / (Wd - 1)  # [B, Hd, Wd]
-        sample_u = base_u - disp_norm
-        grid = torch.stack([sample_u, base_v], dim=-1)  # [B, Hd, Wd, 2]
-
-        # Warp right image to left viewpoint
-        warped = F.grid_sample(right, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
-
-        # Photometric error: alpha * SSIM + (1-alpha) * L1
-        alpha = 0.85
-        l1_err = (warped - left).abs().mean(dim=1, keepdim=True)  # [B, 1, Hd, Wd]
-        ssim_err = (1.0 - _ssim(warped, left)) / 2.0  # [B, 1, Hd, Wd]
-        photo_err = alpha * ssim_err + (1 - alpha) * l1_err
-
-        # Identity error (unwarped right vs left) for auto-masking
-        id_l1 = (right - left).abs().mean(dim=1, keepdim=True)
-        id_ssim = (1.0 - _ssim(right, left)) / 2.0
-        id_err = alpha * id_ssim + (1 - alpha) * id_l1
-
-        # Auto-mask: only penalize where warping improves over identity
-        auto_mask = (photo_err < id_err).float()
-
-        # Validity mask: exclude pixels where sampling falls outside image
-        valid = ((grid[..., 0] > -1) & (grid[..., 0] < 1)).unsqueeze(1).float()  # [B, 1, Hd, Wd]
-        mask = valid * auto_mask
-
-        n_valid = mask.sum().clamp(min=1.0)
-        loss_photo = (photo_err * mask).sum() / n_valid
-
-        # Edge-aware smoothness on normalized depth
-        if self.smooth_w > 0:
-            norm_depth = dense_log_depth / (dense_log_depth.detach().mean(dim=[2, 3], keepdim=True).abs() + 1e-7)
-            dx_d = (norm_depth[:, :, :, :-1] - norm_depth[:, :, :, 1:]).abs()
-            dy_d = (norm_depth[:, :, :-1, :] - norm_depth[:, :, 1:, :]).abs()
-            dx_i = left[:, :, :, :-1].sub(left[:, :, :, 1:]).abs().mean(1, keepdim=True)
-            dy_i = left[:, :, :-1, :].sub(left[:, :, 1:, :]).abs().mean(1, keepdim=True)
-            loss_smooth = (dx_d * (-dx_i).exp()).mean() + (dy_d * (-dy_i).exp()).mean()
-            loss_photo = loss_photo + self.smooth_w * loss_smooth
-
-        return loss_photo
-
     def loss(self, preds: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         """Calculate stereo 3D detection loss: det losses + aux 3D losses.
 
@@ -311,10 +206,10 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
             batch: Batch dict with img, batch_idx, cls, bboxes, aux_targets.
         """
         # Separate aux preds from detection preds
-        aux_keys = {"lr_distance", "depth", "depth_bins", "dimensions", "orientation", "dense_depth"}
+        aux_keys = {"lr_distance", "depth", "depth_bins", "dimensions", "orientation"}
         aux_preds = {k: v for k, v in preds.items() if k in aux_keys}
 
-        loss = torch.zeros(8, device=self.device)  # box, cls, lr_dist, depth, dims, orient, divers, photo
+        loss = torch.zeros(6, device=self.device)  # box, cls, lr_dist, depth, dims, orient
 
         # Get detection losses + TAL assignment results
         (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor), det_loss, _ = (
@@ -332,15 +227,6 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
             if k in aux_losses:
                 loss[i] = aux_losses[k] * float(self.aux_w.get(k, 1.0))
 
-        # Feature diversity loss (decorrelation on P3 features)
-        diversity_w = float(self.aux_w.get("diversity", 0.0))
-        if diversity_w > 0 and "p3_features" in preds:
-            loss[6] = self._feature_diversity_loss(preds["p3_features"]) * diversity_w
-
-        # Self-supervised photometric reconstruction loss
-        if self.photo_w > 0 and "dense_depth" in preds:
-            loss[7] = self._photometric_loss(preds["dense_depth"], batch) * self.photo_w
-
         # Diagnostic logging every 50 steps
         if not hasattr(self, "_step"):
             self._step = 0
@@ -350,29 +236,6 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
 
         batch_size = preds["boxes"].shape[0]
         return loss * batch_size, loss.detach()
-
-    def _feature_diversity_loss(self, features: torch.Tensor) -> torch.Tensor:
-        """Decorrelation loss on P3 feature channels (Barlow Twins style).
-
-        Penalizes correlated channels to maintain feature diversity and prevent
-        the effective rank collapse that causes nc=1 depth failure.
-
-        Args:
-            features: [B, C, H, W] P3 feature map from neck.
-
-        Returns:
-            Scalar loss: mean squared off-diagonal correlation (0=decorrelated, 1=identical).
-        """
-        B, C, H, W = features.shape
-        x = features.float().permute(0, 2, 3, 1).reshape(-1, C)  # [N, C] where N=B*H*W
-        x = x - x.mean(dim=0, keepdim=True)
-        # Correlation matrix
-        cov = (x.T @ x) / (x.shape[0] - 1)  # [C, C]
-        std = cov.diag().sqrt().clamp(min=1e-5)
-        corr = cov / (std.unsqueeze(0) * std.unsqueeze(1))
-        # Off-diagonal mean squared correlation
-        mask = ~torch.eye(C, dtype=torch.bool, device=corr.device)
-        return corr[mask].pow(2).mean()
 
     @torch.no_grad()
     def _log_diagnostics(self, preds, aux_preds, batch, fg_mask, target_gt_idx):
@@ -450,23 +313,3 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
                     "PSEUDO step=%d | fg: %d real + %d stereo + %d mono | epoch_frac=%.2f",
                     self._step, n_real, n_stereo, n_mono, self.epoch_frac,
                 )
-
-        # 5. Feature diversity metrics
-        if "p3_features" in preds:
-            p3 = preds["p3_features"]
-            B, C, H, W = p3.shape
-            x = p3.float().permute(0, 2, 3, 1).reshape(-1, C)
-            x = x - x.mean(dim=0, keepdim=True)
-            # Effective rank via SVD (subsample for speed)
-            if x.shape[0] > 4096:
-                idx = torch.randperm(x.shape[0], device=x.device)[:4096]
-                x_sub = x[idx]
-            else:
-                x_sub = x
-            s = torch.linalg.svdvals(x_sub)
-            p_s = s / s.sum()
-            eff_rank = (-(p_s * p_s.clamp(min=1e-8).log()).sum()).exp()
-            LOGGER.info(
-                "FEAT  step=%d | eff_rank=%.1f/%d | top5_sv=[%.1f,%.1f,%.1f,%.1f,%.1f]",
-                self._step, eff_rank.item(), C, *s[:5].tolist(),
-            )

@@ -67,30 +67,6 @@ def _deep_branch(in_ch: int, out_ch: int, hidden: int = 64) -> nn.Sequential:
     )
 
 
-class DenseDepthHead(nn.Module):
-    """Dense depth prediction at stride 4 for self-supervised photometric loss.
-
-    Operates on backbone tap features (stride 4) where texture is preserved,
-    preventing spatial-shortcut collapse. Only used during training.
-    """
-
-    def __init__(self, in_ch: int, n_bins: int = DEPTH_BINS, hidden: int = 64):
-        super().__init__()
-        self.conv = nn.Sequential(
-            Conv(in_ch, hidden, 3),
-            Conv(hidden, hidden, 3),
-            nn.Conv2d(hidden, n_bins, 1),
-        )
-        self.depth_dfl = DepthDFL(n_bins, DEPTH_MIN, DEPTH_MAX)
-
-    def forward(self, feat: torch.Tensor) -> torch.Tensor:
-        """Predict dense log-depth [B, 1, H, W] from stride-4 features."""
-        logits = self.conv(feat)  # [B, n_bins, H, W]
-        B, _, H, W = logits.shape
-        log_depth = self.depth_dfl(logits.flatten(2))  # [B, 1, HW]
-        return log_depth.view(B, 1, H, W)
-
-
 class Stereo3DDetHeadYOLO11(Detect):
     """Multi-scale stereo 3D detection head (Pose-pattern).
 
@@ -173,9 +149,6 @@ class Stereo3DDetHeadYOLO11(Detect):
             cost_vol = x[self.nl]
             x = list(x[: self.nl])
 
-        # Save P3 features before Detect.forward_head modifies x in-place
-        p3_features = x[0] if self.training else None
-
         # 2D detection on clean features
         preds = super().forward_head(x, box_head, cls_head)  # {boxes, scores, feats}
 
@@ -197,9 +170,5 @@ class Stereo3DDetHeadYOLO11(Detect):
             if self.training:
                 preds["depth_bins"] = preds["depth"]  # raw logits [B, 16, HW] for DFLoss
             preds["depth"] = self.depth_dfl(preds["depth"])  # decoded [B, 1, HW]
-
-        # Training-only: save P3 features for diversity loss
-        if p3_features is not None:
-            preds["p3_features"] = p3_features
 
         return preds

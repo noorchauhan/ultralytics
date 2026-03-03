@@ -416,22 +416,16 @@ class Stereo3DDetValidator(BaseValidator):
                 # Convert labels to Box3D. Use data_names (all classes) for from_label since
                 # label dicts carry dataset class IDs, then remap to model class IDs.
                 data_names = self.data.get("names") if hasattr(self, "data") and self.data else self.names
-                try:
-                    gt_boxes = _labels_to_box3d_list(
-                        labels,
-                        calib,
-                        names=data_names,
-                        letterbox_scale=letterbox_scale,
-                        pad_left=pad_left,
-                        pad_top=pad_top,
-                        in_h=in_h,
-                        in_w=in_w,
-                    )
-                except Exception as e:
-                    LOGGER.warning(
-                        "Error converting labels to Box3D (sample %d): %s", si, e
-                    )
-                    gt_boxes = []
+                gt_boxes = _labels_to_box3d_list(
+                    labels,
+                    calib,
+                    names=data_names,
+                    letterbox_scale=letterbox_scale,
+                    pad_left=pad_left,
+                    pad_top=pad_top,
+                    in_h=in_h,
+                    in_w=in_w,
+                )
 
                 # Remap GT class IDs from dataset space to model space and drop unmapped classes
                 if self._dataset_to_model_cls:
@@ -447,126 +441,123 @@ class Stereo3DDetValidator(BaseValidator):
                 # ------------------------------------------------------------
                 # 2D bbox metrics (original-image xyxy)
                 # ------------------------------------------------------------
-                try:
-                    # Pred boxes2d from 3D projection (original coords)
-                    pred_bboxes2d = []
-                    pred_conf2d = []
-                    pred_cls2d = []
-                    for pb in pred_boxes:
-                        bbox_2d = pb.project_to_2d(calib) if calib else None
-                        if bbox_2d is None or bbox_2d[2] <= bbox_2d[0] or bbox_2d[3] <= bbox_2d[1]:
-                            continue
-                        pred_bboxes2d.append([float(bbox_2d[0]), float(bbox_2d[1]), float(bbox_2d[2]), float(bbox_2d[3])])
-                        pred_conf2d.append(float(pb.confidence))
-                        pred_cls2d.append(int(pb.class_id))
+                # Pred boxes2d from 3D projection (original coords)
+                pred_bboxes2d = []
+                pred_conf2d = []
+                pred_cls2d = []
+                for pb in pred_boxes:
+                    bbox_2d = pb.project_to_2d(calib) if calib else None
+                    if bbox_2d is None or bbox_2d[2] <= bbox_2d[0] or bbox_2d[3] <= bbox_2d[1]:
+                        continue
+                    pred_bboxes2d.append([float(bbox_2d[0]), float(bbox_2d[1]), float(bbox_2d[2]), float(bbox_2d[3])])
+                    pred_conf2d.append(float(pb.confidence))
+                    pred_cls2d.append(int(pb.class_id))
 
-                    # GT boxes2d from labels (labels are normalized to *letterboxed* input space).
-                    gt_bboxes2d = []
-                    gt_cls2d = []
+                # GT boxes2d from labels (labels are normalized to *letterboxed* input space).
+                gt_bboxes2d = []
+                gt_cls2d = []
 
-                    # Use ori_shapes for inverse-letterbox.
-                    imgsz = getattr(self.args, "imgsz", 384)
-                    if (
-                        si < len(ori_shapes)
-                        and isinstance(ori_shapes[si], (list, tuple))
-                        and len(ori_shapes[si]) >= 2
-                    ):
-                        ori_h, ori_w = int(ori_shapes[si][0]), int(ori_shapes[si][1])
-                    else:
-                        ori_h, ori_w = 375, 1242
-                    letterbox_scale, pad_left, pad_top = compute_letterbox_params(
-                        ori_h, ori_w, imgsz
+                # Use ori_shapes for inverse-letterbox.
+                imgsz = getattr(self.args, "imgsz", 384)
+                if (
+                    si < len(ori_shapes)
+                    and isinstance(ori_shapes[si], (list, tuple))
+                    and len(ori_shapes[si]) >= 2
+                ):
+                    ori_h, ori_w = int(ori_shapes[si][0]), int(ori_shapes[si][1])
+                else:
+                    ori_h, ori_w = 375, 1242
+                letterbox_scale, pad_left, pad_top = compute_letterbox_params(
+                    ori_h, ori_w, imgsz
+                )
+                if isinstance(imgsz, int):
+                    in_h, in_w = imgsz, imgsz
+                else:
+                    in_h, in_w = int(imgsz[0]), int(imgsz[1])
+
+                for lab in labels:
+                    lb = lab.get("left_box", None)
+                    if lb is None:
+                        continue
+                    cls_i = int(lab.get("class_id", 0))
+                    # Remap dataset class ID to model class ID
+                    if self._dataset_to_model_cls:
+                        mapped = self._dataset_to_model_cls.get(cls_i)
+                        if mapped is None:
+                            continue  # Skip classes not in model
+                        cls_i = mapped
+                    cx = float(lb.get("center_x", 0.0)) * in_w
+                    cy = float(lb.get("center_y", 0.0)) * in_h
+                    bw = float(lb.get("width", 0.0)) * in_w
+                    bh = float(lb.get("height", 0.0)) * in_h
+                    x1_l = cx - bw / 2
+                    y1_l = cy - bh / 2
+                    x2_l = cx + bw / 2
+                    y2_l = cy + bh / 2
+                    # letterbox -> original
+                    x1 = (x1_l - pad_left) / letterbox_scale
+                    y1 = (y1_l - pad_top) / letterbox_scale
+                    x2 = (x2_l - pad_left) / letterbox_scale
+                    y2 = (y2_l - pad_top) / letterbox_scale
+                    if x1 > x2:
+                        x1, x2 = x2, x1
+                    if y1 > y2:
+                        y1, y2 = y2, y1
+                    gt_bboxes2d.append([x1, y1, x2, y2])
+                    gt_cls2d.append(cls_i)
+
+                # Compute tp matrix (N,10) for bbox metrics
+                n_pred = len(pred_bboxes2d)
+                if n_pred == 0:
+                    tp2d = np.zeros((0, self.det_iouv.numel()), dtype=bool)
+                    conf2d = np.zeros((0,), dtype=np.float32)
+                    pred_cls_np = np.zeros((0,), dtype=np.int64)
+                else:
+                    pred_boxes_t = torch.tensor(pred_bboxes2d, dtype=torch.float32)
+                    pred_cls_t = torch.tensor(pred_cls2d, dtype=torch.int64)
+                    gt_boxes_t = (
+                        torch.tensor(gt_bboxes2d, dtype=torch.float32)
+                        if gt_bboxes2d
+                        else torch.zeros((0, 4), dtype=torch.float32)
                     )
-                    if isinstance(imgsz, int):
-                        in_h, in_w = imgsz, imgsz
-                    else:
-                        in_h, in_w = int(imgsz[0]), int(imgsz[1])
-
-                    for lab in labels:
-                        lb = lab.get("left_box", None)
-                        if lb is None:
-                            continue
-                        cls_i = int(lab.get("class_id", 0))
-                        # Remap dataset class ID to model class ID
-                        if self._dataset_to_model_cls:
-                            mapped = self._dataset_to_model_cls.get(cls_i)
-                            if mapped is None:
-                                continue  # Skip classes not in model
-                            cls_i = mapped
-                        cx = float(lb.get("center_x", 0.0)) * in_w
-                        cy = float(lb.get("center_y", 0.0)) * in_h
-                        bw = float(lb.get("width", 0.0)) * in_w
-                        bh = float(lb.get("height", 0.0)) * in_h
-                        x1_l = cx - bw / 2
-                        y1_l = cy - bh / 2
-                        x2_l = cx + bw / 2
-                        y2_l = cy + bh / 2
-                        # letterbox -> original
-                        x1 = (x1_l - pad_left) / letterbox_scale
-                        y1 = (y1_l - pad_top) / letterbox_scale
-                        x2 = (x2_l - pad_left) / letterbox_scale
-                        y2 = (y2_l - pad_top) / letterbox_scale
-                        if x1 > x2:
-                            x1, x2 = x2, x1
-                        if y1 > y2:
-                            y1, y2 = y2, y1
-                        gt_bboxes2d.append([x1, y1, x2, y2])
-                        gt_cls2d.append(cls_i)
-
-                    # Compute tp matrix (N,10) for bbox metrics
-                    n_pred = len(pred_bboxes2d)
-                    if n_pred == 0:
-                        tp2d = np.zeros((0, self.det_iouv.numel()), dtype=bool)
-                        conf2d = np.zeros((0,), dtype=np.float32)
-                        pred_cls_np = np.zeros((0,), dtype=np.int64)
-                    else:
-                        pred_boxes_t = torch.tensor(pred_bboxes2d, dtype=torch.float32)
-                        pred_cls_t = torch.tensor(pred_cls2d, dtype=torch.int64)
-                        gt_boxes_t = (
-                            torch.tensor(gt_bboxes2d, dtype=torch.float32)
-                            if gt_bboxes2d
-                            else torch.zeros((0, 4), dtype=torch.float32)
-                        )
-                        gt_cls_t = (
-                            torch.tensor(gt_cls2d, dtype=torch.int64)
-                            if gt_cls2d
-                            else torch.zeros((0,), dtype=torch.int64)
-                        )
-
-                        if gt_boxes_t.shape[0] == 0:
-                            tp2d = np.zeros((n_pred, self.det_iouv.numel()), dtype=bool)
-                        else:
-                            iou2d = box_iou(gt_boxes_t, pred_boxes_t).T  # NxM
-                            # Use BaseValidator matching but with det_iouv.
-                            # IMPORTANT: guard with try/finally so self.iouv is always restored (prevents leaking 10 IoUs
-                            # into the 3D metrics path where tp/fp are shape (N, 2)).
-                            old_iouv = self.iouv
-                            try:
-                                self.iouv = self.det_iouv
-                                correct = (
-                                    self.match_predictions(pred_cls_t, gt_cls_t, iou2d)
-                                    .cpu()
-                                    .numpy()
-                                )
-                            finally:
-                                self.iouv = old_iouv
-                            tp2d = correct
-
-                        conf2d = np.asarray(pred_conf2d, dtype=np.float32)
-                        pred_cls_np = np.asarray(pred_cls2d, dtype=np.int64)
-
-                    target_cls_np = np.asarray(gt_cls2d, dtype=np.int64)
-                    self.det_metrics.update_stats(
-                        {
-                            "tp": tp2d,
-                            "conf": conf2d,
-                            "pred_cls": pred_cls_np,
-                            "target_cls": target_cls_np,
-                            "target_img": np.unique(target_cls_np),
-                        }
+                    gt_cls_t = (
+                        torch.tensor(gt_cls2d, dtype=torch.int64)
+                        if gt_cls2d
+                        else torch.zeros((0,), dtype=torch.int64)
                     )
-                except Exception as e:
-                    LOGGER.debug("bbox metrics update failed (sample %d): %s", si, e)
+
+                    if gt_boxes_t.shape[0] == 0:
+                        tp2d = np.zeros((n_pred, self.det_iouv.numel()), dtype=bool)
+                    else:
+                        iou2d = box_iou(gt_boxes_t, pred_boxes_t).T  # NxM
+                        # Use BaseValidator matching but with det_iouv.
+                        # IMPORTANT: guard with try/finally so self.iouv is always restored (prevents leaking 10 IoUs
+                        # into the 3D metrics path where tp/fp are shape (N, 2)).
+                        old_iouv = self.iouv
+                        try:
+                            self.iouv = self.det_iouv
+                            correct = (
+                                self.match_predictions(pred_cls_t, gt_cls_t, iou2d)
+                                .cpu()
+                                .numpy()
+                            )
+                        finally:
+                            self.iouv = old_iouv
+                        tp2d = correct
+
+                    conf2d = np.asarray(pred_conf2d, dtype=np.float32)
+                    pred_cls_np = np.asarray(pred_cls2d, dtype=np.int64)
+
+                target_cls_np = np.asarray(gt_cls2d, dtype=np.int64)
+                self.det_metrics.update_stats(
+                    {
+                        "tp": tp2d,
+                        "conf": conf2d,
+                        "pred_cls": pred_cls_np,
+                        "target_cls": target_cls_np,
+                        "target_img": np.unique(target_cls_np),
+                    }
+                )
 
                 # Handle empty predictions or ground truth
                 if len(pred_boxes) == 0 and len(gt_boxes) == 0:
@@ -622,12 +613,9 @@ class Stereo3DDetValidator(BaseValidator):
                     hasattr(self, "_total_batches")
                     and self._batch_count >= self._total_batches - 1
                 ):
-                    try:
-                        metrics_str = self._format_progress_metrics()
-                        if metrics_str:
-                            self._progress_bar.set_description(metrics_str)
-                    except Exception as e:
-                        LOGGER.debug("Error updating progress bar: %s", e)
+                    metrics_str = self._format_progress_metrics()
+                    if metrics_str:
+                        self._progress_bar.set_description(metrics_str)
 
             # Generate visualization images if plots enabled.
             # NOTE: This stereo validator saves 1 file per sample, so keep defaults conservative to avoid generating
@@ -642,10 +630,7 @@ class Stereo3DDetValidator(BaseValidator):
                 and self.batch_i < max_plot_batches
                 and RANK in {-1, 0}
             ):
-                try:
-                    self.plot_validation_samples(batch, preds, self.batch_i)
-                except Exception as e:
-                    LOGGER.warning("Error generating validation visualizations: %s", e)
+                self.plot_validation_samples(batch, preds, self.batch_i)
 
     def get_desc(self) -> str:
         """Return a formatted string summarizing validation metrics header for progress bar."""
@@ -707,189 +692,183 @@ class Stereo3DDetValidator(BaseValidator):
         if not self.args.plots:
             return
 
-        try:
-            import cv2
+        import cv2
 
-            labels_list = batch.get("labels", [])
-            calibs = batch.get("calib", [])
-            im_files = batch.get("im_file", [])
+        labels_list = batch.get("labels", [])
+        calibs = batch.get("calib", [])
+        im_files = batch.get("im_file", [])
 
-            if not im_files:
-                LOGGER.warning("No image files in batch for visualization")
-                return
+        if not im_files:
+            LOGGER.warning("No image files in batch for visualization")
+            return
 
-            batch_size = len(im_files)
-            # TEMPORARY: Modified to generate ALL validation samples for error analysis
-            max_samples = getattr(self.args, "max_plot_samples", 4)
-            num_samples = min(batch_size, max_samples)
+        batch_size = len(im_files)
+        max_samples = getattr(self.args, "max_plot_samples", 4)
+        num_samples = min(batch_size, max_samples)
 
-            for si in range(num_samples):
-                im_file = im_files[si] if si < len(im_files) else None
-                if not im_file:
-                    continue
+        for si in range(num_samples):
+            im_file = im_files[si] if si < len(im_files) else None
+            if not im_file:
+                continue
 
-                # Load original images from file paths
-                left_path = Path(im_file)
-                if not left_path.exists():
-                    LOGGER.debug(
-                        "Left image not found: %s, skipping visualization", left_path
+            # Load original images from file paths
+            left_path = Path(im_file)
+            if not left_path.exists():
+                LOGGER.debug(
+                    "Left image not found: %s, skipping visualization", left_path
+                )
+                continue
+
+            # Get right image path (same filename, different directory)
+            # im_file format: images/{split}/left/{image_id}.png
+            # right path: images/{split}/right/{image_id}.png
+            right_path = left_path.parent.parent / "right" / left_path.name
+            if not right_path.exists():
+                LOGGER.debug(
+                    "Right image not found: %s, skipping visualization", right_path
+                )
+                continue
+
+            # Load original images (BGR format from OpenCV)
+            left_img = cv2.imread(str(left_path))
+            right_img = cv2.imread(str(right_path))
+
+            if left_img is None or right_img is None:
+                LOGGER.debug("Failed to load images for %s, skipping", left_path)
+                continue
+
+            # Get predictions and ground truth for this sample
+            pred_boxes = pred_boxes3d[si] if si < len(pred_boxes3d) else []
+            labels = labels_list[si] if si < len(labels_list) else []
+            calib = (
+                calibs[si]
+                if si < len(calibs) and isinstance(calibs[si], dict)
+                else None
+            )
+
+            # Skip visualization if no calibration available
+            if calib is None:
+                continue
+
+            # Get actual image dimensions and compute letterbox parameters
+            actual_h, actual_w = left_img.shape[:2]
+            imgsz = getattr(self.args, "imgsz", 384)
+
+            letterbox_scale, pad_left, pad_top = compute_letterbox_params(
+                actual_h, actual_w, imgsz
+            )
+            calib_orig = _reverse_letterbox_calib(
+                calib, letterbox_scale, pad_left, pad_top, actual_w, actual_h
+            )
+            in_h, in_w = (imgsz, imgsz) if isinstance(imgsz, int) else (int(imgsz[0]), int(imgsz[1]))
+
+            # Convert labels to Box3D for ground truth
+            # Use original calibration, pass letterbox parameters for bbox_2d conversion
+            gt_boxes = []
+            if labels:
+                gt_boxes = _labels_to_box3d_list(
+                    labels,
+                    calib_orig,
+                    names=self.names,
+                    letterbox_scale=letterbox_scale,
+                    pad_left=pad_left,
+                    pad_top=pad_top,
+                    in_h=in_h,
+                    in_w=in_w,
+                )
+
+            # Filter out predictions with confidence == 0 or below threshold before visualization
+            if pred_boxes:
+                conf_threshold = self.args.conf
+                if conf_threshold < 0.1:
+                    LOGGER.warning(
+                        f"The prediction conf threshold is less than 0.1, you can set the conf through CLI."
                     )
-                    continue
+                pred_boxes = [
+                    box
+                    for box in pred_boxes
+                    if hasattr(box, "confidence")
+                    and box.confidence > conf_threshold
+                ]
 
-                # Get right image path (same filename, different directory)
-                # im_file format: images/{split}/left/{image_id}.png
-                # right path: images/{split}/right/{image_id}.png
-                right_path = left_path.parent.parent / "right" / left_path.name
-                if not right_path.exists():
-                    LOGGER.debug(
-                        "Right image not found: %s, skipping visualization", right_path
+            # Generate visualization with predictions only (top image)
+            _, _, combined_pred = plot_stereo3d_boxes(
+                left_img=left_img.copy(),
+                right_img=right_img.copy(),
+                pred_boxes3d=pred_boxes,
+                gt_boxes3d=[],
+                left_calib=calib_orig,
+            )
+
+            # Generate visualization with ground truth only (bottom image)
+            _, _, combined_gt = plot_stereo3d_boxes(
+                left_img=left_img.copy(),
+                right_img=right_img.copy(),
+                pred_boxes3d=[],
+                gt_boxes3d=gt_boxes,
+                left_calib=calib_orig,
+            )
+            # Stack vertically: predictions on top, ground truth on bottom
+            h_pred, w_pred = combined_pred.shape[:2]
+            h_gt, w_gt = combined_gt.shape[:2]
+
+            # Ensure both images have the same width
+            if w_pred != w_gt:
+                target_w = max(w_pred, w_gt)
+                if w_pred < target_w:
+                    combined_pred = cv2.resize(
+                        combined_pred,
+                        (target_w, h_pred),
+                        interpolation=cv2.INTER_LINEAR,
                     )
-                    continue
-
-                # Load original images (BGR format from OpenCV)
-                left_img = cv2.imread(str(left_path))
-                right_img = cv2.imread(str(right_path))
-
-                if left_img is None or right_img is None:
-                    LOGGER.debug("Failed to load images for %s, skipping", left_path)
-                    continue
-
-                # Get predictions and ground truth for this sample
-                pred_boxes = pred_boxes3d[si] if si < len(pred_boxes3d) else []
-                labels = labels_list[si] if si < len(labels_list) else []
-                calib = (
-                    calibs[si]
-                    if si < len(calibs) and isinstance(calibs[si], dict)
-                    else None
-                )
-
-                # Skip visualization if no calibration available
-                if calib is None:
-                    continue
-
-                # Get actual image dimensions and compute letterbox parameters
-                actual_h, actual_w = left_img.shape[:2]
-                imgsz = getattr(self.args, "imgsz", 384)
-
-                letterbox_scale, pad_left, pad_top = compute_letterbox_params(
-                    actual_h, actual_w, imgsz
-                )
-                calib_orig = _reverse_letterbox_calib(
-                    calib, letterbox_scale, pad_left, pad_top, actual_w, actual_h
-                )
-                in_h, in_w = (imgsz, imgsz) if isinstance(imgsz, int) else (int(imgsz[0]), int(imgsz[1]))
-
-                # Convert labels to Box3D for ground truth
-                # Use original calibration, pass letterbox parameters for bbox_2d conversion
-                gt_boxes = []
-                if labels:
-                    gt_boxes = _labels_to_box3d_list(
-                        labels,
-                        calib_orig,
-                        names=self.names,
-                        letterbox_scale=letterbox_scale,
-                        pad_left=pad_left,
-                        pad_top=pad_top,
-                        in_h=in_h,
-                        in_w=in_w,
+                if w_gt < target_w:
+                    combined_gt = cv2.resize(
+                        combined_gt,
+                        (target_w, h_gt),
+                        interpolation=cv2.INTER_LINEAR,
                     )
 
-                # Filter out predictions with confidence == 0 or below threshold before visualization
-                if pred_boxes:
-                    conf_threshold = self.args.conf
-                    if conf_threshold < 0.1:
-                        LOGGER.warning(
-                            f"The prediction conf threshold is less than 0.1, you can set the conf through CLI."
-                        )
-                    pred_boxes = [
-                        box
-                        for box in pred_boxes
-                        if hasattr(box, "confidence")
-                        and box.confidence > conf_threshold
-                    ]
+            # Stack vertically
+            stacked = np.vstack([combined_pred, combined_gt])
 
-                # Generate visualization with predictions only (top image)
-                _, _, combined_pred = plot_stereo3d_boxes(
-                    left_img=left_img.copy(),
-                    right_img=right_img.copy(),
-                    pred_boxes3d=pred_boxes,
-                    gt_boxes3d=[],
-                    left_calib=calib_orig,
-                )
+            # Add labels
+            label_height = 30
+            stacked_with_labels = np.zeros(
+                (stacked.shape[0] + label_height * 2, stacked.shape[1], 3),
+                dtype=np.uint8,
+            )
+            stacked_with_labels[
+                label_height : label_height + stacked.shape[0], :, :
+            ] = stacked
 
-                # Generate visualization with ground truth only (bottom image)
-                _, _, combined_gt = plot_stereo3d_boxes(
-                    left_img=left_img.copy(),
-                    right_img=right_img.copy(),
-                    pred_boxes3d=[],
-                    gt_boxes3d=gt_boxes,
-                    left_calib=calib_orig,
-                )
-                # Stack vertically: predictions on top, ground truth on bottom
-                # Use left image only for simplicity (or combine left+right horizontally first)
-                h_pred, w_pred = combined_pred.shape[:2]
-                h_gt, w_gt = combined_gt.shape[:2]
+            # Add text labels
+            cv2.putText(
+                stacked_with_labels,
+                "Predictions",
+                (10, 25),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2,
+            )
+            cv2.putText(
+                stacked_with_labels,
+                "Ground Truth",
+                (10, label_height + stacked.shape[0] + 25),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2,
+            )
 
-                # Ensure both images have the same width
-                if w_pred != w_gt:
-                    target_w = max(w_pred, w_gt)
-                    if w_pred < target_w:
-                        combined_pred = cv2.resize(
-                            combined_pred,
-                            (target_w, h_pred),
-                            interpolation=cv2.INTER_LINEAR,
-                        )
-                    if w_gt < target_w:
-                        combined_gt = cv2.resize(
-                            combined_gt,
-                            (target_w, h_gt),
-                            interpolation=cv2.INTER_LINEAR,
-                        )
-
-                # Stack vertically
-                stacked = np.vstack([combined_pred, combined_gt])
-
-                # Add labels
-                label_height = 30
-                stacked_with_labels = np.zeros(
-                    (stacked.shape[0] + label_height * 2, stacked.shape[1], 3),
-                    dtype=np.uint8,
-                )
-                stacked_with_labels[
-                    label_height : label_height + stacked.shape[0], :, :
-                ] = stacked
-
-                # Add text labels
-                cv2.putText(
-                    stacked_with_labels,
-                    "Predictions",
-                    (10, 25),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (255, 255, 255),
-                    2,
-                )
-                cv2.putText(
-                    stacked_with_labels,
-                    "Ground Truth",
-                    (10, label_height + stacked.shape[0] + 25),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (255, 255, 255),
-                    2,
-                )
-
-                # Save individual image (one file per sample)
-                image_id = left_path.stem
-                save_path = (
-                    self.save_dir / f"val_batch{batch_idx}_sample{si}_{image_id}.jpg"
-                )
-                cv2.imwrite(str(save_path), stacked_with_labels)
-                if self.on_plot:
-                    self.on_plot(save_path)
-
-        except Exception as e:
-            LOGGER.warning("Error in plot_validation_samples: %s", e)
+            # Save individual image (one file per sample)
+            image_id = left_path.stem
+            save_path = (
+                self.save_dir / f"val_batch{batch_idx}_sample{si}_{image_id}.jpg"
+            )
+            cv2.imwrite(str(save_path), stacked_with_labels)
+            if self.on_plot:
+                self.on_plot(save_path)
 
     def print_results(self) -> None:
         """Print training/validation set metrics per class with KITTI difficulty splits."""
@@ -979,31 +958,27 @@ class Stereo3DDetValidator(BaseValidator):
         if not hasattr(self.metrics, "stats") or len(self.metrics.stats) == 0:
             return ("%11i" + "%11s" * 6) % (int(self.seen), "-", "-", "-", "-", "-", "-")
 
-        try:
-            saved_stats = self.metrics.stats.copy()
-            self.metrics.process(save_dir=self.save_dir, plot=False)
-            ap3d = self.metrics.ap3d
-            self.metrics.stats = saved_stats
+        saved_stats = self.metrics.stats.copy()
+        self.metrics.process(save_dir=self.save_dir, plot=False)
+        ap3d = self.metrics.ap3d
+        self.metrics.stats = saved_stats
 
-            if not ap3d:
-                return ("%11i" + "%11s" * 6) % (int(self.seen), "-", "-", "-", "-", "-", "-")
-
-            def mean_ap(iou_t, diff):
-                d = ap3d.get(iou_t, {}).get(diff, {})
-                return float(np.mean(list(d.values()))) if d else 0.0
-
-            return ("%11i" + "%11.4g" * 6) % (
-                int(self.seen),
-                mean_ap(0.5, DIFFICULTY_EASY),
-                mean_ap(0.5, DIFFICULTY_MODERATE),
-                mean_ap(0.5, DIFFICULTY_HARD),
-                mean_ap(0.7, DIFFICULTY_EASY),
-                mean_ap(0.7, DIFFICULTY_MODERATE),
-                mean_ap(0.7, DIFFICULTY_HARD),
-            )
-        except Exception as e:
-            LOGGER.debug("Error formatting progress metrics: %s", e)
+        if not ap3d:
             return ("%11i" + "%11s" * 6) % (int(self.seen), "-", "-", "-", "-", "-", "-")
+
+        def mean_ap(iou_t, diff):
+            d = ap3d.get(iou_t, {}).get(diff, {})
+            return float(np.mean(list(d.values()))) if d else 0.0
+
+        return ("%11i" + "%11.4g" * 6) % (
+            int(self.seen),
+            mean_ap(0.5, DIFFICULTY_EASY),
+            mean_ap(0.5, DIFFICULTY_MODERATE),
+            mean_ap(0.5, DIFFICULTY_HARD),
+            mean_ap(0.7, DIFFICULTY_EASY),
+            mean_ap(0.7, DIFFICULTY_MODERATE),
+            mean_ap(0.7, DIFFICULTY_HARD),
+        )
 
     def build_dataset(
         self,
