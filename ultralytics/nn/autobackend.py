@@ -362,6 +362,24 @@ class AutoBackend(nn.Module):
         # Delegate to backend's warmup method
         self.backend.warmup(imgsz)
 
+    def warmup(self, imgsz: tuple[int, int, int, int] = (1, 3, 640, 640)) -> None:
+        """Warm up the model by running forward pass(es) with a dummy input.
+
+        Args:
+            imgsz (tuple[int, int, int, int]): Dummy input shape in (batch, channels, height, width) format.
+        """
+        from ultralytics.utils.nms import non_max_suppression
+
+        if self.format in {"pt", "jit", "onnx", "engine", "saved_model", "pb", "triton", "nn_module"} and (
+            self.device.type != "cpu" or self.format == "triton"
+        ):
+            im = torch.empty(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
+            for _ in range(2 if self.format == "jit" else 1):
+                self.forward(im)  # warmup model
+                warmup_boxes = torch.rand(1, 84, 16, device=self.device)  # 16 boxes works best empirically
+                warmup_boxes[:, :4] *= imgsz[-1]
+                non_max_suppression(warmup_boxes)  # warmup NMS
+
     @staticmethod
     def _model_type(p: str = "path/to/model.pt", dnn: bool = False) -> str:
         """Take a path to a model file and return the model format string.

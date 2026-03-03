@@ -72,16 +72,6 @@ class BaseBackend(ABC):
         """
         raise NotImplementedError
 
-    def warmup(self, imgsz: tuple[int, int, int, int] = (1, 3, 640, 640)) -> None:
-        """Warm up the model with a dummy input.
-
-        Args:
-            imgsz: Dummy input shape (batch, channels, height, width).
-        """
-        if self.device.type != "cpu":
-            im = torch.empty(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)
-            self.forward(im)
-
     def from_numpy(self, x: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Convert NumPy array to torch tensor on the model device.
 
