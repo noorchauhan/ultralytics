@@ -13,7 +13,6 @@ import numpy as np
 import torch
 
 from ultralytics.utils import LOGGER
-from ultralytics.utils.checks import check_requirements
 from ultralytics.nn.backends.base import BaseBackend
 
 
@@ -23,8 +22,9 @@ class TensorFlowBackend(BaseBackend):
     Supports loading and inference with TensorFlow SavedModel and GraphDef formats.
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, 
-                 is_savedmodel: bool = True, **kwargs: Any):
+    def __init__(
+        self, weights: str | Path, device: torch.device, fp16: bool = False, is_savedmodel: bool = True, **kwargs: Any
+    ):
         """Initialize TensorFlow backend.
 
         Args:
@@ -51,6 +51,7 @@ class TensorFlowBackend(BaseBackend):
             metadata_file = Path(self.weights) / "metadata.yaml"
             if metadata_file.exists():
                 from ultralytics.utils import YAML
+
                 self.metadata = YAML.load(metadata_file)
         else:
             LOGGER.info(f"Loading {self.weights} for TensorFlow GraphDef inference...")
@@ -66,11 +67,14 @@ class TensorFlowBackend(BaseBackend):
             with open(self.weights, "rb") as f:
                 gd.ParseFromString(f.read())
             self.frozen_func = wrap_frozen_graph(gd, inputs="x:0", outputs=gd_outputs(gd))
-            
+
             # Try to find metadata
             try:
-                metadata_file = next(Path(self.weights).resolve().parent.rglob(f"{Path(self.weights).stem}_saved_model*/metadata.yaml"))
+                metadata_file = next(
+                    Path(self.weights).resolve().parent.rglob(f"{Path(self.weights).stem}_saved_model*/metadata.yaml")
+                )
                 from ultralytics.utils import YAML
+
                 self.metadata = YAML.load(metadata_file)
             except StopIteration:
                 pass
@@ -86,21 +90,21 @@ class TensorFlowBackend(BaseBackend):
             Model output tensor(s).
         """
         import tensorflow as tf
-        
+
         im_np = im.cpu().numpy()
-        
+
         if self.saved_model:
             y = self.model.serving_default(im_np)
             if not isinstance(y, list):
-                y = list(y.values()) if hasattr(y, 'values') else [y]
+                y = list(y.values()) if hasattr(y, "values") else [y]
         else:
             y = self.frozen_func(x=tf.constant(im_np))
             if not isinstance(y, list):
                 y = [y]
 
         # Convert to numpy
-        y = [x.numpy() if hasattr(x, 'numpy') else x for x in y]
-        
+        y = [x.numpy() if hasattr(x, "numpy") else x for x in y]
+
         # Handle segmentation task output ordering
         task = kwargs.get("task", self.task)
         if task == "segment":
@@ -120,8 +124,9 @@ class TFLiteBackend(BaseBackend):
     Supports loading and inference with TFLite models (.tflite files) and Edge TPU models.
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False,
-                 edgetpu: bool = False, **kwargs: Any):
+    def __init__(
+        self, weights: str | Path, device: torch.device, fp16: bool = False, edgetpu: bool = False, **kwargs: Any
+    ):
         """Initialize TFLite backend.
 
         Args:
@@ -144,9 +149,11 @@ class TFLiteBackend(BaseBackend):
         """Load the TFLite model."""
         try:
             from tflite_runtime.interpreter import Interpreter, load_delegate
+
             self.tf = None
         except ImportError:
             import tensorflow as tf
+
             self.tf = tf
             Interpreter, load_delegate = tf.lite.Interpreter, tf.lite.experimental.load_delegate
 
@@ -154,11 +161,9 @@ class TFLiteBackend(BaseBackend):
             device = str(self.device)
             device = device[3:] if device.startswith("tpu") else ":0"
             LOGGER.info(f"Loading {self.weights} on device {device[1:]} for TensorFlow Lite Edge TPU inference...")
-            delegate = {
-                "Linux": "libedgetpu.so.1",
-                "Darwin": "libedgetpu.1.dylib",
-                "Windows": "edgetpu.dll"
-            }[platform.system()]
+            delegate = {"Linux": "libedgetpu.so.1", "Darwin": "libedgetpu.1.dylib", "Windows": "edgetpu.dll"}[
+                platform.system()
+            ]
             self.interpreter = Interpreter(
                 model_path=str(self.weights),
                 experimental_delegates=[load_delegate(delegate, options={"device": device})],
@@ -196,10 +201,10 @@ class TFLiteBackend(BaseBackend):
         """
         im_np = im.cpu().numpy()
         h, w = kwargs.get("h", im.shape[2]), kwargs.get("w", im.shape[3])
-        
+
         details = self.input_details[0]
         is_int = details["dtype"] in {np.int8, np.int16}
-        
+
         if is_int:
             scale, zero_point = details["quantization"]
             im_np = (im_np / scale + zero_point).astype(details["dtype"])
