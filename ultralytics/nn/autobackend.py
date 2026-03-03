@@ -134,8 +134,6 @@ class AutoBackend(nn.Module):
         >>> results = model(img)
     """
 
-    # NHWC formats (vs torch BCHW)
-    _NHWC_FORMATS = {"coreml", "saved_model", "pb", "tflite", "edgetpu", "rknn"}
     _BACKEND_MAP = {
         "pt": PyTorchBackend,
         "jit": TorchScriptBackend,
@@ -184,25 +182,25 @@ class AutoBackend(nn.Module):
         nn_module = isinstance(model, nn.Module)
 
         # Determine model format from path/URL
-        self.format = "nn_module" if nn_module else self._model_type(model, dnn)
+        format = "nn_module" if nn_module else self._model_type(model, dnn)
 
         # Check if format supports FP16
-        fp16_supported = self.format in {"pt", "jit", "onnx", "xml", "engine", "triton"} or nn_module
+        fp16_supported = format in {"pt", "jit", "onnx", "xml", "engine", "triton"} or nn_module
         fp16 &= fp16_supported
 
         # Set device
         cuda = isinstance(device, torch.device) and torch.cuda.is_available() and device.type != "cpu"
-        if cuda and self.format not in {"pt", "jit", "engine", "onnx", "paddle"} and not nn_module:
+        if cuda and format not in {"pt", "jit", "engine", "onnx", "paddle"} and not nn_module:
             device = torch.device("cpu")
             cuda = False
 
         # Download if not local
-        w = attempt_download_asset(model) if self.format == "pt" else model
+        w = attempt_download_asset(model) if format == "pt" else model
 
         # Select and initialize the appropriate backend
         backend_kwargs = {"device": device, "fp16": fp16}
 
-        if self.format not in self._BACKEND_MAP:
+        if format not in self._BACKEND_MAP:
             from ultralytics.engine.exporter import export_formats
 
             raise TypeError(
@@ -210,26 +208,26 @@ class AutoBackend(nn.Module):
                 f"Ultralytics supports: {export_formats()['Format']}\n"
                 f"See https://docs.ultralytics.com/modes/predict for help."
             )
-        if nn_module or self.format == "pt":
+        if nn_module or format == "pt":
             backend_kwargs["fuse"] = fuse
             backend_kwargs["verbose"] = verbose
-        elif self.format == "dnn":
+        elif format == "dnn":
             backend_kwargs["dnn"] = True
-        elif self.format == "saved_model":
+        elif format == "saved_model":
             backend_kwargs["is_savedmodel"] = True
-        elif self.format == "pb":
+        elif format == "pb":
             backend_kwargs["is_savedmodel"] = False
-        elif self.format == "tflite":
+        elif format == "tflite":
             backend_kwargs["edgetpu"] = False
-        elif self.format == "edgetpu":
+        elif format == "edgetpu":
             backend_kwargs["edgetpu"] = True
-        elif self.format == "tfjs":
+        elif format == "tfjs":
             raise NotImplementedError("Ultralytics TF.js inference is not currently supported.")
-        self.backend = self._BACKEND_MAP[self.format](w, **backend_kwargs)
+        self.backend = self._BACKEND_MAP[format](w, **backend_kwargs)
         self.backend.load_model()
 
-        # Determine NHWC based on format
-        self.nhwc = self.format in self._NHWC_FORMATS
+        self.nhwc = format in {"coreml", "saved_model", "pb", "tflite", "edgetpu", "rknn"}
+        self.format = format
 
         # Apply metadata from backend
         self._apply_metadata(data)
@@ -243,6 +241,7 @@ class AutoBackend(nn.Module):
         Args:
             data: Path to data.yaml file with class names.
         """
+        # TODO
         # Load external metadata if needed
         metadata = getattr(self.backend, "metadata", None)
         if isinstance(metadata, (str, Path)) and Path(metadata).exists():
@@ -268,6 +267,7 @@ class AutoBackend(nn.Module):
             self.backend.names = default_class_names(data)
         self.backend.names = check_class_names(self.backend.names)
 
+    # TODO
     def _expose_backend_attrs(self):
         """Expose backend attributes on AutoBackend for backward compatibility."""
         # Copy all relevant attributes from backend to self
@@ -363,18 +363,19 @@ class AutoBackend(nn.Module):
         self.backend.warmup(imgsz)
 
     @staticmethod
-    def _model_type(p: str = "path/to/model.pt", dnn: bool = False) -> list[bool]:
-        """Take a path to a model file and return the model type.
+    def _model_type(p: str = "path/to/model.pt", dnn: bool = False) -> str:
+        """Take a path to a model file and return the model format string.
 
         Args:
             p (str): Path to the model file.
+            dnn (bool): Whether to use OpenCV DNN module for ONNX inference.
 
         Returns:
-            (list[bool]): List of booleans indicating the model type.
+            (str): Model format string (e.g., 'pt', 'onnx', 'engine', 'triton').
 
         Examples:
-            >>> types = AutoBackend._model_type("path/to/model.onnx")
-            >>> assert types[2]  # onnx
+            >>> fmt = AutoBackend._model_type("path/to/model.onnx")
+            >>> assert fmt == "onnx"
         """
         from ultralytics.engine.exporter import export_formats
 
