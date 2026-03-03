@@ -182,20 +182,20 @@ class AutoBackend(nn.Module):
         nn_module = isinstance(model, nn.Module)
 
         # Determine model format from path/URL
-        format = "nn_module" if nn_module else self._model_type(model, dnn)
+        format = "pt" if nn_module else self._model_type(model, dnn)
 
         # Check if format supports FP16
-        fp16_supported = format in {"pt", "jit", "onnx", "xml", "engine", "triton"} or nn_module
+        fp16_supported = format in {"pt", "jit", "onnx", "xml", "engine", "triton"}
         fp16 &= fp16_supported
 
         # Set device
         cuda = isinstance(device, torch.device) and torch.cuda.is_available() and device.type != "cpu"
-        if cuda and format not in {"pt", "jit", "engine", "onnx", "paddle"} and not nn_module:
+        if cuda and format not in {"pt", "jit", "engine", "onnx", "paddle"}:
             device = torch.device("cpu")
             cuda = False
 
         # Download if not local
-        w = attempt_download_asset(model) if format == "pt" else model
+        w = attempt_download_asset(model) if format == "pt" and not nn_module else model
 
         # Select and initialize the appropriate backend
         backend_kwargs = {"device": device, "fp16": fp16}
@@ -208,7 +208,7 @@ class AutoBackend(nn.Module):
                 f"Ultralytics supports: {export_formats()['Format']}\n"
                 f"See https://docs.ultralytics.com/modes/predict for help."
             )
-        if nn_module or format == "pt":
+        if format == "pt":
             backend_kwargs["fuse"] = fuse
             backend_kwargs["verbose"] = verbose
         elif format == "dnn":
@@ -322,7 +322,7 @@ class AutoBackend(nn.Module):
             im = im.permute(0, 2, 3, 1)  # torch BCHW to numpy BHWC shape(1,320,192,3)
 
         # Build forward kwargs based on backend type
-        if self.format in {"pt", "nn_module"}:
+        if self.format == "pt":
             forward_kwargs = {"augment": augment, "visualize": visualize, "embed": embed, **kwargs}
         else:
             # Pass task and image dimensions for coordinate scaling (used by some backends)
@@ -370,7 +370,7 @@ class AutoBackend(nn.Module):
         """
         from ultralytics.utils.nms import non_max_suppression
 
-        if self.format in {"pt", "jit", "onnx", "engine", "saved_model", "pb", "triton", "nn_module"} and (
+        if self.format in {"pt", "jit", "onnx", "engine", "saved_model", "pb", "triton"} and (
             self.device.type != "cpu" or self.format == "triton"
         ):
             im = torch.empty(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
@@ -405,9 +405,11 @@ class AutoBackend(nn.Module):
         types[5] |= name.endswith(".mlmodel")
         types[8] &= not types[9]
         format = next((f for i, f in enumerate(export_formats()["Argument"]) if types[i]), None)
-        if format == "onnx" and dnn:
+        if format == "-":
+            format = "pt"
+        elif format == "onnx" and dnn:
             format = "dnn"
-        if not any(types):
+        elif not any(types):
             from urllib.parse import urlsplit
 
             url = urlsplit(p)
