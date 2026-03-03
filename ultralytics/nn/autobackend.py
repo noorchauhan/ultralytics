@@ -527,5 +527,6 @@ class AutoBackend(nn.Module):
 
             url = urlsplit(p)
             triton = bool(url.netloc) and bool(url.path) and url.scheme in {"http", "grpc"}
+            format = "triton"
 
         return [*types, triton, format]
