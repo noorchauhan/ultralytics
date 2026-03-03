@@ -10,9 +10,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from ultralytics.utils import LOGGER
 from ultralytics.utils.checks import check_suffix
 from ultralytics.utils.downloads import attempt_download_asset, is_url
 
+# Import all backends
 from ultralytics.nn.backends import (
     AxeleraBackend,
     CoreMLBackend,
@@ -25,8 +27,8 @@ from ultralytics.nn.backends import (
     PaddleBackend,
     PyTorchBackend,
     RKNNBackend,
-    TensorFlowBackend,
     TFLiteBackend,
+    TensorFlowBackend,
     TensorRTBackend,
     TorchScriptBackend,
     TritonBackend,
@@ -113,7 +115,7 @@ class AutoBackend(nn.Module):
             | Axelera               | *_axelera_model/  |
 
     Attributes:
-        model (BaseBackend): The loaded inference backend.
+        model: The underlying model (nn.Module for PyTorch backends, backend instance otherwise).
         device (torch.device): The device (CPU or GPU) on which the model is loaded.
         task (str): The type of task the model performs (detect, segment, classify, pose).
         names (dict): A dictionary of class names that the model can detect.
@@ -152,6 +154,7 @@ class AutoBackend(nn.Module):
     """
 
     # Mapping of model type flags to backend classes
+    _NHWC_FORMATS = {"coreml", "saved_model", "pb", "tflite", "edgetpu", "rknn"}
     _BACKEND_MAP = {
         "pt": PyTorchBackend,
         "jit": TorchScriptBackend,
@@ -199,7 +202,7 @@ class AutoBackend(nn.Module):
         super().__init__()
         nn_module = isinstance(model, nn.Module)
 
-        # Determine model type
+        # Determine model type from path/URL
         model_types = self._model_type("" if nn_module else model)
         (
             pt,
@@ -234,73 +237,99 @@ class AutoBackend(nn.Module):
         # Download if not local
         w = attempt_download_asset(model) if pt else model
 
+        # Initialize all format flags to False
+        self._init_format_flags()
+
         # Select and initialize the appropriate backend
         backend_kwargs = {"device": device, "fp16": fp16}
 
         if nn_module or pt:
+            self.pt = True
+            self.nn_module = nn_module
             backend_kwargs["fuse"] = fuse
             backend_kwargs["verbose"] = verbose
             self.backend = PyTorchBackend(w if not nn_module else model, **backend_kwargs)
             self.backend.load_model()
         elif jit:
+            self.jit = True
             self.backend = TorchScriptBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif dnn:
+            self.onnx = True
+            self.dnn = True
             backend_kwargs["dnn"] = True
             self.backend = ONNXBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif onnx:
+            self.onnx = True
             self.backend = ONNXBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif imx:
+            self.imx = True
             self.backend = ONNXIMXBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif xml:
+            self.xml = True
             self.backend = OpenVINOBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif engine:
+            self.engine = True
             self.backend = TensorRTBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif coreml:
+            self.coreml = True
             self.backend = CoreMLBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif saved_model:
+            self.saved_model = True
             backend_kwargs["is_savedmodel"] = True
             self.backend = TensorFlowBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif pb:
+            self.pb = True
             backend_kwargs["is_savedmodel"] = False
             self.backend = TensorFlowBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif tflite:
+            self.tflite = True
             backend_kwargs["edgetpu"] = False
             self.backend = TFLiteBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif edgetpu:
+            self.edgetpu = True
+            self.tflite = True  # Edge TPU is a type of TFLite
             backend_kwargs["edgetpu"] = True
             self.backend = TFLiteBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif tfjs:
+            self.tfjs = True
             raise NotImplementedError("Ultralytics TF.js inference is not currently supported.")
         elif paddle:
+            self.paddle = True
             self.backend = PaddleBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif mnn:
+            self.mnn = True
             self.backend = MNNBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif ncnn:
+            self.ncnn = True
             self.backend = NCNNBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif rknn:
+            self.rknn = True
             self.backend = RKNNBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif triton:
+            self.triton = True
             self.backend = TritonBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif pte:
+            self.pte = True
             self.backend = ExecuTorchBackend(w, **backend_kwargs)
             self.backend.load_model()
         elif axelera:
+            self.axelera = True
             self.backend = AxeleraBackend(w, **backend_kwargs)
             self.backend.load_model()
         else:
@@ -312,11 +341,65 @@ class AutoBackend(nn.Module):
                 f"See https://docs.ultralytics.com/modes/predict for help."
             )
 
+        # Determine NHWC based on format
+        self.nhwc = self._get_active_format() in self._NHWC_FORMATS
+
         # Apply metadata from backend
         self._apply_metadata(data)
 
         # Expose backend attributes for backward compatibility
         self._expose_backend_attrs()
+
+    def _init_format_flags(self):
+        """Initialize all format flags to False."""
+        self.pt = False
+        self.jit = False
+        self.onnx = False
+        self.dnn = False
+        self.xml = False
+        self.engine = False
+        self.coreml = False
+        self.saved_model = False
+        self.pb = False
+        self.tflite = False
+        self.edgetpu = False
+        self.tfjs = False
+        self.paddle = False
+        self.mnn = False
+        self.ncnn = False
+        self.imx = False
+        self.rknn = False
+        self.triton = False
+        self.pte = False
+        self.axelera = False
+        self.nn_module = False
+
+    def _get_active_format(self) -> str:
+        """Get the active format name based on which flag is True."""
+        formats = [
+            ("pt", self.pt),
+            ("jit", self.jit),
+            ("onnx", self.onnx),
+            ("xml", self.xml),
+            ("engine", self.engine),
+            ("coreml", self.coreml),
+            ("saved_model", self.saved_model),
+            ("pb", self.pb),
+            ("tflite", self.tflite),
+            ("edgetpu", self.edgetpu),
+            ("paddle", self.paddle),
+            ("mnn", self.mnn),
+            ("ncnn", self.ncnn),
+            ("imx", self.imx),
+            ("rknn", self.rknn),
+            ("triton", self.triton),
+            ("pte", self.pte),
+            ("axelera", self.axelera),
+        ]
+        for name, flag in formats:
+            if flag:
+                return name
+        return ""
 
     def _apply_metadata(self, data: str | Path | None = None):
         """Apply metadata from backend to AutoBackend.
@@ -354,7 +437,6 @@ class AutoBackend(nn.Module):
         attrs_to_copy = [
             "device",
             "fp16",
-            "nhwc",
             "stride",
             "names",
             "task",
@@ -363,34 +445,11 @@ class AutoBackend(nn.Module):
             "ch",
             "end2end",
             "dynamic",
-            "pt",
-            "jit",
-            "onnx",
-            "xml",
-            "engine",
-            "coreml",
-            "saved_model",
-            "pb",
-            "tflite",
-            "edgetpu",
-            "tfjs",
-            "paddle",
-            "mnn",
-            "ncnn",
-            "imx",
-            "rknn",
-            "triton",
-            "pte",
-            "axelera",
-            "dnn",
-            "nn_module",
         ]
 
         for attr in attrs_to_copy:
             if hasattr(self.backend, attr):
                 setattr(self, attr, getattr(self.backend, attr))
-            else:
-                setattr(self, attr, False)
 
         # Handle model attribute specially - for PyTorch models it should be the actual model
         if hasattr(self.backend, "model"):
@@ -460,7 +519,6 @@ class AutoBackend(nn.Module):
         Args:
             imgsz (tuple[int, int, int, int]): Dummy input shape in (batch, channels, height, width) format.
         """
-        import torch
         from ultralytics.utils.nms import non_max_suppression
 
         warmup_types = self.pt, self.jit, self.onnx, self.engine, self.saved_model, self.pb, self.triton, self.nn_module
