@@ -20,7 +20,20 @@ from ultralytics.models.yolo.stereo3ddet.visualize import labels_to_box3d
 from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK, ROOT, YAML
 from ultralytics.utils.checks import check_yaml
 from ultralytics.utils.plotting import Annotator, VisualizationConfig, colors, plot_labels, plot_stereo3d_boxes
-from ultralytics.utils.torch_utils import intersect_dicts
+from ultralytics.utils.torch_utils import intersect_dicts, unwrap_model
+
+
+def _scan_label_classes(label_dir: Path, max_files: int = 200) -> set[int]:
+    """Scan label files for unique class IDs present in the dataset."""
+    class_ids: set[int] = set()
+    files = sorted(label_dir.glob("*.txt"))[:max_files]
+    for f in files:
+        with open(f) as fh:
+            for line in fh:
+                parts = line.strip().split()
+                if parts:
+                    class_ids.add(int(parts[0]))
+    return class_ids
 
 
 class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
@@ -31,14 +44,73 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             overrides = {}
         overrides["task"] = "stereo3ddet"
         super().__init__(cfg, overrides, _callbacks)
-        
+        self.add_callback("on_train_epoch_start", Stereo3DDetTrainer._set_loss_epoch_frac)
+
+    @staticmethod
+    def _set_loss_epoch_frac(trainer):
+        """Update loss criterion with current epoch fraction for pseudo-label curriculum."""
+        criterion = getattr(unwrap_model(trainer.model), "criterion", None)
+        if criterion is not None:
+            criterion.epoch_frac = trainer.epoch / max(trainer.epochs, 1)
+
+    def build_optimizer(self, model, name="auto", lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
+        """Build optimizer with optional LR boost for depth/lr_distance aux branches.
+
+        Reads `training.aux_lr_mult` from model YAML. When > 1.0, depth and lr_distance
+        branch parameters get a separate param group with boosted LR, helping escape
+        the "predict mean depth" local minimum that plagues nc=1 training.
+        """
+        optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
+
+        aux_lr_mult = self._get_model_yaml().get("training", {}).get("aux_lr_mult", 1.0)
+        if aux_lr_mult <= 1.0:
+            return optimizer
+
+        # Find depth/lr_distance aux branch param IDs
+        head = unwrap_model(model).model[-1]
+        aux_ids = set()
+        if hasattr(head, "aux"):
+            for branch_name in ("lr_distance", "depth"):
+                if branch_name in head.aux:
+                    for p in head.aux[branch_name].parameters():
+                        aux_ids.add(id(p))
+
+        if not aux_ids:
+            return optimizer
+
+        # Split aux params into new groups with boosted LR
+        n_boosted = 0
+        new_groups = []
+        for group in optimizer.param_groups:
+            all_params = list(group["params"])
+            keep = [p for p in all_params if id(p) not in aux_ids]
+            boost = [p for p in all_params if id(p) in aux_ids]
+            if boost:
+                group["params"] = keep
+                new_group = {k: v for k, v in group.items() if k != "params"}
+                new_group["params"] = boost
+                new_group["lr"] = group["lr"] * aux_lr_mult
+                new_groups.append(new_group)
+                n_boosted += len(boost)
+        for g in new_groups:
+            optimizer.add_param_group(g)
+
+        LOGGER.info(f"stereo3ddet: {n_boosted} depth/lr_distance params at {aux_lr_mult}x LR")
+        return optimizer
+
     def get_validator(self):
         """Return a Stereo3DDetValidator, currently extending DetectionValidator."""
         # T204: Determine loss names dynamically from model before creating validator
         self._determine_loss_names()
-        return yolo.stereo3ddet.Stereo3DDetValidator(
+        val = yolo.stereo3ddet.Stereo3DDetValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
+        # Set names early so CSV header includes per-class/difficulty R40 AP keys
+        names = getattr(self.model, "names", None)
+        if names:
+            val.metrics.names = names
+            val.metrics.nc = len(names)
+        return val
 
     def _get_model_yaml(self):
         """Get model YAML dict, handling DDP wrapper."""
@@ -52,7 +124,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
 
     def _determine_loss_names(self):
         """Set loss names for stereo 3D detection."""
-        self.loss_names = ("box", "cls", "lr_dist", "depth", "dims", "orient")
+        self.loss_names = ("box", "cls", "lr_dist", "depth", "dims", "orient", "divers", "photo")
 
     def progress_string(self):
         """Return a formatted string showing training progress with dynamically determined loss branches.
@@ -106,10 +178,44 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
 
         # Extract mean dimensions if present in dataset config
         mean_dims = data_cfg.get("mean_dims")
-        
-        # Extract standard deviation of dimensions if present in dataset config
         std_dims = data_cfg.get("std_dims")
-        
+
+        # Auto-expand nc=1 to all available label classes to prevent depth collapse.
+        # With only 1 class, the backbone learns spatial shortcuts (position→depth)
+        # that don't generalize. Including all available classes from the labels provides
+        # visual diversity that forces the backbone to learn richer features.
+        if nc == 1:
+            label_dir = root / "labels" / train_split
+            extra_ids = _scan_label_classes(label_dir)
+
+            # If labels truly have only 1 class, auto-generate pseudo-labels for
+            # auxiliary classes (Pedestrians, Cyclists) using a pretrained 2D detector.
+            if len(extra_ids) <= 1:
+                from ultralytics.models.yolo.stereo3ddet.auto_label import auto_label_stereo3d
+
+                left_dir = root / "images" / train_split / "left"
+                right_dir = root / "images" / train_split / "right"
+                calib_dir = root / "calib" / train_split
+                auto_label_stereo3d(label_dir, left_dir, right_dir, calib_dir)
+                extra_ids = _scan_label_classes(label_dir)
+
+            if len(extra_ids) > 1:
+                base_name = names[0] if isinstance(names, dict) else names[0] if isinstance(names, list) else "Object"
+                # Use contiguous range 0..max_id to avoid CUDA assert from gap IDs
+                max_id = max(extra_ids)
+                names = {i: base_name if i == 0 else f"Aux_{i}" for i in range(max_id + 1)}
+                nc = max_id + 1
+                # Share target class dims for aux classes (dims accuracy for aux classes
+                # doesn't matter — they only provide feature diversity for the backbone)
+                if mean_dims and 0 in mean_dims:
+                    mean_dims = {cid: mean_dims[0] for cid in names}
+                if std_dims and 0 in std_dims:
+                    std_dims = {cid: std_dims[0] for cid in names}
+                LOGGER.info(
+                    "stereo3ddet: auto-expanded nc=1 → nc=%d using label classes %s",
+                    nc, list(names.values()),
+                )
+
         # Return a dict compatible with BaseTrainer expectations, plus stereo descriptors
         return {
             "yaml_file": str(self.args.data) if isinstance(self.args.data, (str, Path)) else None,
@@ -125,8 +231,8 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             "image_size": data_cfg.get("image_size", [375, 1242]),
             "baseline": data_cfg.get("baseline"),
             "focal_length": data_cfg.get("focal_length"),
-            "mean_dims": mean_dims,  # Mean dimensions per class [L, W, H] from dataset.yaml
-            "std_dims": std_dims,  # Standard deviation of dimensions per class [L, W, H] from dataset.yaml
+            "mean_dims": mean_dims,
+            "std_dims": std_dims,
         }
 
     def build_dataset(self, img_path, mode: str = "train", batch: int | None = None):

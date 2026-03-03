@@ -67,6 +67,30 @@ def _deep_branch(in_ch: int, out_ch: int, hidden: int = 64) -> nn.Sequential:
     )
 
 
+class DenseDepthHead(nn.Module):
+    """Dense depth prediction at stride 4 for self-supervised photometric loss.
+
+    Operates on backbone tap features (stride 4) where texture is preserved,
+    preventing spatial-shortcut collapse. Only used during training.
+    """
+
+    def __init__(self, in_ch: int, n_bins: int = DEPTH_BINS, hidden: int = 64):
+        super().__init__()
+        self.conv = nn.Sequential(
+            Conv(in_ch, hidden, 3),
+            Conv(hidden, hidden, 3),
+            nn.Conv2d(hidden, n_bins, 1),
+        )
+        self.depth_dfl = DepthDFL(n_bins, DEPTH_MIN, DEPTH_MAX)
+
+    def forward(self, feat: torch.Tensor) -> torch.Tensor:
+        """Predict dense log-depth [B, 1, H, W] from stride-4 features."""
+        logits = self.conv(feat)  # [B, n_bins, H, W]
+        B, _, H, W = logits.shape
+        log_depth = self.depth_dfl(logits.flatten(2))  # [B, 1, HW]
+        return log_depth.view(B, 1, H, W)
+
+
 class Stereo3DDetHeadYOLO11(Detect):
     """Multi-scale stereo 3D detection head (Pose-pattern).
 
@@ -77,7 +101,7 @@ class Stereo3DDetHeadYOLO11(Detect):
     Args:
         nc: Number of classes.
         reg_max: DFL channels (forced to 1).
-        end2end: End-to-end mode for dual TAL training (one2many + one2one).
+        end2end: End-to-end mode (forced to False).
         ch: Tuple of per-scale input channels, e.g. (256, 512, 1024) or
             (256, 512, 1024, 64) where the 4th element is cost volume channels.
     """
@@ -91,7 +115,16 @@ class Stereo3DDetHeadYOLO11(Detect):
         self.cv_ch = ch.pop() if len(ch) > 3 else 0
         ch = tuple(ch)
 
-        super().__init__(nc=nc, reg_max=1, end2end=end2end, ch=ch)  # reg_max=1, E2E from YAML
+        super().__init__(nc=nc, reg_max=1, end2end=False, ch=ch)  # Force reg_max=1, end2end=False
+
+        # Force reg_max=1 (no DFL) — stereo 3D detection doesn't benefit from DFL
+        self.reg_max = 1
+        self.no = nc + 4  # 4 direct bbox offsets, no distribution
+        c2 = max(16, ch[0] // 4, 4)
+        self.cv2 = nn.ModuleList(
+            nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4, 1)) for x in ch
+        )
+        self.dfl = nn.Identity()
 
         self.aux_specs = dict(AUX_SPECS)  # mutable copy
         self.depth_dfl = DepthDFL(DEPTH_BINS, DEPTH_MIN, DEPTH_MAX)
@@ -140,6 +173,9 @@ class Stereo3DDetHeadYOLO11(Detect):
             cost_vol = x[self.nl]
             x = list(x[: self.nl])
 
+        # Save P3 features before Detect.forward_head modifies x in-place
+        p3_features = x[0] if self.training else None
+
         # 2D detection on clean features
         preds = super().forward_head(x, box_head, cls_head)  # {boxes, scores, feats}
 
@@ -162,25 +198,8 @@ class Stereo3DDetHeadYOLO11(Detect):
                 preds["depth_bins"] = preds["depth"]  # raw logits [B, 16, HW] for DFLoss
             preds["depth"] = self.depth_dfl(preds["depth"])  # decoded [B, 1, HW]
 
+        # Training-only: save P3 features for diversity loss
+        if p3_features is not None:
+            preds["p3_features"] = p3_features
+
         return preds
-
-    def forward(self, x):
-        """Forward pass with E2E dual-TAL during training, one2many-only for inference.
-
-        Stereo always uses one2many for inference (aux branches needed for 3D construction).
-        E2E one2one path only computed during training for improved TAL learning.
-        """
-        preds = self.forward_head(x, **self.one2many)
-        if self.end2end and self.training:
-            x_detach = [xi.detach() for xi in x]
-            one2one = self.forward_head(x_detach, **self.one2one)
-            return {"one2many": preds, "one2one": one2one}
-        if self.training:
-            return preds
-        y = self._inference(preds)
-        return y if self.export else (y, preds)
-
-    def fuse(self):
-        """Remove one2one heads — stereo keeps one2many for aux branches at inference."""
-        if hasattr(self, "one2one_cv2"):
-            self.one2one_cv2 = self.one2one_cv3 = None

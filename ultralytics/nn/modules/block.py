@@ -2184,11 +2184,11 @@ class RealNVP(nn.Module):
 class StereoCostVolume(nn.Module):
     """Sparse correlation cost volume between left/right stereo features.
 
-    Builds dot-product correlation at D discrete disparity offsets from groups=2
-    features, producing a refined feature map downsampled by 2x (stride 4 → stride 8).
+    Builds dot-product correlation at D discrete disparity offsets, producing a
+    refined feature map downsampled by 2x (stride 4 → stride 8).
 
     Args:
-        c1: Input channels from groups=2 layer (left: c1//2, right: c1//2).
+        c1: Input channels (c1 per view in siamese mode, c1//2 per view in groups=2).
         c2: Output channels after refinement.
         max_disp: Maximum disparity in feature pixels at the input stride.
         num_bins: Number of discrete disparity samples.
@@ -2200,6 +2200,7 @@ class StereoCostVolume(nn.Module):
         self.c_half = c1 // 2
         # Integer disparity offsets evenly spaced from 0 to max_disp
         self.disparities = [int(d) for d in torch.linspace(0, max_disp, num_bins).round().tolist()]
+
         # Process cost volume: num_bins → c2, then downsample stride 4 → stride 8
         layers = [Conv(num_bins, c2, 3)]
         for _ in range(refine_layers - 2):
@@ -2224,6 +2225,7 @@ class StereoCostVolume(nn.Module):
             B, C, H, W = x.shape
             c = self.c_half
             left, right = x[:, :c], x[:, c:]
+
         left = F.normalize(left, dim=1)
         right = F.normalize(right, dim=1)
 

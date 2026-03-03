@@ -816,6 +816,7 @@ class Stereo3DDetDataset(BaseDataset):
             "depth": [],
             "dimensions": [],
             "orientation": [],
+            "is_pseudo": [],  # 0=real, 1=stereo-pseudo (occ>=10), 2=mono-pseudo (occ>=20)
         }
 
         # Reuse mean_dims and std_dims mapping from TargetGenerator for dimension offset computation.
@@ -913,9 +914,11 @@ class Stereo3DDetDataset(BaseDataset):
             depth_list = []
             dim_list = []
             ori_list = []
+            pseudo_list = []
 
             for j in range(n):
                 cls_i = int(cls_array[j])
+                z_3d = float(location_3d[j][2])
 
                 # Normalized xywh (letterboxed input space) for detection loss.
                 cx, cy, bw, bh = bboxes_xywh[j]
@@ -929,9 +932,6 @@ class Stereo3DDetDataset(BaseDataset):
                 right_cx = float(right_bboxes[j, 0])
                 disparity_norm = cx - right_cx
                 lr_list.append(torch.tensor([math.log(max(disparity_norm, 1e-6))], dtype=torch.float32))
-
-                # Direct depth target in log-space
-                z_3d = float(location_3d[j][2])
                 depth_list.append(torch.tensor([math.log(max(z_3d, 1e-6))], dtype=torch.float32))
 
                 # Dimension offset: normalized (dim - mean) / std, shape [3]
@@ -945,10 +945,15 @@ class Stereo3DDetDataset(BaseDataset):
                 alpha = float(rotation_y[j]) - ray_angle
                 ori_list.append(torch.tensor([math.sin(alpha), math.cos(alpha)], dtype=torch.float32))
 
+                # Pseudo-label flag: 0=real, 1=stereo-pseudo (occ>=10), 2=mono-pseudo (occ>=20)
+                occ_j = int(occluded[j])
+                pseudo_list.append(torch.tensor([min(occ_j // 10, 2)], dtype=torch.float32))
+
             per_image_aux["lr_distance"].append(torch.stack(lr_list, 0))
             per_image_aux["depth"].append(torch.stack(depth_list, 0))
             per_image_aux["dimensions"].append(torch.stack(dim_list, 0))
             per_image_aux["orientation"].append(torch.stack(ori_list, 0))
+            per_image_aux["is_pseudo"].append(torch.stack(pseudo_list, 0))
 
         # Build detection tensors
         if all_bboxes:
@@ -964,7 +969,7 @@ class Stereo3DDetDataset(BaseDataset):
         max_n = max(per_image_counts) if per_image_counts else 0
         aux_targets: dict[str, torch.Tensor] = {}
         for k in per_image_aux.keys():
-            c = {"lr_distance": 1, "depth": 1, "dimensions": 3, "orientation": 2}[k]
+            c = {"lr_distance": 1, "depth": 1, "dimensions": 3, "orientation": 2, "is_pseudo": 1}[k]
             padded = torch.zeros((len(batch), max_n, c), dtype=torch.float32)
             for bi in range(len(batch)):
                 if per_image_counts[bi] == 0:

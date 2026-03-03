@@ -11,7 +11,6 @@
 nc: 3
 stereo: true
 siamese: true
-end2end: False
 scales:
   n: [0.50, 0.25, 1024]
   s: [0.50, 0.50, 1024]
@@ -25,6 +24,9 @@ training:
     depth: 3.0
     dimensions: 1.0
     orientation: 1.0
+    diversity: 0.0  # feature decorrelation loss (set >0 for nc=1 training)
+    photometric: 0.0  # self-supervised stereo reconstruction loss (set >0 for nc=1)
+    smoothness: 0.001  # edge-aware depth smoothness (used when photometric > 0)
 
 mean_dims:
   Car: [3.88, 1.63, 1.53]

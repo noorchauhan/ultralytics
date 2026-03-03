@@ -314,6 +314,7 @@ class Stereo3DDetValidator(BaseValidator):
             raise ValueError("Model or dataset configuration must include 'names' mapping")
 
         self.nc = len(self.names) if isinstance(self.names, (dict, list, tuple)) else 0
+
         self.seen = 0
         self.metrics.names = self.names
         self.metrics.nc = self.nc
