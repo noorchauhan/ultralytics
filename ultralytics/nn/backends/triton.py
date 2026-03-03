@@ -36,9 +36,9 @@ class TritonBackend(BaseBackend):
         from ultralytics.utils.triton import TritonRemoteModel
 
         self.model = TritonRemoteModel(str(self.weights))
-        
+
         # Copy metadata from Triton model
-        if hasattr(self.model, 'metadata'):
+        if hasattr(self.model, "metadata"):
             self.metadata = self.model.metadata
 
     def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
@@ -53,7 +53,7 @@ class TritonBackend(BaseBackend):
         """
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()
-            
+
         im_np = im.cpu().numpy()
         y = self.model(im_np)
 

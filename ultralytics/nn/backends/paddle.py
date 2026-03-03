@@ -37,22 +37,20 @@ class PaddleBackend(BaseBackend):
     def load_model(self) -> None:
         """Load the PaddlePaddle model."""
         cuda = torch.cuda.is_available()
-        
+
         LOGGER.info(f"Loading {self.weights} for PaddlePaddle inference...")
         if cuda:
-            check_requirements(
-                "paddlepaddle-gpu>=3.0.0,!=3.3.0"
-            )
+            check_requirements("paddlepaddle-gpu>=3.0.0,!=3.3.0")
         elif ARM64:
             check_requirements("paddlepaddle==3.0.0")
         else:
             check_requirements("paddlepaddle>=3.0.0,!=3.3.0")
-            
+
         import paddle.inference as pdi
 
         w = Path(self.weights)
         model_file, params_file = None, None
-        
+
         if w.is_dir():
             model_file = next(w.rglob("*.json"), None)
             params_file = next(w.rglob("*.pdiparams"), None)
@@ -66,15 +64,16 @@ class PaddleBackend(BaseBackend):
         config = pdi.Config(str(model_file), str(params_file))
         if torch.cuda.is_available() and self.device.type != "cpu":
             config.enable_use_gpu(memory_pool_init_size_mb=2048, device_id=0)
-            
+
         self.predictor = pdi.create_predictor(config)
         self.input_handle = self.predictor.get_input_handle(self.predictor.get_input_names()[0])
         self.output_names = self.predictor.get_output_names()
-        
+
         # Load metadata
         metadata_file = w / "metadata.yaml"
         if metadata_file.exists():
             from ultralytics.utils import YAML
+
             self.metadata = YAML.load(metadata_file)
 
     def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:

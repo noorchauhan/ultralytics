@@ -19,8 +19,7 @@ class ONNXBackend(BaseBackend):
     Supports loading and inference with ONNX models (.onnx files).
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, 
-                 dnn: bool = False, **kwargs: Any):
+    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, dnn: bool = False, **kwargs: Any):
         """Initialize ONNX backend.
 
         Args:
@@ -43,12 +42,13 @@ class ONNXBackend(BaseBackend):
     def load_model(self) -> None:
         """Load the ONNX model."""
         cuda = self.device.type != "cpu" and torch.cuda.is_available()
-        
+
         if self.dnn:
             # OpenCV DNN
             LOGGER.info(f"Loading {self.weights} for ONNX OpenCV DNN inference...")
             check_requirements("opencv-python>=4.5.4")
             import cv2
+
             self.net = cv2.dnn.readNetFromONNX(self.weights)
         else:
             # ONNX Runtime
@@ -67,24 +67,24 @@ class ONNXBackend(BaseBackend):
                 if cuda:
                     LOGGER.warning("CUDA requested but CUDAExecutionProvider not available. Using CPU...")
                     self.device = torch.device("cpu")
-                    
+
             LOGGER.info(
                 f"Using ONNX Runtime {onnxruntime.__version__} with "
                 f"{providers[0] if isinstance(providers[0], str) else providers[0][0]}"
             )
-            
+
             self.session = onnxruntime.InferenceSession(self.weights, providers=providers)
             self.output_names = [x.name for x in self.session.get_outputs()]
-            
+
             # Get metadata
             metadata_map = self.session.get_modelmeta().custom_metadata_map
             if metadata_map:
                 self.metadata = dict(metadata_map)
-                
+
             # Check if dynamic shapes
             self.dynamic = isinstance(self.session.get_outputs()[0].shape[0], str)
             self.fp16 = "float16" in self.session.get_inputs()[0].type
-            
+
             # Setup IO binding for CUDA
             self.use_io_binding = not self.dynamic and cuda
             if self.use_io_binding:
@@ -92,10 +92,9 @@ class ONNXBackend(BaseBackend):
                 self.bindings = []
                 for output in self.session.get_outputs():
                     out_fp16 = "float16" in output.type
-                    y_tensor = torch.empty(
-                        output.shape, 
-                        dtype=torch.float16 if out_fp16 else torch.float32
-                    ).to(self.device)
+                    y_tensor = torch.empty(output.shape, dtype=torch.float16 if out_fp16 else torch.float32).to(
+                        self.device
+                    )
                     self.io.bind_output(
                         name=output.name,
                         device_type=self.device.type,
@@ -118,14 +117,14 @@ class ONNXBackend(BaseBackend):
         """
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()
-            
+
         if self.dnn:
             # OpenCV DNN
             im_np = im.cpu().numpy()
             self.net.setInput(im_np)
             y = self.net.forward()
             return self.from_numpy(y)
-        
+
         # ONNX Runtime
         if self.use_io_binding:
             if self.device.type == "cpu":
@@ -180,10 +179,8 @@ class ONNXIMXBackend(ONNXBackend):
 
         session_options = mctq.get_ort_session_options()
         session_options.enable_mem_reuse = False
-        
-        self.session = onnxruntime.InferenceSession(
-            onnx_file, session_options, providers=["CPUExecutionProvider"]
-        )
+
+        self.session = onnxruntime.InferenceSession(onnx_file, session_options, providers=["CPUExecutionProvider"])
         self.output_names = [x.name for x in self.session.get_outputs()]
         self.dynamic = isinstance(self.session.get_outputs()[0].shape[0], str)
         self.fp16 = "float16" in self.session.get_inputs()[0].type
@@ -200,7 +197,7 @@ class ONNXIMXBackend(ONNXBackend):
         """
         im_np = im.cpu().numpy()
         y = self.session.run(self.output_names, {self.session.get_inputs()[0].name: im_np})
-        
+
         task = kwargs.get("task", self.task)
         if task == "detect":
             # boxes, conf, cls
@@ -213,7 +210,7 @@ class ONNXIMXBackend(ONNXBackend):
                 np.concatenate([y[0], y[1][:, :, None], y[2][:, :, None], y[3]], axis=-1, dtype=y[0].dtype),
                 y[4],
             )
-            
+
         if isinstance(y, tuple):
             return [self.from_numpy(x) for x in y]
         return self.from_numpy(y)

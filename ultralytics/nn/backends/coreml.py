@@ -42,7 +42,7 @@ class CoreMLBackend(BaseBackend):
         LOGGER.info(f"Loading {self.weights} for CoreML inference...")
         self.model = ct.models.MLModel(self.weights)
         self.dynamic = self.model.get_spec().description.input[0].type.HasField("multiArrayType")
-        
+
         # Load metadata
         metadata = dict(self.model.user_defined_metadata)
         if metadata:
@@ -60,7 +60,7 @@ class CoreMLBackend(BaseBackend):
         """
         im_np = im.cpu().numpy()
         h, w = kwargs.get("h", im.shape[2]), kwargs.get("w", im.shape[3])
-        
+
         if self.dynamic:
             im_np = im_np.transpose(0, 3, 1, 2)
             y = self.model.predict({"image": im_np})
@@ -70,15 +70,15 @@ class CoreMLBackend(BaseBackend):
 
         if "confidence" in y:  # NMS included
             from ultralytics.utils.ops import xywh2xyxy
-            
+
             box = xywh2xyxy(y["coordinates"] * [[w, h, w, h]])
             cls = y["confidence"].argmax(1, keepdims=True)
             y = np.concatenate((box, np.take_along_axis(y["confidence"], cls, axis=1), cls), 1)[None]
             return self.from_numpy(y)
         else:
             y = list(y.values())
-            
+
         if len(y) == 2 and len(y[1].shape) != 4:  # segmentation model
             y = list(reversed(y))
-            
+
         return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])

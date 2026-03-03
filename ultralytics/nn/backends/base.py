@@ -9,8 +9,6 @@ from typing import Any
 import numpy as np
 import torch
 
-from ultralytics.utils import LOGGER
-
 
 class BaseBackend(ABC):
     """Base class for all inference backends.
@@ -121,6 +119,7 @@ class BaseBackend(ABC):
         """
         if data:
             from ultralytics.utils import YAML, check_yaml
+
             try:
                 return YAML.load(check_yaml(data))["names"]
             except Exception:

@@ -114,7 +114,11 @@ class TensorRTBackend(BaseBackend):
             else:
                 self.output_names.append(name)
 
-            shape = tuple(self.context.get_tensor_shape(name)) if self.is_trt10 else tuple(self.context.get_binding_shape(i))
+            shape = (
+                tuple(self.context.get_tensor_shape(name))
+                if self.is_trt10
+                else tuple(self.context.get_binding_shape(i))
+            )
             im = torch.from_numpy(np.empty(shape, dtype=dtype)).to(self.device)
             self.bindings[name] = Binding(name, dtype, shape, im, int(im.data_ptr()))
 
@@ -150,7 +154,7 @@ class TensorRTBackend(BaseBackend):
 
         s = self.bindings["images"].shape
         assert im.shape == s, f"input size {im.shape} {'>' if self.dynamic else 'not equal to'} max model size {s}"
-        
+
         self.binding_addrs["images"] = int(im.data_ptr())
         self.context.execute_v2(list(self.binding_addrs.values()))
         y = [self.bindings[x].data for x in sorted(self.output_names)]

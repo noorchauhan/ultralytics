@@ -43,18 +43,18 @@ class OpenVINOBackend(BaseBackend):
 
         self.ov = ov.Core()
         device_name = "AUTO"
-        
+
         if isinstance(self.device, str) and self.device.startswith("intel"):
             device_name = self.device.split(":")[1].upper()
             self.device = torch.device("cpu")
             if device_name not in self.ov.available_devices:
                 LOGGER.warning(f"OpenVINO device '{device_name}' not available. Using 'AUTO' instead.")
                 device_name = "AUTO"
-                
+
         w = Path(self.weights)
         if not w.is_file():
             w = next(w.glob("*.xml"))
-            
+
         ov_model = self.ov.read_model(model=str(w), weights=w.with_suffix(".bin"))
         if ov_model.get_parameters()[0].get_layout().empty:
             ov_model.get_parameters()[0].set_layout(ov.Layout("NCHW"))
@@ -63,6 +63,7 @@ class OpenVINOBackend(BaseBackend):
         metadata_file = w.parent / "metadata.yaml"
         if metadata_file.exists():
             from ultralytics.utils import YAML
+
             metadata = YAML.load(metadata_file)
             self.batch = metadata.get("batch", 1)
             self.dynamic = metadata.get("args", {}).get("dynamic", self.dynamic)
@@ -72,7 +73,7 @@ class OpenVINOBackend(BaseBackend):
 
         # Set inference mode
         self.inference_mode = "CUMULATIVE_THROUGHPUT" if self.dynamic and self.batch > 1 else "LATENCY"
-        
+
         self.ov_compiled_model = self.ov.compile_model(
             ov_model,
             device_name=device_name,
@@ -107,11 +108,11 @@ class OpenVINOBackend(BaseBackend):
 
             async_queue = self.ov.AsyncInferQueue(self.ov_compiled_model)
             async_queue.set_callback(callback)
-            
+
             for i in range(n):
-                async_queue.start_async(inputs={self.input_name: im_np[i:i+1]}, userdata=i)
+                async_queue.start_async(inputs={self.input_name: im_np[i : i + 1]}, userdata=i)
             async_queue.wait_all()
-            
+
             y = [list(r.values()) for r in results]
             y = [np.concatenate(x) for x in zip(*y)]
         else:

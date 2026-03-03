@@ -18,8 +18,15 @@ class PyTorchBackend(BaseBackend):
     Supports loading and inference with native PyTorch models (.pt files).
     """
 
-    def __init__(self, weights: str | Path | nn.Module, device: torch.device, fp16: bool = False, 
-                 fuse: bool = True, verbose: bool = True, **kwargs: Any):
+    def __init__(
+        self,
+        weights: str | Path | nn.Module,
+        device: torch.device,
+        fp16: bool = False,
+        fuse: bool = True,
+        verbose: bool = True,
+        **kwargs: Any,
+    ):
         """Initialize PyTorch backend.
 
         Args:
@@ -61,20 +68,21 @@ class PyTorchBackend(BaseBackend):
         self.stride = max(int(model.stride.max()), 32) if hasattr(model, "stride") else 32
         self.names = model.module.names if hasattr(model, "module") else getattr(model, "names", {})
         self.ch = model.yaml.get("channels", 3) if hasattr(model, "yaml") else 3
-        
+
         if self.fp16:
             model.half()
         else:
             model.float()
-            
+
         for p in model.parameters():
             p.requires_grad = False
-            
+
         self.model = model
         self.end2end = getattr(model, "end2end", False)
 
-    def forward(self, im: torch.Tensor, augment: bool = False, visualize: bool = False, 
-                embed: list | None = None, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+    def forward(
+        self, im: torch.Tensor, augment: bool = False, visualize: bool = False, embed: list | None = None, **kwargs: Any
+    ) -> torch.Tensor | list[torch.Tensor]:
         """Run PyTorch inference.
 
         Args:
@@ -119,12 +127,12 @@ class TorchScriptBackend(BaseBackend):
         LOGGER.info(f"Loading {self.weights} for TorchScript inference...")
         extra_files = {"config.txt": ""}
         self.model = torch.jit.load(self.weights, _extra_files=extra_files, map_location=self.device)
-        
+
         if self.fp16:
             self.model.half()
         else:
             self.model.float()
-            
+
         if extra_files["config.txt"]:
             self.metadata = json.loads(extra_files["config.txt"], object_hook=lambda x: dict(x.items()))
 

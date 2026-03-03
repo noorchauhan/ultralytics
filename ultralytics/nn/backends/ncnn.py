@@ -42,7 +42,7 @@ class NCNNBackend(BaseBackend):
 
         self.pyncnn = pyncnn
         self.net = pyncnn.Net()
-        
+
         # Setup Vulkan if available
         cuda = self.device.type != "cpu" and torch.cuda.is_available()
         if isinstance(self.device, str) and self.device.startswith("vulkan"):
@@ -55,14 +55,15 @@ class NCNNBackend(BaseBackend):
         w = Path(self.weights)
         if not w.is_file():
             w = next(w.glob("*.param"))
-            
+
         self.net.load_param(str(w))
         self.net.load_model(str(w.with_suffix(".bin")))
-        
+
         # Load metadata
         metadata_file = w.parent / "metadata.yaml"
         if metadata_file.exists():
             from ultralytics.utils import YAML
+
             self.metadata = YAML.load(metadata_file)
 
     def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:

@@ -40,14 +40,10 @@ class MNNBackend(BaseBackend):
         check_requirements("MNN")
         import MNN
 
-        config = {
-            "precision": "low",
-            "backend": "CPU",
-            "numThread": (os.cpu_count() + 1) // 2
-        }
+        config = {"precision": "low", "backend": "CPU", "numThread": (os.cpu_count() + 1) // 2}
         self.rt = MNN.nn.create_runtime_manager((config,))
         self.net = MNN.nn.load_module_from_file(str(self.weights), [], [], runtime_manager=self.rt, rearrange=True)
-        
+
         # Load metadata from bizCode
         info = self.net.get_info()
         if "bizCode" in info:
@@ -58,14 +54,15 @@ class MNNBackend(BaseBackend):
 
     def torch_to_mnn(self, x: torch.Tensor):
         """Convert PyTorch tensor to MNN tensor.
-        
+
         Args:
             x: PyTorch tensor.
-            
+
         Returns:
             MNN tensor.
         """
         import MNN
+
         return MNN.expr.const(x.data_ptr(), x.shape)
 
     def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
