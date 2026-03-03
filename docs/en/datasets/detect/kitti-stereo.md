@@ -31,9 +31,7 @@ dataset_root/
 
 ## Label Format
 
-Each label file (`.txt`) corresponds to one stereo image pair and contains one line per object. The format supports multiple versions:
-
-### Current Format (26 values)
+Each label file (`.txt`) corresponds to one stereo image pair and contains one line per object. The format uses 26 values per line:
 
 ```
 class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y kp1_x kp1_y kp2_x kp2_y kp3_x kp3_y kp4_x kp4_y truncated occluded
@@ -54,42 +52,42 @@ class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y 
 
 ### Right Image 2D Bounding Box (normalized)
 - **x_r**: Right image center x-coordinate (normalized 0-1)
-- **y_r**: Right image center y-coordinate (normalized 0-1) - *24-value format only*
+- **y_r**: Right image center y-coordinate (normalized 0-1)
 - **w_r**: Right image bounding box width (normalized 0-1)
-- **h_r**: Right image bounding box height (normalized 0-1) - *24-value format only*
-- **Note**: In 22-value format, only x_r and w_r are stored (y and h are same as left due to epipolar constraint)
+- **h_r**: Right image bounding box height (normalized 0-1)
+- **Note**: Due to the epipolar constraint, y_r and h_r are typically the same as y_l and h_l.
 
 ### 3D Dimensions (meters)
-- **24-value format**: `dim_l dim_w dim_h` - length, width, height in meters
-- **Note**: Dimensions are in camera coordinate system (height=Y, width=Z, length=X). The order differs between formats.
-
-### Orientation
-- **24-value format**: `rot_y` - Global rotation around Y-axis in radians (range: [-π, π])
-- **Description**: 
-  - `rot_y` (24-value): Direct global yaw angle (rotation around vertical Y-axis)
-  using: `rotation_y = alpha + arctan(x/z)`
-
-### Bottom 4 Vertices (normalized)
-- **kp1_x, kp1_y** (24-value) or **v1_x, v1_y** (22-value): First bottom vertex (normalized 0-1)
-- **kp2_x, kp2_y** (24-value) or **v2_x, v2_y** (22-value): Second bottom vertex (normalized 0-1)
-- **kp3_x, kp3_y** (24-value) or **v3_x, v3_y** (22-value): Third bottom vertex (normalized 0-1)
-- **kp4_x, kp4_y** (24-value) or **v4_x, v4_y** (22-value): Fourth bottom vertex (normalized 0-1)
-- **Description**: Projected 2D coordinates of the 4 bottom corners of the 3D bounding box in normalized image coordinates [0, 1]
+- **dim_l**: Object length in meters (forward direction)
+- **dim_w**: Object width in meters (lateral direction)
+- **dim_h**: Object height in meters (vertical direction)
+- **Note**: Stored as `[length, width, height]` in label files. Internally converted to `(H, W, L)` order for training.
 
 ### 3D Location (camera coordinates, meters)
-- **loc_x** : X-coordinate in camera frame (right = positive)
-- **loc_y** : Y-coordinate in camera frame (down = positive, bottom center of box)
-- **loc_z** : Z-coordinate in camera frame (forward = positive, depth)
-- **Note**: Y is at bottom center of box (KITTI convention). The geometric center is computed during parsing. Only present in 22+ value formats.
+- **loc_x**: X-coordinate in camera frame (right = positive)
+- **loc_y**: Y-coordinate in camera frame (down = positive, bottom center of box)
+- **loc_z**: Z-coordinate in camera frame (forward = positive, depth)
+- **Note**: Y is at bottom center of box (KITTI convention). The geometric center is computed during parsing as `y_center = y_bottom - height/2`.
 
-### Truncation and Occlusion (26-value format only)
+### Orientation
+- **rot_y**: Global rotation around Y-axis in radians (range: [-π, π])
+- **Description**: Direct global yaw angle (rotation around vertical Y-axis, which points down)
+- **Rotation_y = 0**: Object faces along the camera Z-axis (forward direction)
+
+### Bottom 4 Vertices (normalized)
+- **kp1_x, kp1_y**: First bottom vertex (normalized 0-1)
+- **kp2_x, kp2_y**: Second bottom vertex (normalized 0-1)
+- **kp3_x, kp3_y**: Third bottom vertex (normalized 0-1)
+- **kp4_x, kp4_y**: Fourth bottom vertex (normalized 0-1)
+- **Description**: Projected 2D coordinates of the 4 bottom corners of the 3D bounding box in normalized image coordinates [0, 1]
+
+### Truncation and Occlusion
 - **truncated**: Float value [0.0, 1.0] indicating truncation level where 0 = fully visible (object fully within image boundaries) and 1 = fully truncated (object leaving image boundaries)
 - **occluded**: Integer value indicating occlusion level:
   - `0` = fully visible
   - `1` = partly occluded
   - `2` = largely occluded
   - `3` = unknown/fully occluded
-- **Note**: These attributes are only present in the 26-value format. They are extracted from the original KITTI labels and preserved in the YOLO format for training and evaluation purposes.
 
 ## Coordinate Systems
 
@@ -101,43 +99,26 @@ class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y 
 
 ### 3D Bounding Box Convention
 - **Location**: Bottom center of the box (Y coordinate)
-- **Dimensions**: (height, width, length) in meters
+- **Dimensions**: (length, width, height) in meters in label files
 - **Orientation**: Rotation around Y-axis (vertical axis) in radians
-- **Rotation_y = 0**: Object faces camera X direction (forward along X-axis)
+- **Rotation_y = 0**: Object faces along Z-axis (forward into the scene)
 
-## Example Label Lines
-
-### 26-Value Format Example
+## Example Label Line
 
 ```
 0 0.739219 0.739093 0.256667 0.505120 0.681871 0.880345 0.318305 0.489783 3.580000 1.710000 1.490000 2.810000 1.600000 7.590000 -1.610000 0.610886 0.486533 0.867552 0.486533 0.867552 0.991653 0.610886 0.991653 0.000000 0
 ```
 
-Breaking down this 26-value example:
+Breaking down:
 - **Class**: `0` (Car)
-- **Left box**: center=(0.739219, 0.739093), size=(0.256667, 0.505120)
-- **Right box**: center=(0.681871, 0.880345), size=(0.318305, 0.489783)
+- **Left box**: center=(0.739, 0.739), size=(0.257, 0.505)
+- **Right box**: center=(0.682, 0.880), size=(0.318, 0.490)
 - **Dimensions**: length=3.58m, width=1.71m, height=1.49m
-- **3D location**: X=2.81m, Y=1.6m, Z=7.59m
+- **3D location**: X=2.81m, Y=1.6m (bottom center), Z=7.59m
 - **Rotation_y**: -1.61 radians (global yaw)
 - **Vertices**: 4 bottom corners (kp1-kp4) in normalized coordinates
-- **Truncated**: 0.000000 (fully visible, not truncated)
-- **Occluded**: 0 (fully visible, not occluded)
-
-### 22-Value Format Example
-
-```
-0 0.491935 0.461333 0.193548 0.293333 0.478226 0.193548 1.52 1.73 3.89 0.1234 0.395 0.461 0.589 0.461 0.589 0.754 0.395 0.754 2.8 1.6 7.6
-```
-
-Breaking down this 22-value example:
-- **Class**: `0` (Car)
-- **Left box**: center=(0.491935, 0.461333), size=(0.193548, 0.293333)
-- **Right box**: center_x=0.478226, width=0.193548 (y and h same as left)
-- **Dimensions**: height=1.52m, width=1.73m, length=3.89m
-- **Alpha**: 0.1234 radians (observation angle)
-- **Vertices**: 4 bottom corners (v1-v4) in normalized coordinates
-- **3D location**: X=2.8m, Y=1.6m, Z=7.6m
+- **Truncated**: 0.0 (fully visible)
+- **Occluded**: 0 (fully visible)
 
 ## Calibration File Format
 
@@ -161,11 +142,11 @@ P3: 7.215377e+02 0.000000e+00 6.095593e+02 -3.875744e+02 0.000000e+00 7.215377e+
 ```
 
 Where:
-- **P2**: Left camera projection matrix (3×4)
-- **P3**: Right camera projection matrix (3×4)
+- **P2**: Left camera projection matrix (3x4)
+- **P3**: Right camera projection matrix (3x4)
 - **fx, fy**: Focal lengths in pixels
 - **cx, cy**: Principal point coordinates
-- **baseline**: Stereo baseline in meters
+- **baseline**: Stereo baseline in meters (computed from P2/P3)
 
 ## Dataset YAML Configuration
 
@@ -178,10 +159,28 @@ val: images/val/left
 train_right: images/train/right
 val_right: images/val/right
 
+stereo: true
+channels: 6  # left RGB + right RGB
+
 names:
   0: Car
   1: Pedestrian
   2: Cyclist
+
+baseline: 0.54  # stereo baseline in meters (fallback when calib files missing)
+
+# Mean dimensions per class [length, width, height] in meters
+# Internally converted to (H, W, L) order for training
+mean_dims:
+  Car: [3.9, 1.6, 1.5]
+  Pedestrian: [0.8, 0.6, 1.7]
+  Cyclist: [1.8, 0.6, 1.7]
+
+# Standard deviation of dimensions per class [length, width, height] in meters
+std_dims:
+  Car: [0.42, 0.10, 0.15]
+  Pedestrian: [0.20, 0.08, 0.12]
+  Cyclist: [0.25, 0.10, 0.15]
 ```
 
 ## Usage
@@ -195,14 +194,14 @@ To train a stereo 3D detection model:
         ```python
         from ultralytics import YOLO
 
-        model = YOLO("yolo11-stereo3ddet.yaml")
-        results = model.train(data="kitti-stereo.yaml", epochs=100, imgsz=384)
+        model = YOLO("yolo26-stereo3ddet-siamese.yaml")
+        results = model.train(data="kitti-stereo.yaml", epochs=1000, imgsz=[384, 1248])
         ```
 
     === "CLI"
 
         ```bash
-        yolo task=stereo3ddet train data=kitti-stereo.yaml model=yolo11-stereo3ddet.yaml epochs=100 imgsz=384
+        yolo task=stereo3ddet train data=kitti-stereo.yaml model=yolo26-stereo3ddet-siamese.yaml epochs=1000 imgsz=384,1248
         ```
 
 ## Important Notes
@@ -211,27 +210,15 @@ To train a stereo 3D detection model:
 
 2. **Coordinate System**: 3D coordinates use camera coordinate system with Y pointing down (KITTI convention).
 
-3. **Box Center**: The Y coordinate represents the bottom center of the 3D box, not the geometric center. The geometric center is computed during parsing.
+3. **Box Center**: The Y coordinate in labels represents the bottom center of the 3D box, not the geometric center. The geometric center is computed during parsing.
 
-4. **Right Image Box**: 
-   - **26-value format**: Stores full right box (x_r, y_r, w_r, h_r)
-   - **22-value format**: Only stores x_r and w_r (y and h are same as left due to epipolar constraint)
+4. **Dimensions Order**: Labels store `[length, width, height]`. The code internally reorders to `(H, W, L)` for training. The YAML `mean_dims` and `std_dims` also use `[L, W, H]` order and are automatically converted.
 
-5. **Dimensions Order**: 
-   - **26-value format**: `dim_l dim_w dim_h` (length, width, height)
-   - **22-value format**: `dim_h dim_w dim_l` (height, width, length)
-   - Both are converted to (length, width, height) in Box3D objects
+5. **Orientation**: `rotation_y` is the global yaw angle in radians. The observation angle `alpha` is computed internally as `alpha = rotation_y - atan2(x, z)` for encoding.
 
-6. **Orientation Representation**:
-   - **26-value format**: Direct `rotation_y` (global yaw) in radians
-   - **22-value format**: `alpha` (observation angle) converted to `rotation_y` using: `rotation_y = alpha + arctan(x/z)`
+6. **Truncation and Occlusion**: Used for KITTI R40 difficulty classification (Easy/Moderate/Hard) during evaluation.
 
-7. **Truncation and Occlusion**:
-   - **26-value format**: Includes `truncated` (float [0.0, 1.0]) and `occluded` (int [0-3]) at the end
-   - These values are extracted from original KITTI labels and preserved for training/evaluation
-   - Truncated indicates if object leaves image boundaries, occluded indicates visibility level
-
-8. **Format Compatibility**: The parser in `kitti_stereo.py` expects the 26-value format. If you have older 24-value labels, you will need to reconvert them using the updated conversion script.
+7. **Format Compatibility**: The parser expects exactly 26 values per line. Use the conversion script below to generate labels from raw KITTI data.
 
 ## Conversion from KITTI Format
 
@@ -247,10 +234,9 @@ python ultralytics/data/scripts/convert_kitti_3d.py --kitti-root /path/to/kitti_
 
 The script will:
 - Process the KITTI training split
-- Use 3DOP strategy: indices 0-3711 → train, 3712+ → val
+- Use 3DOP strategy: indices 0-3711 -> train, 3712+ -> val
 - Output converted dataset to the same directory as `--kitti-root`
 - Include all classes by default, or only specified classes if `--filter-classes` is used
 - Available classes: Car, Van, Truck, Pedestrian, Person_sitting, Cyclist, Tram, Misc
 
 This will create the proper directory structure and convert all annotations to the YOLO 3D format (26 values per object, including truncated and occluded attributes). When using `--filter-classes`, class IDs will be remapped to be consecutive starting from 0.
-

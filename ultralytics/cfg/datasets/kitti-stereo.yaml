@@ -159,11 +159,12 @@ download: |
     LOGGER.info(f"Dataset saved to: {dir}")
     LOGGER.info("=" * 60)
 
-# Stereo calibration parameters (optional, defaults from KITTI)
+# Stereo calibration parameters
+# baseline is used as fallback when per-image calib files are missing
 baseline: 0.54  # distance between left and right cameras (meters)
-focal_length: 721.5  # focal length in pixels (KITTI P2 matrix)
 
-# Mean dimensions per class for 3D NMS (optional, will be computed from training data)
+# Mean dimensions per class [length, width, height] in meters
+# Internally converted to (H, W, L) order by val.py:_parse_dims() for training
 mean_dims:
   Car: [3.9, 1.6, 1.5]        # [length, width, height] in meters
   Van: [4.8, 2.0, 2.0]
@@ -174,9 +175,9 @@ mean_dims:
   Tram: [12.0, 2.5, 3.5]
   Misc: [3.0, 2.0, 2.0]
 
-# Standard deviation of dimensions per class for normalized offset prediction
-# Used for: (dim - mean) / std to make training more stable
-# Order: [length, width, height] in meters (same as mean_dims)
+# Standard deviation of dimensions per class [length, width, height] in meters
+# Used for normalized offset prediction: (dim - mean) / std
+# Same [L, W, H] order as mean_dims; also converted to (H, W, L) internally
 std_dims:
   Car: [0.42, 0.10, 0.15]     # [std_length, std_width, std_height]
   Van: [0.50, 0.15, 0.20]
@@ -187,8 +188,6 @@ std_dims:
   Tram: [1.00, 0.30, 0.50]
   Misc: [0.50, 0.20, 0.50]
 
-# Image size (KITTI raw is 375x1242)
-image_size: [375, 1242]
-
 # Number of input channels (6 = left RGB + right RGB)
+# Siamese backbone still uses 6ch input, processed via batch trick [2B, 3, H, W]
 channels: 6

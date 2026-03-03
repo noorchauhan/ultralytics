@@ -228,9 +228,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             "nc": nc,
             # carry over optional stereo metadata if present
             "stereo": data_cfg.get("stereo", True),
-            "image_size": data_cfg.get("image_size", [375, 1242]),
             "baseline": data_cfg.get("baseline"),
-            "focal_length": data_cfg.get("focal_length"),
             "mean_dims": mean_dims,
             "std_dims": std_dims,
         }

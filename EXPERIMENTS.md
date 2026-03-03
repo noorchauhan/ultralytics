@@ -30,16 +30,29 @@ This project implements stereo 3D object detection on KITTI by extending the Ult
 
 ## 2. Architecture
 
-### 2.1 Backbone: Group-Conv Stem
+### 2.1 Backbone: Siamese/Weight-Shared (v36+, current best)
 
-The backbone uses a **groups=2 group-convolution stem** for the first two layers (stride 2 and stride 4). This processes left and right image features independently in early layers, allowing the network to learn view-specific low-level features before merging at layer 2 (C3k2).
+The current recommended backbone uses a standard 3-channel YOLO26 backbone that processes left and right images separately via a **batch dimension trick**, with 100% shared weights.
 
 ```
-Layer 0: Conv(6→64, k=3, s=2, groups=2)   # P1/2 — left/right independent
-Layer 1: Conv(64→128, k=3, s=2, groups=2) # P2/4 — left/right independent
-Layer 2: C3k2(128→256)                     # Features merge here
-Layer 3+: Standard YOLO11 backbone         # P3/8, P4/16, P5/32
+Forward pass:
+1. Split 6ch input → left [B,3,H,W], right [B,3,H,W]
+2. Stack as batch: stereo = cat([left, right], dim=0) → [2B, 3, H, W]
+3. Run backbone layers 0..tap_layer on [2B, 3, H, W] (shared weights)
+4. Split at tap: left_feat = out[:B], right_feat = out[B:]
+5. Pass (left_feat, right_feat) tuple to StereoCostVolume
+6. Continue layers tap_layer+1..end with LEFT-ONLY features [B, C, H, W]
+7. Head sees clean left-only P3/P4/P5 + cost_vol — identical interface
 ```
+
+**Benefits**:
+- **100% pretrained weight compatible** — standard 3ch YOLO26 backbone, no groups=2 stem modification needed
+- **Clean left-only features** — 2D detection sees only left image, matching mono YOLO evaluation
+- **Same cost volume quality** — L/R features computed by identical (shared) weights at stride 4
+
+**Implementation**: `_predict_once` override in `Stereo3DDetModel` (model.py). Model built with `ch=3` when `siamese: true` in YAML.
+
+**Model config**: `yolo26-stereo3ddet-siamese.yaml`
 
 ### 2.2 Stereo Cost Volume (v17+)
 
@@ -47,12 +60,13 @@ The `StereoCostVolume` module computes sparse dot-product correlation between le
 
 ```python
 class StereoCostVolume(nn.Module):
-    # Takes groups=2 features from backbone layer 1 (stride 4)
-    # Splits into left (c//2) and right (c//2) channels
+    # Takes left/right features from backbone tap point (stride 4)
     # Computes normalized dot-product at each disparity offset
     # Refines: num_bins → c2 channels, downsamples stride 4 → stride 8
     # Output: [B, 64, H/8, W/8]
 ```
+
+`StereoCostVolume.forward` accepts both `(left, right)` tuple (siamese) and single tensor (groups=2) for backward compatibility.
 
 **Key design decision (v20+)**: The cost volume is routed **only to depth branches** (lr_distance, depth) in the head, NOT merged into P3. This avoids the 2D-3D task conflict where stereo correlation features dilute 2D detection quality.
 
@@ -79,7 +93,7 @@ The cost volume (when present) is concatenated **only with P3 features for depth
 
 - **2D Detection**: Standard YOLO box + cls losses via Task-Aligned Assigner (TAL)
 - **Auxiliary 3D**: DFLoss for depth bins; smooth L1 for lr_distance, dimensions, orientation — all on TAL-assigned positive locations
-- **Loss weights** (from YAML): `lr_distance=2.0, depth=1.0, dims=1.0, orient=1.0`
+- **Loss weights** (from YAML): `lr_distance=2.0, depth=3.0, dims=1.0, orient=1.0`
 
 ### 2.5 Depth Decoding (Inference)
 
@@ -99,27 +113,18 @@ z_final          = sqrt(z_disp * z_direct)   # geometric mean
 4. **(Optional) Geometric construction**: Gauss-Newton refinement with 7 constraint equations
 5. **(Optional) Dense alignment**: Photometric patch matching for sub-pixel depth refinement
 
-### 2.7 Siamese/Weight-Shared Backbone (v36+)
+### 2.7 Alternative: Group-Conv Stem (v35 and earlier)
 
-Alternative to the groups=2 stem: a standard 3-channel backbone processes left and right images separately via a **batch dimension trick**, with 100% shared weights.
+An older backbone variant using a **groups=2 group-convolution stem** for the first two layers. This processes left and right image features independently before merging.
 
 ```
-Forward pass:
-1. Split 6ch input → left [B,3,H,W], right [B,3,H,W]
-2. Stack as batch: stereo = cat([left, right], dim=0) → [2B, 3, H, W]
-3. Run backbone layers 0..tap_layer on [2B, 3, H, W] (shared weights)
-4. Split at tap: left_feat = out[:B], right_feat = out[B:]
-5. Pass (left_feat, right_feat) tuple to StereoCostVolume
-6. Continue layers tap_layer+1..end with LEFT-ONLY features [B, C, H, W]
-7. Head sees clean left-only P3/P4/P5 + cost_vol — identical interface
+Layer 0: Conv(6→64, k=3, s=2, groups=2)   # P1/2 — left/right independent
+Layer 1: Conv(64→128, k=3, s=2, groups=2) # P2/4 — left/right independent
+Layer 2: C3k2(128→256)                     # Features merge here
+Layer 3+: Standard YOLO backbone           # P3/8, P4/16, P5/32
 ```
 
-**Benefits**:
-- **100% pretrained weight compatible** — standard 3ch YOLO26 backbone, no groups=2 stem modification needed
-- **Clean left-only features** — 2D detection sees only left image, matching mono YOLO evaluation
-- **Same cost volume quality** — L/R features computed by identical (shared) weights at stride 4
-
-**Implementation**: `_predict_once` override in `Stereo3DDetModel` (model.py). `StereoCostVolume.forward` accepts both `(left, right)` tuple (siamese) and single tensor (groups=2) for backward compatibility. Model built with `ch=3` when `siamese: true` in YAML.
+**Note**: The siamese backbone (Section 2.1) supersedes this approach with better pretrained weight compatibility and comparable or better accuracy.
 
 ---
 
