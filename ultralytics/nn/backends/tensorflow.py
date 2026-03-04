@@ -142,7 +142,7 @@ class TFLiteBackend(BaseBackend):
             Interpreter, load_delegate = tf.lite.Interpreter, tf.lite.experimental.load_delegate
 
         if self.edgetpu:
-            device = device[3:] if str(self.device).startswith("tpu") else ":0"
+            device = self.device[3:] if str(self.device).startswith("tpu") else ":0"
             LOGGER.info(f"Loading {weight} on device {device[1:]} for TensorFlow Lite Edge TPU inference...")
             delegate = {"Linux": "libedgetpu.so.1", "Darwin": "libedgetpu.1.dylib", "Windows": "edgetpu.dll"}[
                 platform.system()
