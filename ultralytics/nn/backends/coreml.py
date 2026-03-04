@@ -54,16 +54,11 @@ class CoreMLBackend(BaseBackend):
         Returns:
             Model output tensor(s).
         """
-        im_np = im.cpu().numpy()
+        im = im.cpu().numpy()
         h, w = kwargs.get("h", im.shape[2]), kwargs.get("w", im.shape[3])
 
-        if self.dynamic:
-            im_np = im_np.transpose(0, 3, 1, 2)
-            y = self.model.predict({"image": im_np})
-        else:
-            im_pil = Image.fromarray((im_np[0] * 255).astype("uint8"))
-            y = self.model.predict({"image": im_pil})
-
+        im = im.transpose(0, 3, 1, 2) if dynamic else Image.fromarray((im_np[0] * 255).astype("uint8"))
+        y = self.model.predict({"image": im})
         if "confidence" in y:  # NMS included
             from ultralytics.utils.ops import xywh2xyxy
 
