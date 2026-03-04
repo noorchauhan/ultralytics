@@ -20,7 +20,7 @@ class PyTorchBackend(BaseBackend):
 
     def __init__(
         self,
-        weights: str | Path | nn.Module,
+        weight: str | Path | nn.Module,
         device: torch.device,
         fp16: bool = False,
         fuse: bool = True,
@@ -30,36 +30,29 @@ class PyTorchBackend(BaseBackend):
         """Initialize PyTorch backend.
 
         Args:
-            weights: Path to the .pt model file or nn.Module instance.
+            weight: Path to the .pt model file or nn.Module instance.
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
             fuse: Whether to fuse Conv2D + BatchNorm layers.
             verbose: Whether to print verbose messages.
             **kwargs: Additional arguments.
         """
-        self.nn_module = isinstance(weights, nn.Module)
-        if self.nn_module:
-            super().__init__("", device, fp16, **kwargs)
-            self._model_instance = weights
-        else:
-            super().__init__(weights, device, fp16, **kwargs)
-            self._model_instance = None
         self.fuse = fuse
         self.verbose = verbose
+        super().__init__(weight, device, fp16, **kwargs)
 
-    def load_model(self) -> None:
+    def load_model(self, weight: str | torch.nn.Module) -> None:
         """Load the PyTorch model."""
         from ultralytics.nn.tasks import load_checkpoint
 
-        if self.nn_module:
-            model = self._model_instance
-            if self.fuse and hasattr(model, "fuse"):
+        if isinstance(weight, torch.nn.Module):
+            if self.fuse and hasattr(weight, "fuse"):
                 if IS_JETSON and is_jetson(jetpack=5):
-                    model = model.to(self.device)
-                model = model.fuse(verbose=self.verbose)
+                    weight = weight.to(self.device)
+                model = weight.fuse(verbose=self.verbose)
             model = model.to(self.device)
         else:
-            model, _ = load_checkpoint(self.weights, device=self.device, fuse=self.fuse)
+            model, _ = load_checkpoint(weight, device=self.device, fuse=self.fuse)
 
         # Extract model attributes
         if hasattr(model, "kpt_shape"):
@@ -105,25 +98,25 @@ class TorchScriptBackend(BaseBackend):
     Supports loading and inference with TorchScript models (.torchscript files).
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
+    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
         """Initialize TorchScript backend.
 
         Args:
-            weights: Path to the .torchscript model file.
+            weight: Path to the .torchscript model file.
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
             **kwargs: Additional arguments.
         """
-        super().__init__(weights, device, fp16, **kwargs)
+        super().__init__(weight, device, fp16, **kwargs)
 
-    def load_model(self) -> None:
+    def load_model(self, weight: str) -> None:
         """Load the TorchScript model."""
         import torchvision  # noqa
         import json
 
-        LOGGER.info(f"Loading {self.weights} for TorchScript inference...")
+        LOGGER.info(f"Loading {self.weight} for TorchScript inference...")
         extra_files = {"config.txt": ""}
-        self.model = torch.jit.load(self.weights, _extra_files=extra_files, map_location=self.device)
+        self.model = torch.jit.load(weight, _extra_files=extra_files, map_location=self.device)
 
         if self.fp16:
             self.model.half()

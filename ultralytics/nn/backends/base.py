@@ -33,17 +33,16 @@ class BaseBackend(ABC):
         metadata (dict | None): Model metadata dictionary or None if not available.
     """
 
-    def __init__(self, weights: str | Path, device: torch.device | str, fp16: bool = False, **kwargs: Any):
+    def __init__(self, weight: str | torch.nn.Module, device: torch.device | str, fp16: bool = False, **kwargs: Any):
         """Initialize the base backend.
 
         Args:
-            weights: Path to the model weights file.
+            weight: Path to the model weight or a torch.nn.Module instance.
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
             **kwargs: Additional backend-specific arguments.
         """
-        self.weights = Path(weights) if isinstance(weights, str) else weights
-        self.device = torch.device(device) if isinstance(device, str) else device
+        self.device = device
         self.fp16 = fp16
         self.nhwc = False
         self.stride = 32
@@ -55,10 +54,11 @@ class BaseBackend(ABC):
         self.dynamic = False
         self.metadata = {}
         self.model = None
+        self.load_model(weight)
 
     @abstractmethod
     def load_model(self) -> None:
-        """Load the model from weights."""
+        """Load the model from weight."""
         raise NotImplementedError
 
     @abstractmethod

@@ -217,7 +217,6 @@ class AutoBackend(nn.Module):
         elif format == "tfjs":
             raise NotImplementedError("Ultralytics TF.js inference is not currently supported.")
         self.backend = self._BACKEND_MAP[format](model, **backend_kwargs)
-        self.backend.load_model()
 
         self.nhwc = format in {"coreml", "saved_model", "pb", "tflite", "edgetpu", "rknn"}
         self.format = format
