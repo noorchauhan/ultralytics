@@ -57,7 +57,7 @@ class CoreMLBackend(BaseBackend):
         im = im.cpu().numpy()
         h, w = kwargs.get("h", im.shape[2]), kwargs.get("w", im.shape[3])
 
-        im = im.transpose(0, 3, 1, 2) if dynamic else Image.fromarray((im_np[0] * 255).astype("uint8"))
+        im = im.transpose(0, 3, 1, 2) if self.dynamic else Image.fromarray((im[0] * 255).astype("uint8"))
         y = self.model.predict({"image": im})
         if "confidence" in y:  # NMS included
             from ultralytics.utils.ops import xywh2xyxy
