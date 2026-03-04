@@ -42,9 +42,7 @@ class CoreMLBackend(BaseBackend):
         self.dynamic = self.model.get_spec().description.input[0].type.HasField("multiArrayType")
 
         # Load metadata
-        metadata = dict(self.model.user_defined_metadata)
-        if metadata:
-            self.metadata = metadata
+        self.apply_metadata(dict(self.model.user_defined_metadata))
 
     def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
         """Run CoreML inference.

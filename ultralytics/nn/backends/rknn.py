@@ -57,7 +57,7 @@ class RKNNBackend(BaseBackend):
         if metadata_file.exists():
             from ultralytics.utils import YAML
 
-            self.metadata = YAML.load(metadata_file)
+            self.apply_metadata(YAML.load(metadata_file))
 
     def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
         """Run RKNN inference.

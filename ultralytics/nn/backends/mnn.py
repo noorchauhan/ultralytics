@@ -47,7 +47,7 @@ class MNNBackend(BaseBackend):
         info = self.net.get_info()
         if "bizCode" in info:
             try:
-                self.metadata = json.loads(info["bizCode"])
+                self.apply_metadata(json.loads(info["bizCode"]))
             except json.JSONDecodeError:
                 pass
 

@@ -78,7 +78,7 @@ class ONNXBackend(BaseBackend):
             # Get metadata
             metadata_map = self.session.get_modelmeta().custom_metadata_map
             if metadata_map:
-                self.metadata = dict(metadata_map)
+                self.apply_metadata(dict(metadata_map))
 
             # Check if dynamic shapes
             self.dynamic = isinstance(self.session.get_outputs()[0].shape[0], str)

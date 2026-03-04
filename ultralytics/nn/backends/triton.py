@@ -38,7 +38,7 @@ class TritonBackend(BaseBackend):
 
         # Copy metadata from Triton model
         if hasattr(self.model, "metadata"):
-            self.metadata = self.model.metadata
+            self.apply_metadata(self.model.metadata)
 
     def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
         """Run Triton inference.

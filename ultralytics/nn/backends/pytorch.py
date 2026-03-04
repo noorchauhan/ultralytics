@@ -115,7 +115,6 @@ class TorchScriptBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.metadata = None
 
     def load_model(self) -> None:
         """Load the TorchScript model."""
@@ -132,7 +131,7 @@ class TorchScriptBackend(BaseBackend):
             self.model.float()
 
         if extra_files["config.txt"]:
-            self.metadata = json.loads(extra_files["config.txt"], object_hook=lambda x: dict(x.items()))
+            self.apply_metadata(json.loads(extra_files["config.txt"], object_hook=lambda x: dict(x.items())))
 
     def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
         """Run TorchScript inference.

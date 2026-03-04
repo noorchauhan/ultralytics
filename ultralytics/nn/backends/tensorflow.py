@@ -51,7 +51,7 @@ class TensorFlowBackend(BaseBackend):
             if metadata_file.exists():
                 from ultralytics.utils import YAML
 
-                self.metadata = YAML.load(metadata_file)
+                self.apply_metadata(YAML.load(metadata_file))
         else:
             LOGGER.info(f"Loading {self.weights} for TensorFlow GraphDef inference...")
             from ultralytics.utils.export.tensorflow import gd_outputs
@@ -74,7 +74,7 @@ class TensorFlowBackend(BaseBackend):
                 )
                 from ultralytics.utils import YAML
 
-                self.metadata = YAML.load(metadata_file)
+                self.apply_metadata(YAML.load(metadata_file))
             except StopIteration:
                 pass
 
@@ -180,9 +180,9 @@ class TFLiteBackend(BaseBackend):
                 name = zf.namelist()[0]
                 contents = zf.read(name).decode("utf-8")
                 if name == "metadata.json":
-                    self.metadata = json.loads(contents)
+                    self.apply_metadata(json.loads(contents))
                 else:
-                    self.metadata = ast.literal_eval(contents)
+                    self.apply_metadata(ast.literal_eval(contents))
         except (zipfile.BadZipFile, SyntaxError, ValueError, json.JSONDecodeError):
             pass
 
