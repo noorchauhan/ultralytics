@@ -61,6 +61,7 @@ class AxeleraBackend(BaseBackend):
         metadata_file = found.parent / "metadata.yaml"
         if metadata_file.exists():
             from ultralytics.utils import YAML
+
             self.apply_metadata(YAML.load(metadata_file))
 
     def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
@@ -74,7 +75,7 @@ class AxeleraBackend(BaseBackend):
             Model output tensor(s).
         """
         y = self.ax_model(im.cpu())
-        
+
         if isinstance(y, (list, tuple)):
             return [self.from_numpy(x) for x in y] if not isinstance(y[0], torch.Tensor) else y
         return self.from_numpy(y) if not isinstance(y, torch.Tensor) else y

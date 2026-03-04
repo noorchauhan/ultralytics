@@ -1,5 +1,4 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-
 """Ultralytics YOLO inference backends.
 
 This package provides modular inference backends for various frameworks.

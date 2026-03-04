@@ -14,8 +14,8 @@ import torch
 class BaseBackend(ABC):
     """Base class for all inference backends.
 
-    This abstract class defines the interface that all inference backends must implement.
-    It provides common functionality for model loading, inference, and device management.
+    This abstract class defines the interface that all inference backends must implement. It provides common
+    functionality for model loading, inference, and device management.
 
     Attributes:
         model: The underlying inference model.
