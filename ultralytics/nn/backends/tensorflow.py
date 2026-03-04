@@ -7,8 +7,6 @@ import json
 import platform
 import zipfile
 from pathlib import Path
-from typing import Any
-
 import numpy as np
 import torch
 
