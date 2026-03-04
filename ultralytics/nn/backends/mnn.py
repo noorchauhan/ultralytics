@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+
 import torch
 
 from ultralytics.nn.backends.base import BaseBackend

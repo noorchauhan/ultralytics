@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+
 import torch
 
-from .base import BaseBackend
 from ultralytics.utils import LOGGER
 from ultralytics.utils.checks import check_requirements
+
+from .base import BaseBackend
 
 
 class AxeleraBackend(BaseBackend):

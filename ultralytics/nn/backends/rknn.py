@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import torch
 
 from ultralytics.nn.backends.base import BaseBackend
