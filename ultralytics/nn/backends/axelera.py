@@ -29,7 +29,7 @@ class AxeleraBackend(BaseBackend):
             **kwargs: Additional arguments.
         """
         super().__init__(weights, device, fp16, **kwargs)
-        self.ax_model = None
+        self.model = None
 
     def load_model(self) -> None:
         """Load the Axelera model."""
@@ -55,7 +55,7 @@ class AxeleraBackend(BaseBackend):
         if found is None:
             raise FileNotFoundError(f"No .axm file found in: {w}")
 
-        self.ax_model = op.load(str(found))
+        self.model = op.load(str(found))
 
         # Load metadata
         metadata_file = found.parent / "metadata.yaml"
@@ -74,7 +74,7 @@ class AxeleraBackend(BaseBackend):
         Returns:
             Model output tensor(s).
         """
-        y = self.ax_model(im.cpu())
+        y = self.model(im.cpu())
 
         if isinstance(y, (list, tuple)):
             return [self.from_numpy(x) for x in y] if not isinstance(y[0], torch.Tensor) else y
