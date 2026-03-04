@@ -428,8 +428,7 @@ def rtdetr_deim_transforms(
     if not hasattr(hyp, "fliplr"):
         raise AttributeError("rtdetr_deim_transforms requires 'fliplr' in hyp.")
     fliplr = float(hyp.fliplr)
-    # Hardcoded DEIMv2-style defaults for now (not exposed in default.yaml/hyp).
-    mosaic_use_cache = True
+    mosaic_use_cache = bool(hyp.mosaic_use_cache)
     mosaic_max_cached_images = 50
     mosaic_random_pop = True
     return _RTDETRDEIMPolicy(
