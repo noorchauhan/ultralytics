@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 from typing import Any
 
@@ -230,73 +229,29 @@ class AutoBackend(nn.Module):
         self.nhwc = format in {"coreml", "saved_model", "pb", "tflite", "edgetpu", "rknn"}
         self.format = format
 
-        # Apply metadata from backend
-        self._apply_metadata(data)
-
-        # Expose backend attributes for backward compatibility
-        self._expose_backend_attrs()
-
-    def _apply_metadata(self, data: str | Path | None = None):
-        """Apply metadata from backend to AutoBackend.
-
-        Args:
-            data: Path to data.yaml file with class names.
-        """
-        # TODO
-        # Load external metadata if needed
-        metadata = getattr(self.backend, "metadata", None)
-        if isinstance(metadata, (str, Path)) and Path(metadata).exists():
-            from ultralytics.utils import YAML
-
-            metadata = YAML.load(metadata)
-
-        if metadata and isinstance(metadata, dict):
-            for k, v in metadata.items():
-                if k in {"stride", "batch", "channels"}:
-                    metadata[k] = int(v)
-                elif k in {"imgsz", "names", "kpt_shape", "kpt_names", "args", "end2end"} and isinstance(v, str):
-                    metadata[k] = ast.literal_eval(v)
-
-            # Apply to backend
-            for k, v in metadata.items():
-                if hasattr(self.backend, k):
-                    setattr(self.backend, k, v)
-                setattr(self, k, v)  # TODO
-
-        # Check names
-        if not hasattr(self.backend, "names") or not self.backend.names:
+        # Ensure backend has names (fallback to default if not set by metadata)
+        if not self.backend.names:
             self.backend.names = default_class_names(data)
         self.backend.names = check_class_names(self.backend.names)
 
-    # TODO
-    def _expose_backend_attrs(self):
-        """Expose backend attributes on AutoBackend for backward compatibility."""
-        # Copy all relevant attributes from backend to self
-        attrs_to_copy = [
-            "device",
-            "fp16",
-            "stride",
-            "names",
-            "task",
-            "batch",
-            "imgsz",
-            "ch",
-            "end2end",
-            "dynamic",
-            "nhwc",
-        ]
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute access to the backend.
 
-        for attr in attrs_to_copy:
-            if hasattr(self.backend, attr):
-                setattr(self, attr, getattr(self.backend, attr))
-            else:
-                setattr(self, attr, False)
+        This allows AutoBackend to transparently expose backend attributes
+        without explicit copying.
 
-        # Handle model attribute specially - for PyTorch models it should be the actual model
-        if hasattr(self.backend, "model"):
-            self.model = self.backend.model
-        else:
-            self.model = self.backend
+        Args:
+            name: Attribute name to look up.
+
+        Returns:
+            The attribute value from the backend.
+
+        Raises:
+            AttributeError: If the attribute is not found in backend.
+        """
+        if "backend" in self.__dict__ and hasattr(self.backend, name):
+            return getattr(self.backend, name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def forward(
         self,
