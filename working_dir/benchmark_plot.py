@@ -281,7 +281,7 @@ BENCHMARKS = {
                 ("l", 10.1, {"ap": 55.5, "ap50": 72.8, "ap75": 60.5, "ap_small": 37.0, "ap_medium": 60.3, "ap_large": 74.5}),
             ],
             "DEIMv2 (Ultralytics, obj365)": [
-                ("l", 10.1, {"ap": 56.8, "ap50": 74.6, "ap75": 62.0, "ap_small": 38.8, "ap_medium": 62.2, "ap_large": 74.9}),
+                ("l", 10.1, {"ap": 57.2, "ap50": 74.9, "ap75": 62.2, "ap_small": 39.6, "ap_medium": 62.5, "ap_large": 74.9}),
             ],
             "DINOv3-RTDETR": [
                 ("s", 4.5, {"ap": 50.3, "ap50": 69.0, "ap75": 54.4, "ap_small": 27.8, "ap_medium": 55.8, "ap_large": 72.5}),
