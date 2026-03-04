@@ -114,7 +114,7 @@ class TorchScriptBackend(BaseBackend):
         import torchvision  # noqa
         import json
 
-        LOGGER.info(f"Loading {self.weight} for TorchScript inference...")
+        LOGGER.info(f"Loading {weight} for TorchScript inference...")
         extra_files = {"config.txt": ""}
         self.model = torch.jit.load(weight, _extra_files=extra_files, map_location=self.device)
 
