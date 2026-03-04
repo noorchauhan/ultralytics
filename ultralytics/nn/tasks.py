@@ -55,6 +55,8 @@ from ultralytics.nn.modules import (
     ImagePoolingAttn,
     Index,
     LRPCHead,
+    AnomalyDetection,
+    AnomalyDetectionLRPCHead,
     Pose,
     Pose26,
     RepC3,
@@ -1319,6 +1321,231 @@ class Ensemble(torch.nn.ModuleList):
         # y = torch.stack(y).mean(0)  # mean ensemble
         y = torch.cat(y, 2)  # nms ensemble, y shape(B, HW, C*num_models)
         return y, None  # inference, train output
+
+
+
+class YOLOAnomalyDetectionModel(DetectionModel):
+    """
+    Plain-YOLO (non-YOLOE) training-free anomaly detection model.
+
+    Works with any DetectionModel checkpoint (e.g. yolo26l.pt). On setup_anomaly_detection(),
+    the Detect head is replaced in-place with an AnomalyDetection head whose adhead
+    (AnomalyDetectionLRPCHead) runs memory-bank-based anomaly scoring.
+
+    Methods:
+        setup_anomaly_detection: Replace Detect head with AnomalyDetection + build adhead.
+        set_memory_update: Toggle memory bank accumulation.
+        freeze_memory_bank: Stop updates after support set is loaded.
+        reset_memory_bank: Clear memory bank.
+        get_memory_bank_stats: Return per-head stats.
+        loss: Not supported.
+    """
+
+    def setup_anomaly_detection(self, names, conf=0.1):
+        """
+        Replace the Detect head with AnomalyDetection and build the anomaly detection sub-heads.
+
+        Args:
+            names (list[str]): Anomaly class names.
+            conf (float): Anomaly score threshold in [0, 1].
+        """
+        import copy
+        head = self.model[-1]
+        assert isinstance(head, Detect), f"Expected Detect head, got {type(head).__name__}"
+
+        # Build a new AnomalyDetection head that shares weights with the original Detect head
+        ad_head = AnomalyDetection.__new__(AnomalyDetection)
+        ad_head.__dict__.update(head.__dict__)  # copy all existing weights/attrs
+        ad_head.__class__ = AnomalyDetection
+        ad_head.adhead = None
+
+        # Copy the original head (before any deletion) so build_adhead can read its last layers
+        original_head = copy.deepcopy(head)
+
+        # Replace head in model
+        self.model[-1] = ad_head
+
+        # build_adhead expects the *original* head (with final conv layers still intact)
+        ad_head.build_adhead(original_head, conf=conf)
+
+        # Save originals for mode switching (set_anomaly_mode)
+        self._original_nc = head.nc
+        self._original_names = dict(self.names) if hasattr(self, "names") and self.names else {}
+
+        self.model[-1].nc = len(names)
+        self.names = {i: n for i, n in enumerate(names)}
+
+    def _get_ad_heads(self):
+        """Return all AnomalyDetectionLRPCHead instances."""
+        head = self.model[-1]
+        if not isinstance(head, AnomalyDetection) or head.adhead is None:
+            raise RuntimeError("Call setup_anomaly_detection() first.")
+        return [h for h in head.adhead if isinstance(h, AnomalyDetectionLRPCHead)]
+
+    def set_memory_update(self, update: bool):
+        """Toggle memory bank accumulation for all heads."""
+        for h in self._get_ad_heads():
+            h.set_update(update)
+
+    def freeze_memory_bank(self):
+        """Freeze memory bank after support set is loaded."""
+        self.set_memory_update(False)
+
+    def reset_memory_bank(self):
+        """Clear memory bank for reuse with a new support set."""
+        for h in self._get_ad_heads():
+            h.reset_memory_bank()
+
+    def get_memory_bank_stats(self):
+        """Return memory bank statistics for all detection heads."""
+        return [h.get_memory_bank_stats() for h in self._get_ad_heads()]
+
+    def set_anomaly_mode(self, anomaly_mode: bool) -> None:
+        """Switch between memory-bank anomaly scoring and original classification.
+
+        Anomaly score always gates the proposals. What changes is the class-score output:
+          True  → nc=1, confidence = anomaly score (cosine distance to normal memory bank).
+          False → nc=original_nc, confidence from vocab_linear (original class predictions).
+
+        Args:
+            anomaly_mode (bool): True = anomaly scoring, False = original class detection.
+        """
+        head = self.model[-1]
+        if not isinstance(head, AnomalyDetection):
+            raise RuntimeError("Call setup_anomaly_detection() first.")
+        # Compute target names BEFORE set_anomaly_mode changes head.nc
+        if anomaly_mode:
+            new_names = {0: list(self.names.values())[0] if self.names else "anomaly"}
+        else:
+            new_names = getattr(self, "_original_names", {i: str(i) for i in range(getattr(head, "original_nc", head.nc))})
+        head.set_anomaly_mode(anomaly_mode)
+        self.names = new_names
+
+    def loss(self, batch, preds=None):
+        """Not supported — YOLOAnomalyDetectionModel is training-free."""
+        raise NotImplementedError("YOLOAnomalyDetectionModel does not support training.")
+
+
+class YOLOAnomalyModel(YOLOEModel):
+    """
+    YOLOE-based training-free anomaly detection model with memory bank.
+
+    This model extends YOLOEModel with anomaly detection capabilities. Instead of training,
+    normal (non-anomalous) images are fed through the model to populate a memory bank of
+    normal feature representations. During inference, anomaly scores are computed via
+    cosine similarity between test features and the memory bank.
+
+    Methods:
+        setup_anomaly_detection: Initialize anomaly detection heads with class names.
+        set_memory_update: Enable/disable memory bank updates across all heads.
+        freeze_memory_bank: Stop memory bank updates after building from support set.
+        reset_memory_bank: Clear all stored normal features from memory banks.
+        get_memory_bank_stats: Return memory bank statistics per detection head.
+        loss: Not supported - raises NotImplementedError (training-free model).
+
+    Examples:
+        Initialize and setup anomaly detection
+        >>> model = YOLOAnomalyModel("yoloe-v8s.yaml", ch=3, nc=1)
+        >>> model.setup_anomaly_detection(["defect"], conf=0.1)
+    """
+
+    def setup_anomaly_detection(self, names, conf=0.1):
+        """
+        Initialize anomaly detection heads by replacing LRPC heads with memory bank heads.
+
+        Fuses text embeddings via get_vocab(), then replaces each scale's LRPC head with
+        an AnomalyDetectionLRPCHead that uses a memory bank for anomaly scoring.
+
+        Args:
+            names (list[str]): Class names, e.g. ["defect", "scratch"].
+            conf (float): Anomaly score threshold in [0, 1]. Regions with score above
+                this value are reported as detections.
+        """
+        vocab = self.get_vocab(names)
+        self.set_ad_head(vocab, names)
+        self.model[-1].conf = conf
+        # Save originals so set_anomaly_mode(False) can restore them
+        self._original_nc = getattr(self.model[-1], "nc", len(self.names))
+        self._original_names = dict(self.names) if hasattr(self, "names") and self.names else {}
+
+    def _get_ad_heads(self):
+        """
+        Return all AnomalyDetectionLRPCHead instances from the detection head.
+
+        Returns:
+            list[AnomalyDetectionLRPCHead]: One head per feature scale.
+
+        Raises:
+            RuntimeError: If setup_anomaly_detection() has not been called yet.
+        """
+        head = self.model[-1]
+        if not hasattr(head, "lrpc"):
+            raise RuntimeError(
+                "Anomaly detection heads not set up. Call setup_anomaly_detection() first."
+            )
+        return [h for h in head.lrpc if isinstance(h, AnomalyDetectionLRPCHead)]
+
+    def set_memory_update(self, update: bool):
+        """
+        Enable or disable memory bank updates for all anomaly detection heads.
+
+        Args:
+            update (bool): True to accumulate features into memory bank during
+                forward pass; False to freeze and use the stored bank for scoring.
+        """
+        for h in self._get_ad_heads():
+            h.set_update(update)
+
+    def freeze_memory_bank(self):
+        """Freeze the memory bank. Call this after loading the support set."""
+        self.set_memory_update(False)
+
+    def reset_memory_bank(self):
+        """Clear all stored normal features. Allows rebuilding with a new support set."""
+        for h in self._get_ad_heads():
+            h.reset_memory_bank()
+
+    def get_memory_bank_stats(self):
+        """
+        Return memory bank statistics for all detection heads.
+
+        Returns:
+            list[dict]: Each dict has keys 'size', 'feature_dim', 'num_batches'.
+        """
+        return [h.get_memory_bank_stats() for h in self._get_ad_heads()]
+
+    def set_anomaly_mode(self, anomaly_mode: bool) -> None:
+        """Switch between memory-bank anomaly scoring and original classification.
+
+        Anomaly score always gates the proposals. What changes is the class-score output:
+          True  → nc=1, confidence = anomaly score (cosine distance to normal memory bank).
+          False → nc=original_nc, confidence from vocab_linear (original class predictions).
+
+        Args:
+            anomaly_mode (bool): True = anomaly scoring, False = original class detection.
+        """
+        head = self.model[-1]
+        ad_heads = self._get_ad_heads()
+        if not ad_heads:
+            raise RuntimeError("Call setup_anomaly_detection() first.")
+        # Compute target names BEFORE changing nc
+        if anomaly_mode:
+            new_names = {0: list(self.names.values())[0] if self.names else "anomaly"}
+            new_nc = 1
+        else:
+            new_nc = getattr(self, "_original_nc", head.nc)
+            new_names = getattr(self, "_original_names", {i: str(i) for i in range(new_nc)})
+        for h in ad_heads:
+            h.anomaly_mode = anomaly_mode
+        head.nc = new_nc
+        self.names = new_names
+
+    def loss(self, batch, preds=None):
+        """Not supported. YOLOAnomalyModel is training-free."""
+        raise NotImplementedError(
+            "YOLOAnomalyModel does not support training. "
+            "Use YOLOAnomaly.load_support_set() to build the memory bank instead."
+        )
 
 
 # Functions ------------------------------------------------------------------------------------------------------------

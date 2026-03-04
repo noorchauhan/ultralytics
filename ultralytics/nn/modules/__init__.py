@@ -82,6 +82,8 @@ from .head import (
     Classify,
     Detect,
     LRPCHead,
+    AnomalyDetection,
+    AnomalyDetectionLRPCHead,
     Pose,
     Pose26,
     RTDETRDecoder,

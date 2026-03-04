@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import math
+from typing import List
 
 import torch
 import torch.nn as nn
@@ -959,6 +960,10 @@ class LRPCHead(nn.Module):
             )
 
 
+
+
+
+
 class YOLOEDetect(Detect):
     """Head for integrating YOLO detection models with semantic understanding from text embeddings.
 
@@ -1776,3 +1781,482 @@ class v10Detect(Detect):
     def fuse(self):
         """Remove the one2many head for inference optimization."""
         self.cv2 = self.cv3 = None
+
+
+class AnomalyDetectionLRPCHead(LRPCHead):
+    """Anomaly Detection LRPC Head with Memory Bank for normal features.
+    
+    This head extends LRPCHead with anomaly detection capabilities using a memory bank
+    of normal features. It calculates anomaly scores based on cosine similarity
+    between current features and the memory bank, which replaces the pf module.
+    
+    Attributes:
+        vocab (nn.Module): Vocabulary/classification layer.
+        loc (nn.Module): Localization module.
+        memory_bank (list): List of feature tensors storing normal features.
+        feature_dim (int): Feature dimension (auto-inferred).
+        update (bool): Whether to update memory bank during forward.
+        temperature (float): Temperature for scaling similarity scores.
+        enabled (bool): Whether the head is enabled.
+    
+    Methods:
+        add_to_memory_bank: Add features to the memory bank.
+        calculate_anomaly_score: Calculate anomaly score based on cosine similarity.
+        set_update: Control memory bank updates during forward.
+        set_temperature: Configure temperature scaling.
+        reset_memory_bank: Clear all stored features.
+        get_memory_bank_stats: Get memory bank statistics.
+    """
+    
+    def __init__(
+        self,
+        vocab: nn.Module,
+        pf: nn.Module,
+        loc: nn.Module,
+        enabled: bool = True,
+    ):
+        """Initialize AnomalyDetectionLRPCHead.
+        
+        Args:
+            vocab (nn.Module): Classification module.
+            pf (nn.Module): Proposal filter module (not used, kept for API compatibility).
+            loc (nn.Module): Localization module.
+            enabled (bool): Whether to enable the head (default: True).
+        
+        Note:
+            Memory bank grows dynamically. Feature dimension is auto-inferred.
+            The pf module is kept for API compatibility but not used - replaced by memory bank.
+            Use set_update() method to control memory bank updates during forward pass.
+        """
+        super().__init__(vocab, pf, loc, enabled)
+        self.loc=loc
+        self.enabled = enabled
+        self.vocab_conv=vocab
+        self.vocab_linear = self.conv2linear(vocab) 
+        self.update = True
+        self.feature_dim = None  # Will be set on first add_to_memory_bank
+        self.temperature = 4.0  # Default temperature for anomaly score scaling
+        
+        # Dynamic memory bank (list of tensors, concatenated when needed)
+        self.memory_bank = []
+        self.anomaly_mode = True  # True = memory-bank scoring, False = original classification
+    
+    def set_update(self, update: bool):
+        """Set whether to update memory bank during forward."""
+        self.update = update
+    def set_enabled(self, enabled: bool):
+        """Enable or disable the head functionality."""
+        self.enabled = enabled
+
+    def set_temperature(self, temperature: float):
+        """Set temperature for anomaly score scaling.
+        
+        Args:
+            temperature (float): Temperature value. Higher values amplify similarity differences,
+                making the model more discriminative (sharper distinction between similar/dissimilar).
+        """
+        self.temperature = temperature
+
+    def add_to_memory_bank(self, features: torch.Tensor, is_normal: bool = True) -> None:
+        """Add features to the memory bank (dynamically grows).
+        
+        Args:
+            features (torch.Tensor): Features to add, shape (N, feature_dim) or (B, C, H, W).
+            is_normal (bool): Whether these are normal features (for filtering).
+        """
+        if not is_normal:
+            return  # Only add normal features
+        
+        # Reshape if needed: (B, C, H, W) -> (B*H*W, C)
+        if features.dim() == 4:
+            B, C, H, W = features.shape
+            features = features.permute(0, 2, 3, 1).reshape(-1, C)
+        
+        # Infer feature_dim on first call
+        if self.feature_dim is None:
+            self.feature_dim = features.shape[-1]
+        
+        # Ensure features have correct dimension
+        features = features.view(-1, self.feature_dim)
+        
+        # Normalize features for cosine similarity
+        features_normalized = torch.nn.functional.normalize(features, p=2, dim=1)
+        
+        # Append to memory bank (dynamic growth)
+        self.memory_bank.append(features_normalized.detach())
+    
+    def _get_memory_tensor(self):
+        """Get concatenated memory bank tensor.
+        
+        Returns:
+            (torch.Tensor | None): Concatenated memory bank, shape (total_features, feature_dim),
+                or None if memory bank is empty.
+        """
+        if len(self.memory_bank) == 0:
+            return None
+        return torch.cat(self.memory_bank, dim=0)
+    
+    def calculate_anomaly_score(self, features: torch.Tensor) -> torch.Tensor:
+        """Calculate anomaly score based on cosine similarity with memory bank.
+        
+        Args:
+            features (torch.Tensor): Input features, shape (N, feature_dim) or (B, C, H, W).
+        
+        Returns:
+            (torch.Tensor): Anomaly scores, shape (N,). 
+                0 = normal, 1 = anomaly. Higher values indicate more anomalous.
+        """
+        # Get memory tensor
+        memory_tensor = self._get_memory_tensor()
+        
+        # If memory bank empty, return neutral scores
+        if memory_tensor is None or self.feature_dim is None:
+            if features.dim() == 4:
+                B, C, H, W = features.shape
+                num_positions = B * H * W
+            else:
+                num_positions = features.shape[0]
+            return torch.ones(num_positions, device=features.device) * 0.5
+        
+        # Reshape if needed
+        if features.dim() == 4:
+            B, C, H, W = features.shape
+            features = features.permute(0, 2, 3, 1).reshape(-1, C)
+        
+        features = features.view(-1, self.feature_dim)
+        
+        # Normalize features
+        features_normalized = torch.nn.functional.normalize(features, p=2, dim=1)
+        
+        # Cosine similarity: (N, feature_dim) @ (feature_dim, memory_size) -> (N, memory_size)
+        similarities = torch.matmul(features_normalized, memory_tensor.t())  # (N, memory_size)
+        def sim2as(sim, k=1, temperature=1.0):
+            """
+            Selected top k similarity scores to calculate anomaly score. as = 1 - mean(topk(similarity))
+            
+            Args:
+                sim (torch.Tensor): Similarity matrix, shape (N, memory_size).
+                k (int): Number of top similarities to use.
+                temperature (float): Temperature for scaling similarity values.
+            
+            Returns:
+                torch.Tensor: Anomaly scores, shape (N,).
+            """
+            if k == 1:
+                sim_k, _ = torch.max(sim, dim=1)  # (N,)
+            else:
+                k = min(k, sim.shape[1])  # Handle case where memory_size < k
+                sim_k, _ = torch.topk(sim, k=k, dim=1)  # (N, k)
+                sim_k = sim_k.mean(dim=1)  # (N,)
+            # Clamp negative similarities to 0
+            sim_k = torch.where(sim_k < 0, torch.zeros_like(sim_k), sim_k)
+            # Apply temperature scaling to adjust similarity values
+
+
+            sim_k = sim_k ** temperature
+            anomaly_score = 1 - sim_k  # Higher similarity -> lower anomaly score
+
+            return anomaly_score
+        def sim2anomalyscore(
+            sim_k: torch.Tensor,           # [B, K] top-K cosine similarities
+            weight_scheme: str = "rank",   # uniform | rank | sim | square
+            temperature: float = 1.0,
+            eps: float = 1e-8,
+        ) -> torch.Tensor:                 # [B]
+            """
+            Noisy-OR anomaly scoring.
+
+            Probabilistic interpretation:
+                Each neighbor k independently "explains away" anomaly with prob sim_k.
+                Anomaly persists only if ALL neighbors FAIL to explain it.
+
+                P(anomaly) = Π (1 - sim_k)^{w_k}
+
+            This is equivalent to Fisher's method of combining p-values:
+                log P(anomaly) = Σ w_k · log(1 - sim_k)
+            """
+            B, K = sim_k.shape
+
+            # ── Step 1: compute weights ──────────────────────────────────────
+            if weight_scheme == "uniform":
+                # flat: all neighbors equally trusted
+                w = sim_k.new_ones(1, K) / K
+
+            elif weight_scheme == "rank":
+                # harmonic rank decay: nearest neighbor gets highest weight
+                # w_k = (1/k) / Σ(1/j),  k=1 is nearest
+                ranks = torch.arange(1, K + 1, device=sim_k.device, dtype=torch.float)
+                w = (1.0 / ranks) / (1.0 / ranks).sum()
+                w = w.unsqueeze(0)  # [1, K]
+
+            elif weight_scheme == "sim":
+                # sim-proportional: more similar → more trusted testimony
+                w = F.normalize(sim_k, p=1, dim=1)  # [B, K]
+
+            elif weight_scheme == "square":
+                # sim²-proportional: amplify trust in very close neighbors
+                w = F.normalize(sim_k ** 2, p=1, dim=1)
+
+            # ── Step 2: Noisy-OR in log space (numerically stable) ───────────
+            log_retain = w * torch.log((1 - sim_k).clamp(min=eps))  # [B, K]
+            log_score  = log_retain.sum(dim=1)                       # [B]
+            anomaly    = torch.exp(log_score)                        # [B] ∈ (0,1]
+
+            # ── Step 3: temperature shaping ─────────────────────────────────
+            # T < 1 → compress, more sensitive to weak anomalies
+            # T > 1 → amplify, only obvious anomalies score high
+            return anomaly.pow(temperature)
+            
+        # Calculate anomaly scores and clamp to [0, 1]
+        # anomaly_scores = sim2as(similarities, k=3, temperature=self.temperature).clamp(0, 1)  # (N,)
+        _k = min(3, similarities.shape[1])
+        anomaly_scores=sim2anomalyscore(similarities.topk(k=_k, dim=1).values, weight_scheme="uniform", temperature=1).clamp(0, 1)
+        print("*"*20)
+        print(torch.min(anomaly_scores).item(), torch.max(anomaly_scores).item())  # Debug: print anomaly score range
+
+
+
+        return anomaly_scores
+    
+    
+    def forward(
+        self,
+        cls_feat: torch.Tensor,
+        loc_feat: torch.Tensor,
+        conf: float = 0.5
+    ) -> tuple:
+        """Process features using memory-bank anomaly scoring.
+
+        Anomaly score is always used to filter candidate regions (proposal gate).
+        What differs between modes is the class-score output for those regions:
+
+        - anomaly_mode=True  → single class, confidence = anomaly score (logit-encoded).
+        - anomaly_mode=False → original nc classes, confidence from vocab_linear (standard cls).
+
+        Memory-bank building (update=True): stores all features, skips filtering,
+        returns dummy scores (discarded by caller).
+
+        Args:
+            cls_feat (torch.Tensor): Classification features [B, C, H, W].
+            loc_feat (torch.Tensor): Localization features  [B, C, H, W].
+            conf (float): Anomaly score threshold for the proposal gate.
+
+        Returns:
+            tuple: (loc_preds, cls_scores, mask)
+                - loc_preds  : [B, reg_max*4, H, W]
+                - cls_scores : [B, 1, N]  in anomaly_mode  |  [B, nc, N] in detect mode
+                - mask       : bool [H*W], True = selected positions
+        """
+        B, C, H, W = cls_feat.shape
+
+        # ── Memory-bank building phase ───────────────────────────────────────
+        if self.update:
+            self.add_to_memory_bank(cls_feat, is_normal=True)
+            mask = torch.ones(H * W, device=cls_feat.device, dtype=torch.bool)
+            dummy_nc = 1 if self.anomaly_mode else self.vocab_linear.out_features
+            dummy_scores = torch.zeros(B, dummy_nc, H * W, device=cls_feat.device)
+            return self.loc(loc_feat), dummy_scores, mask
+
+        # ── Inference phase ─────────────────────────────────────────────────
+        # Step 1: anomaly score → spatial proposal mask (always)
+        pf_score = self.calculate_anomaly_score(cls_feat)       # [B*H*W]
+        pf_score_spatial = pf_score.view(B, -1).max(dim=0).values  # [H*W]
+        mask = pf_score_spatial > conf
+
+        if self.anomaly_mode:
+            # Step 2a: anomaly mode — encode anomaly score as logit so that
+            #          sigmoid() in _inference restores it back to a probability.
+            selected_anom = pf_score_spatial[mask].clamp(1e-6, 1 - 1e-6)
+            selected_logits = torch.log(selected_anom / (1 - selected_anom))  # [N]
+            selected_scores = selected_logits.view(1, 1, -1).expand(B, 1, -1)  # [B, 1, N]
+        else:
+            # Step 2b: detect mode — classify selected regions with original vocab head.
+            #          Output nc-class logits, sigmoid in _inference gives per-class conf.
+            cls_flat = cls_feat.flatten(2).transpose(-1, -2)   # [B, H*W, C]
+            selected_scores = self.vocab_linear(cls_flat[:, mask])  # [B, N, nc]
+            selected_scores = selected_scores.transpose(-1, -2)     # [B, nc, N]
+
+        return self.loc(loc_feat), selected_scores, mask
+    
+    
+    def reset_memory_bank(self) -> None:
+        """Reset the memory bank."""
+        self.memory_bank.clear()
+    
+    def get_memory_bank_stats(self) -> dict:
+        """Get statistics about the memory bank.
+        
+        Returns:
+            dict: Statistics including size and feature dimension.
+        """
+        if self.feature_dim is None:
+            return {
+                "size": 0,
+                "feature_dim": None,
+            }
+        
+        memory_tensor = self._get_memory_tensor()
+        size = memory_tensor.shape[0] if memory_tensor is not None else 0
+        
+        return {
+            "size": size,
+            "feature_dim": self.feature_dim,
+            "num_batches": len(self.memory_bank),
+        }
+
+
+class AnomalyDetection(Detect):
+    """
+    Anomaly Detection head based on YOLO/YOLOE architecture.
+
+    Arguments:
+    
+    
+    """
+    is_fused = False
+    _fixed_nc=None
+    def __init__(
+        self, nc: int = 80, reg_max=16, end2end=False, ch: tuple = ()
+    ):
+        """
+        Initialize YOLO detection layer with nc classes and layer channels ch.
+
+        Args:
+            nc (int): Number of classes.
+            embed (int): Embedding dimension.
+            with_bn (bool): Whether to use batch normalization in contrastive head.
+            ch (tuple): Tuple of channel sizes from backbone feature maps.
+        """
+        super().__init__(nc, reg_max, end2end, ch)
+        self.adhead = None  # Anomaly detection head will be built separately with build_adhead()
+
+    def build_adhead(self, head, conf=0.1, max_det=1000):
+        """Build anomaly detection sub-heads, supporting both end2end and non-end2end models.
+
+        End2end models (yolo26, YOLOE-seg): have `one2one_cv2` / `one2one_cv3`.
+        Non-end2end models (yolov8, yolov5 …): only have `cv2` / `cv3`.
+        """
+        self.original_nc = self.nc  # save for set_anomaly_mode(False)
+        import copy
+
+        # Choose the right cv2/cv3 branch from the source head
+        _e2e = hasattr(head, "one2one_cv2")
+        src_cv2 = head.one2one_cv2 if _e2e else head.cv2
+        src_cv3 = head.one2one_cv3 if _e2e else head.cv3
+        assert len(src_cv2) == self.nl, "Number of heads must match number of feature levels."
+
+        # Deep-copy and truncate (remove last layer) in the *self* branch we'll run features through
+        if _e2e:
+            self.one2one_cv2 = copy.deepcopy(self.one2one_cv2)
+            self.one2one_cv3 = copy.deepcopy(self.one2one_cv3)
+            cv2, cv3 = self.one2one_cv2, self.one2one_cv3
+        else:
+            self.cv2 = copy.deepcopy(self.cv2)
+            self.cv3 = copy.deepcopy(self.cv3)
+            cv2, cv3 = self.cv2, self.cv3
+
+        for loc_head, cls_head in zip(cv2, cv3):
+            assert isinstance(loc_head, nn.Sequential)
+            assert isinstance(cls_head, nn.Sequential)
+            del loc_head[-1]
+            del cls_head[-1]
+
+        # adhead holds the detached last layers from the original head
+        self.adhead = nn.ModuleList(
+            AnomalyDetectionLRPCHead(
+                vocab=src_cv3[i][-1],
+                pf=None,
+                loc=src_cv2[i][-1],
+                enabled=True,
+            )
+            for i in range(self.nl)
+        )
+        self.conf = conf
+        self.max_det = max_det
+
+    def set_anomaly_mode(self, anomaly_mode: bool) -> None:
+        """Switch between anomaly scoring (nc=1) and original classification (nc=original_nc).
+
+        Args:
+            anomaly_mode (bool): True  = memory-bank cosine-similarity scoring, single class.
+                                 False = original nc-class classification (e.g., 80 COCO classes).
+        """
+        assert self.adhead is not None, "Call build_adhead() first."
+        self.nc = 1 if anomaly_mode else getattr(self, "original_nc", self.nc)
+        for h in self.adhead:
+            h.anomaly_mode = anomaly_mode
+        # nc must match the scores channel dimension for postprocess split([4, nc])
+        self.nc = 1 if anomaly_mode else getattr(self, "original_nc", self.nc)
+
+    def _get_decode_boxes(self, x):
+        """Decode boxes; for end2end filter to anomaly-selected positions, for non-end2end keep all."""
+        dbox = super()._get_decode_boxes(x)
+        if self.adhead is not None and "index" in x:
+            dbox = dbox if (self.export and not self.dynamic) else dbox[..., x["index"]]
+        return dbox
+
+    def forward(self, x: list[torch.Tensor]) -> torch.Tensor | tuple:
+        """Run anomaly detection forward pass.
+
+        End2end models: sparse filtered output → postprocess (top-k).
+        Non-end2end models: dense output for all anchors → NMS in predictor.
+        """
+        assert self.adhead is not None, "Call build_adhead() before forward()."
+
+        bs = x[0].shape[0]
+
+        if self.end2end:
+            # ── End2end path (e.g. yolo26, yolov8 e2e) ────────────────────────
+            # adhead pre-filters anchor positions; postprocess handles top-k.
+            boxes, scores, index = [], [], []
+            for i in range(self.nl):
+                cls_feat = self.one2one_cv3[i](x[i])
+                loc_feat = self.one2one_cv2[i](x[i])
+                box, score, idx = self.adhead[i](
+                    cls_feat, loc_feat,
+                    0 if self.export and not self.dynamic else getattr(self, "conf", 0.001),
+                )
+                boxes.append(box.view(bs, self.reg_max * 4, -1))
+                scores.append(score)
+                index.append(idx)
+            preds = dict(boxes=torch.cat(boxes, 2), scores=torch.cat(scores, 2),
+                         feats=x, index=torch.cat(index))
+            y = self._inference(preds)
+            y = self.postprocess(y.permute(0, 2, 1))
+            return y if self.export else (y, preds)
+
+        else:
+            # ── Non-end2end path (e.g. yolov8s standard) ──────────────────────
+            # Produce dense scores over all anchor positions; NMS in predictor.
+            all_boxes, all_scores = [], []
+            for i in range(self.nl):
+                cls_feat = self.cv3[i](x[i])
+                loc_feat = self.cv2[i](x[i])
+                B, C, H, W = cls_feat.shape
+                N = H * W
+                adh = self.adhead[i]
+
+                if adh.update:
+                    # Memory-bank building: store features, emit zero scores
+                    adh.add_to_memory_bank(cls_feat, is_normal=True)
+                    out_nc = 1 if adh.anomaly_mode else adh.vocab_linear.out_features
+                    scores_i = torch.zeros(B, out_nc, N, device=cls_feat.device)
+                elif adh.anomaly_mode:
+                    # Anomaly mode: convert score to logit so sigmoid in _inference restores it
+                    anom = adh.calculate_anomaly_score(cls_feat)  # [B*H*W]
+                    anom_spatial = anom.view(B, N).clamp(1e-6, 1 - 1e-6)  # [B, N]
+                    scores_i = torch.log(anom_spatial / (1 - anom_spatial)).unsqueeze(1)  # [B, 1, N]
+                else:
+                    # Detect mode: original vocab_linear scores for all positions
+                    cls_flat = cls_feat.flatten(2).transpose(-1, -2)  # [B, N, C]
+                    scores_i = adh.vocab_linear(cls_flat).transpose(-1, -2)  # [B, nc, N]
+
+                all_boxes.append(adh.loc(loc_feat).view(B, self.reg_max * 4, N))
+                all_scores.append(scores_i)
+
+            preds = dict(boxes=torch.cat(all_boxes, 2), scores=torch.cat(all_scores, 2), feats=x)
+            y = self._inference(preds)  # [B, 4+nc, total_N]
+            return y if self.export else (y, preds)
+    
+
+        
