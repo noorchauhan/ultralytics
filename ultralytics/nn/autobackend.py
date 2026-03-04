@@ -134,7 +134,7 @@ class AutoBackend(nn.Module):
 
     _BACKEND_MAP = {
         "pt": PyTorchBackend,
-        "jit": TorchScriptBackend,
+        "torchscript": TorchScriptBackend,
         "onnx": ONNXBackend,
         "dnn": ONNXBackend,  # Special case: ONNX with DNN
         "openvino": OpenVINOBackend,
