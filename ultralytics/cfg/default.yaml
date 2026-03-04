@@ -40,6 +40,7 @@ profile: False # (bool) profile ONNX/TensorRT speeds during training for loggers
 freeze: # (int | list, optional) freeze first N layers (int) or specific layer indices (list)
 freeze_bn: none # (str) freeze batchnorm: none, backbone, backbone_neck
 multi_scale: 0.0 # (float) multi-scale range as a fraction of imgsz; sizes are rounded to stride multiples
+base_size_repeat: 0 # (int) extra sampling weight for imgsz in RT-DETR multi-scale; 0 disables repeat weighting
 compile: False # (bool | str) enable torch.compile() backend='inductor'; True="default", False=off, or "default|reduce-overhead|max-autotune-no-cudagraphs"
 
 # Segmentation

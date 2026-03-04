@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import random
 from copy import copy
 
 from ultralytics.models.yolo.detect import DetectionTrainer
@@ -45,9 +47,41 @@ class RTDETRTrainer(DetectionTrainer):
         - AMP training can lead to NaN outputs and may produce errors during bipartite graph matching.
     """
 
+    def _sample_multiscale_size(self) -> int:
+        """Sample multi-scale size using legacy range, with optional base-size repeat weighting."""
+        low = int(self.args.imgsz * (1.0 - self.args.multi_scale))
+        high = int(self.args.imgsz * (1.0 + self.args.multi_scale) + self.stride)
+        low = max((low // self.stride) * self.stride, int(self.stride))
+        high = (high // self.stride) * self.stride
+        if high <= low:
+            return low
+
+        base_size_repeat = int(getattr(self.args, "base_size_repeat", 0) or 0)
+        if base_size_repeat <= 0:
+            # Keep original Ultralytics behavior when repeat is not requested.
+            return random.randrange(low, high) // self.stride * self.stride
+
+        # Discrete scales in the same [low, high] range, plus repeated base size.
+        scales = list(range(low, high + 1, self.stride))
+        base = (int(self.args.imgsz) // self.stride) * self.stride
+        base = min(max(base, low), high)
+        scales.extend([base] * base_size_repeat)
+        return random.choice(scales)
+
     def preprocess_batch(self, batch: dict) -> dict:
         """Preprocess a batch and attach epoch for RT-DETR loss-side scheduling."""
-        batch = super().preprocess_batch(batch)
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
+        batch["img"] = batch["img"].float() / 255
+        if self.args.multi_scale > 0.0:
+            imgs = batch["img"]
+            sz = self._sample_multiscale_size()
+            sf = sz / max(imgs.shape[2:])
+            if sf != 1:
+                ns = [math.ceil(x * sf / self.stride) * self.stride for x in imgs.shape[2:]]
+                imgs = nn.functional.interpolate(imgs, size=ns, mode="bilinear", align_corners=False)
+            batch["img"] = imgs
         batch["epoch"] = int(self.epoch)
         return batch
 
@@ -130,6 +164,8 @@ class RTDETRTrainer(DetectionTrainer):
             (torch.optim.Optimizer): The constructed optimizer.
         """
         backbone_lr_ratio = self.args.backbone_lr_ratio
+        if backbone_lr_ratio <= 0:
+            raise ValueError(f"Invalid backbone_lr_ratio={backbone_lr_ratio}. Expected > 0.")
         g = [{}, {}, {}, {}, {}, {}, {}, {}]  # optimizer parameter groups, 8 groups for MuSGD support
         bn = tuple(v for k, v in nn.__dict__.items() if "Norm" in k)  # normalization layers, i.e. BatchNorm2d()
         if name == "auto":
@@ -145,12 +181,22 @@ class RTDETRTrainer(DetectionTrainer):
 
         use_muon = name == "MuSGD"
         backbone_len = self.backbone_len
+        sta_tokens = {
+            "sta",
+            "spm",
+            "spatialprior",
+            "spatialpriormodule",
+            "spatialpriormodulev2",
+            "spatial_prior",
+            "spatial_prior_module",
+        }
+        sta_excluded = 0
 
         for module_name, module in model.named_modules():
             for param_name, param in module.named_parameters(recurse=False):
                 fullname = f"{module_name}.{param_name}" if module_name else param_name
 
-                # Check if this is a backbone layer
+                # Check if this is a backbone layer; keep STA params at base LR.
                 is_backbone = False
                 parts = fullname.split(".")
 
@@ -158,9 +204,14 @@ class RTDETRTrainer(DetectionTrainer):
                 if parts[0] == "module":
                     parts = parts[1:]  # Remove "module" prefix for DDP
 
+                is_sta_param = any(p.lower() in sta_tokens for p in parts)
                 if len(parts) > 1 and parts[0] == "model" and parts[1].isdigit():
                     layer_idx = int(parts[1])
                     is_backbone = layer_idx < backbone_len
+                    if is_backbone and is_sta_param:
+                        # Match requested behavior: backbone_lr_ratio applies to backbone except STA branch.
+                        is_backbone = False
+                        sta_excluded += 1
 
                 if is_backbone:
                     # Backbone parameters (groups 4, 5, 6, 7)
@@ -202,6 +253,10 @@ class RTDETRTrainer(DetectionTrainer):
             )
 
         backbone_lr = lr * backbone_lr_ratio
+        LOGGER.info(
+            f"{colorstr('optimizer:')} backbone low-LR excludes STA params: {sta_excluded} parameter tensors "
+            f"(backbone_lr_ratio={backbone_lr_ratio})"
+        )
 
         if name == "MuSGD":
             # MuSGD: 8 parameter groups with dict structure
