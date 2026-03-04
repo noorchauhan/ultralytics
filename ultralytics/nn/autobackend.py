@@ -150,7 +150,7 @@ class AutoBackend(nn.Module):
         "imx": ONNXIMXBackend,
         "rknn": RKNNBackend,
         "triton": TritonBackend,
-        "pte": ExecuTorchBackend,
+        "executorch": ExecuTorchBackend,
         "axelera": AxeleraBackend,
     }
 
