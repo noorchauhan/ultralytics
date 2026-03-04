@@ -275,17 +275,13 @@ class AutoBackend(nn.Module):
 
         y = self.backend.forward(im, **forward_kwargs)
 
-        # Handle single output
-        if not isinstance(y, (list, tuple)):
-            y = [y]
-
-        # Update names if needed (for segmentation)
-        if len(self.names) == 999 and (self.task == "segment" or len(y) == 2):
-            nc = y[0].shape[1] - y[1].shape[1] - 4
-            self.names = {i: f"class{i}" for i in range(nc)}
-            self.backend.names = self.names
-
-        return y[0] if len(y) == 1 else y
+        if isinstance(y, (list, tuple)):
+            if len(self.names) == 999 and (self.task == "segment" or len(y) == 2):  # segments and names not defined
+                nc = y[0].shape[1] - y[1].shape[1] - 4  # y = (1, 32, 160, 160), (1, 116, 8400)
+                self.names = {i: f"class{i}" for i in range(nc)}
+            return self.from_numpy(y[0]) if len(y) == 1 else [self.from_numpy(x) for x in y]
+        else:
+            return self.from_numpy(y)
 
     def from_numpy(self, x: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Convert a NumPy array to a torch tensor on the model device.
@@ -296,7 +292,7 @@ class AutoBackend(nn.Module):
         Returns:
             (torch.Tensor): Tensor on `self.device`.
         """
-        return self.backend.from_numpy(x)
+        return torch.tensor(x).to(self.device) if isinstance(x, np.ndarray) else x
 
     def warmup(self, imgsz: tuple[int, int, int, int] = (1, 3, 640, 640)) -> None:
         """Warm up the model by running forward pass(es) with a dummy input.
