@@ -43,13 +43,13 @@ class CoreMLBackend(BaseBackend):
             Model output tensor(s).
         """
         im = im.cpu().numpy()
-        h, w = kwargs.get("h", im.shape[2]), kwargs.get("w", im.shape[3])
 
         im = im.transpose(0, 3, 1, 2) if self.dynamic else Image.fromarray((im[0] * 255).astype("uint8"))
         y = self.model.predict({"image": im})
         if "confidence" in y:  # NMS included
             from ultralytics.utils.ops import xywh2xyxy
 
+            h, w = im.shape[1:3]
             box = xywh2xyxy(y["coordinates"] * [[w, h, w, h]])
             cls = y["confidence"].argmax(1, keepdims=True)
             y = np.concatenate((box, np.take_along_axis(y["confidence"], cls, axis=1), cls), 1)[None]

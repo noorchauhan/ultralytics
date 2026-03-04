@@ -265,7 +265,6 @@ class AutoBackend(nn.Module):
         Returns:
             (torch.Tensor | list[torch.Tensor]): The raw output tensor(s) from the model.
         """
-        _, _, h, w = im.shape
         if self.nhwc:
             im = im.permute(0, 2, 3, 1)  # torch BCHW to numpy BHWC shape(1,320,192,3)
 
@@ -274,7 +273,7 @@ class AutoBackend(nn.Module):
             forward_kwargs = {"augment": augment, "visualize": visualize, "embed": embed, **kwargs}
         else:
             # Pass task and image dimensions for coordinate scaling (used by some backends)
-            forward_kwargs = {"task": self.task, "h": h, "w": w, **kwargs}
+            forward_kwargs = {"task": self.task}
 
         y = self.backend.forward(im, **forward_kwargs)
 

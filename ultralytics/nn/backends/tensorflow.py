@@ -191,7 +191,7 @@ class TFLiteBackend(BaseBackend):
             Model output tensor(s).
         """
         im = im.cpu().numpy()
-        h, w = kwargs.get("h", im.shape[2]), kwargs.get("w", im.shape[3])
+        h, w = im.shape[1:3]
 
         details = self.input_details[0]
         is_int = details["dtype"] in {np.int8, np.int16}
