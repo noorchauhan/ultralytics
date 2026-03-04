@@ -54,7 +54,7 @@ class BaseBackend(ABC):
         self.ch = 3
         self.end2end = False
         self.dynamic = False
-        self.metadata = None
+        self.metadata = {}
         self.model = None
 
     @abstractmethod
