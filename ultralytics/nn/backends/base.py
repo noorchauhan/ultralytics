@@ -82,36 +82,3 @@ class BaseBackend(ABC):
             Torch tensor on self.device.
         """
         return torch.tensor(x).to(self.device) if isinstance(x, np.ndarray) else x
-
-    def check_class_names(self, names: list | dict) -> dict[int, str]:
-        """Check and convert class names to dict format.
-
-        Args:
-            names: Class names as list or dict.
-
-        Returns:
-            Dictionary mapping class indices to class names.
-        """
-        if isinstance(names, list):
-            names = dict(enumerate(names))
-        if isinstance(names, dict):
-            names = {int(k): str(v) for k, v in names.items()}
-        return names
-
-    def default_class_names(self, data: str | Path | None = None) -> dict[int, str]:
-        """Load class names from YAML or return default names.
-
-        Args:
-            data: Path to YAML file with class names.
-
-        Returns:
-            Dictionary mapping class indices to class names.
-        """
-        if data:
-            from ultralytics.utils import YAML, check_yaml
-
-            try:
-                return YAML.load(check_yaml(data))["names"]
-            except Exception:
-                pass
-        return {i: f"class{i}" for i in range(999)}
