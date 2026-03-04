@@ -181,6 +181,9 @@ class ONNXIMXBackend(ONNXBackend):
         self.output_names = [x.name for x in self.session.get_outputs()]
         self.dynamic = isinstance(self.session.get_outputs()[0].shape[0], str)
         self.fp16 = "float16" in self.session.get_inputs()[0].type
+        metadata_map = self.session.get_modelmeta().custom_metadata_map
+        if metadata_map:
+            self.apply_metadata(dict(metadata_map))
 
     def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
         """Run IMX inference with task-specific output formatting.
