@@ -38,7 +38,7 @@ class CoreMLBackend(BaseBackend):
         import coremltools as ct
 
         LOGGER.info(f"Loading {self.weights} for CoreML inference...")
-        self.model = ct.models.MLModel(self.weights)
+        self.model = ct.models.MLModel(str(self.weights))
         self.dynamic = self.model.get_spec().description.input[0].type.HasField("multiArrayType")
 
         # Load metadata
