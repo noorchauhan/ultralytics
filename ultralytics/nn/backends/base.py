@@ -50,7 +50,6 @@ class BaseBackend(ABC):
         self.names = {}
         self.task = None
         self.batch = 1
-        self.imgsz = (640, 640)
         self.ch = 3
         self.end2end = False
         self.dynamic = False
@@ -110,5 +109,4 @@ class BaseBackend(ABC):
 
         # Apply to backend attributes
         for k, v in metadata.items():
-            if hasattr(self, k):
-                setattr(self, k, v)
+            setattr(self, k, v)
