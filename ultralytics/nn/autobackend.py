@@ -28,7 +28,7 @@ from ultralytics.nn.backends import (
     TritonBackend,
 )
 from ultralytics.utils.checks import check_suffix
-from ultralytics.utils.downloads import attempt_download_asset, is_url
+from ultralytics.utils.downloads import is_url
 
 
 def check_class_names(names: list | dict) -> dict[int, str]:
