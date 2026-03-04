@@ -269,6 +269,20 @@ BENCHMARKS = {
                 ("l", 8.6, {"ap": 55.3, "ap50": 73.0, "ap75": 60.2, "ap_small": 39.6, "ap_medium": 59.3, "ap_large": 70.7}),
                 ("x", 13.8, {"ap": 56.5, "ap50": 74.0, "ap75": 61.6, "ap_small": 41.1, "ap_medium": 60.8, "ap_large": 71.5}),
             ],
+            "RF-DETR (TopK)": [
+                ("n", 2.8, {"ap": 48.4, "ap50": 67.5, "ap75": 51.7, "ap_small": 25.3, "ap_medium": 53.6, "ap_large": 71.0}),
+                ("s", 4.4, {"ap": 53.0, "ap50": 72.0, "ap75": 57.1, "ap_small": 31.8, "ap_medium": 58.4, "ap_large": 73.1}),
+                ("m", 5.7, {"ap": 54.7, "ap50": 73.6, "ap75": 59.1, "ap_small": 35.9, "ap_medium": 59.8, "ap_large": 73.7}),
+                ("l", 8.7, {"ap": 56.5, "ap50": 75.1, "ap75": 61.2, "ap_small": 39.0, "ap_medium": 61.0, "ap_large": 74.0}),
+                ("x", 18.1, {"ap": 58.6, "ap50": 77.5, "ap75": 64.0, "ap_small": 40.8, "ap_medium": 64.3, "ap_large": 76.3}),
+                ("xxl", 29.1, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
+            ],
+            "DEIMv2 (Ultralytics)": [
+                ("l", 10.1, {"ap": 55.5, "ap50": 72.8, "ap75": 60.5, "ap_small": 37.0, "ap_medium": 60.3, "ap_large": 74.5}),
+            ],
+            "DEIMv2 (Ultralytics, obj365)": [
+                ("l", 10.1, {"ap": 56.8, "ap50": 74.6, "ap75": 62.0, "ap_small": 38.8, "ap_medium": 62.2, "ap_large": 74.9}),
+            ],
             "DINOv3-RTDETR": [
                 ("s", 4.5, {"ap": 50.3, "ap50": 69.0, "ap75": 54.4, "ap_small": 27.8, "ap_medium": 55.8, "ap_large": 72.5}),
             ],
@@ -284,21 +298,13 @@ BENCHMARKS = {
                 # Latency is kept equal to the current l6 entry until a dedicated obj365 latency measurement is available.
                 ("l6", 11.4, {"ap": 56.8, "ap50": 75.2, "ap75": 61.8, "ap_small": 39.9, "ap_medium": 61.4, "ap_large": 74.5}, 0.1),
             ],
-            "DEIMv2": [
+            "DEIMv2 (paper)": [
                 ("pico", 1.7, {"ap": 38.5}),
                 ("n", 2.0, {"ap": 43.0}),
                 ("s", 4.8, {"ap": 50.9}),
                 ("m", 7.5, {"ap": 53.0}),
                 ("l", 10.2, {"ap": 56.0}),
                 ("x", 14.5, {"ap": 57.8}),
-            ],
-            "RF-DETR (TopK)": [
-                ("n", 2.8, {"ap": 48.4, "ap50": 67.5, "ap75": 51.7, "ap_small": 25.3, "ap_medium": 53.6, "ap_large": 71.0}),
-                ("s", 4.4, {"ap": 53.0, "ap50": 72.0, "ap75": 57.1, "ap_small": 31.8, "ap_medium": 58.4, "ap_large": 73.1}),
-                ("m", 5.7, {"ap": 54.7, "ap50": 73.6, "ap75": 59.1, "ap_small": 35.9, "ap_medium": 59.8, "ap_large": 73.7}),
-                ("l", 8.7, {"ap": 56.5, "ap50": 75.1, "ap75": 61.2, "ap_small": 39.0, "ap_medium": 61.0, "ap_large": 74.0}),
-                ("x", 18.1, {"ap": 58.6, "ap50": 77.5, "ap75": 64.0, "ap_small": 40.8, "ap_medium": 64.3, "ap_large": 76.3}),
-                ("xxl", 29.1, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
             ],
         },
     },
@@ -442,6 +448,9 @@ MODEL_STYLES = {
     "DEIM D-FINE": ("D", -12),
     "DEIM RT-DETRv2": ("v", 8),
     "DEIMv2": ("p", -12),
+    "DEIMv2 (paper)": ("p", -12),
+    "DEIMv2 (Ultralytics)": ("p", 8),
+    "DEIMv2 (Ultralytics, obj365)": ("p", -12),
 }
 
 
