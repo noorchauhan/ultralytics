@@ -140,7 +140,7 @@ class AutoBackend(nn.Module):
         "jit": TorchScriptBackend,
         "onnx": ONNXBackend,
         "dnn": ONNXBackend,  # Special case: ONNX with DNN
-        "xml": OpenVINOBackend,
+        "openvino": OpenVINOBackend,
         "engine": TensorRTBackend,
         "coreml": CoreMLBackend,
         "saved_model": TensorFlowBackend,
@@ -186,7 +186,7 @@ class AutoBackend(nn.Module):
         format = "nn_module" if nn_module else self._model_type(model, dnn)
 
         # Check if format supports FP16
-        fp16_supported = format in {"pt", "jit", "onnx", "xml", "engine", "triton", "nn_module"}
+        fp16_supported = format in {"pt", "jit", "onnx", "openvino", "engine", "triton", "nn_module"}
         fp16 &= fp16_supported
 
         # Set device
