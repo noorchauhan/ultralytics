@@ -83,7 +83,7 @@ class PyTorchBackend(BaseBackend):
         """
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()
-        return self.model(im, augment=augment, visualize=visualize, embed=embed, **kwargs)
+        return self.model(im, augment=augment, visualize=visualize, embed=embed)
 
 
 class TorchScriptBackend(BaseBackend):
@@ -115,12 +115,11 @@ class TorchScriptBackend(BaseBackend):
         if extra_files["config.txt"]:
             self.apply_metadata(json.loads(extra_files["config.txt"], object_hook=lambda x: dict(x.items())))
 
-    def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Run TorchScript inference.
 
         Args:
             im: Input image tensor in BCHW format.
-            **kwargs: Additional arguments.
 
         Returns:
             Model output tensor.
