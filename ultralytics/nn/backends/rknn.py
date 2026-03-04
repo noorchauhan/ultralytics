@@ -58,8 +58,4 @@ class RKNNBackend(BaseBackend):
         """
         im = (im.cpu().numpy() * 255).astype("uint8")
         im = im if isinstance(im, (list, tuple)) else [im]
-        y = self.rknn_model.inference(inputs=im)
-
-        if isinstance(y, (list, tuple)):
-            return [self.from_numpy(x) for x in y]
-        return self.from_numpy(y)
+        return self.rknn_model.inference(inputs=im)

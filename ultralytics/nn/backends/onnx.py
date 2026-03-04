@@ -111,10 +111,9 @@ class ONNXBackend(BaseBackend):
 
         if self.dnn:
             # OpenCV DNN
-            im_np = im.cpu().numpy()
-            self.net.setInput(im_np)
-            y = self.net.forward()
-            return self.from_numpy(y)
+            im = im.cpu().numpy()
+            self.net.setInput(im)
+            return self.net.forward()
 
         # ONNX Runtime
         if self.use_io_binding:
@@ -131,9 +130,7 @@ class ONNXBackend(BaseBackend):
             self.session.run_with_iobinding(self.io)
             return self.bindings
         else:
-            im_np = im.cpu().numpy()
-            y = self.session.run(self.output_names, {self.session.get_inputs()[0].name: im_np})
-            return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])
+            return self.session.run(self.output_names, {self.session.get_inputs()[0].name: im.cpu().numpy()})
 
 
 class ONNXIMXBackend(ONNXBackend):
@@ -165,7 +162,7 @@ class ONNXIMXBackend(ONNXBackend):
         if metadata_map:
             self.apply_metadata(dict(metadata_map))
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> np.ndarray | list[np.ndarray] | tuple[np.ndarray]:
         """Run IMX inference with task-specific output formatting.
 
         Args:
@@ -178,16 +175,13 @@ class ONNXIMXBackend(ONNXBackend):
 
         if self.task == "detect":
             # boxes, conf, cls
-            y = np.concatenate([y[0], y[1][:, :, None], y[2][:, :, None]], axis=-1)
+            return np.concatenate([y[0], y[1][:, :, None], y[2][:, :, None]], axis=-1)
         elif self.task == "pose":
             # boxes, conf, kpts
-            y = np.concatenate([y[0], y[1][:, :, None], y[2][:, :, None], y[3]], axis=-1, dtype=y[0].dtype)
+            return np.concatenate([y[0], y[1][:, :, None], y[2][:, :, None], y[3]], axis=-1, dtype=y[0].dtype)
         elif self.task == "segment":
-            y = (
+            return (
                 np.concatenate([y[0], y[1][:, :, None], y[2][:, :, None], y[3]], axis=-1, dtype=y[0].dtype),
                 y[4],
             )
-
-        if isinstance(y, tuple):
-            return [self.from_numpy(x) for x in y]
-        return self.from_numpy(y)
+        return y

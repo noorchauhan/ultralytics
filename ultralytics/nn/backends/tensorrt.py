@@ -139,6 +139,4 @@ class TensorRTBackend(BaseBackend):
 
         self.binding_addrs["images"] = int(im.data_ptr())
         self.context.execute_v2(list(self.binding_addrs.values()))
-        y = [self.bindings[x].data for x in sorted(self.output_names)]
-
-        return y if len(y) > 1 else y[0]
+        return [self.bindings[x].data for x in sorted(self.output_names)]

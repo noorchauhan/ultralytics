@@ -65,5 +65,4 @@ class NCNNBackend(BaseBackend):
             ex.input(self.net.input_names()[0], mat_in)
             # Sort output names as temporary fix for pnnx issue
             y = [np.array(ex.extract(x)[1])[None] for x in sorted(self.net.output_names())]
-
-        return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])
+        return y

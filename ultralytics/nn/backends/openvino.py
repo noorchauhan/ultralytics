@@ -99,5 +99,4 @@ class OpenVINOBackend(BaseBackend):
         else:
             # Sync inference for LATENCY mode
             y = list(self.ov_compiled_model(im).values())
-
-        return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])
+        return y

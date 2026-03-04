@@ -71,17 +71,6 @@ class BaseBackend(ABC):
         """
         raise NotImplementedError
 
-    def from_numpy(self, x: np.ndarray | torch.Tensor) -> torch.Tensor:
-        """Convert NumPy array to torch tensor on the model device.
-
-        Args:
-            x: NumPy array or tensor.
-
-        Returns:
-            Torch tensor on self.device.
-        """
-        return torch.tensor(x).to(self.device) if isinstance(x, np.ndarray) else x
-
     def apply_metadata(self, metadata: dict | None) -> None:
         """Process and apply metadata to backend attributes.
 

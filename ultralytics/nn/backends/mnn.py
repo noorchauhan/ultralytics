@@ -62,7 +62,4 @@ class MNNBackend(BaseBackend):
         """
         input_var = self.torch_to_mnn(im)
         output_var = self.net.onForward([input_var])
-        y = [x.read() for x in output_var]
-
-        # TODO: probably scope from_numpy to autobackend
-        return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])
+        return [x.read() for x in output_var]

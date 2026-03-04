@@ -22,9 +22,7 @@ class TensorFlowBackend(BaseBackend):
     Supports loading and inference with TensorFlow SavedModel and GraphDef formats.
     """
 
-    def __init__(
-        self, weight: str | Path, device: torch.device, fp16: bool = False, is_savedmodel: bool = True
-    ):
+    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, is_savedmodel: bool = True):
         """Initialize TensorFlow backend.
 
         Args:
@@ -111,7 +109,7 @@ class TensorFlowBackend(BaseBackend):
             else:
                 y[1] = np.transpose(y[1], (0, 3, 1, 2))
 
-        return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])
+        return y
 
 
 class TFLiteBackend(BaseBackend):
@@ -120,9 +118,7 @@ class TFLiteBackend(BaseBackend):
     Supports loading and inference with TFLite models (.tflite files) and Edge TPU models.
     """
 
-    def __init__(
-        self, weight: str | Path, device: torch.device, fp16: bool = False, edgetpu: bool = False
-    ):
+    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, edgetpu: bool = False):
         """Initialize TFLite backend.
 
         Args:
@@ -229,5 +225,4 @@ class TFLiteBackend(BaseBackend):
                 y = [y[1]]
             else:
                 y[1] = np.transpose(y[1], (0, 3, 1, 2))
-
-        return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])
+        return y

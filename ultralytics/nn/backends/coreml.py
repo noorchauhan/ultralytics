@@ -52,11 +52,8 @@ class CoreMLBackend(BaseBackend):
             box = xywh2xyxy(y["coordinates"] * [[w, h, w, h]])
             cls = y["confidence"].argmax(1, keepdims=True)
             y = np.concatenate((box, np.take_along_axis(y["confidence"], cls, axis=1), cls), 1)[None]
-            return self.from_numpy(y)
         else:
             y = list(y.values())
-
         if len(y) == 2 and len(y[1].shape) != 4:  # segmentation model
             y = list(reversed(y))
-
-        return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])
+        return y

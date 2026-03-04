@@ -39,10 +39,4 @@ class TritonBackend(BaseBackend):
         """
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()
-
-        im_np = im.cpu().numpy()
-        y = self.model(im_np)
-
-        if isinstance(y, (list, tuple)):
-            return [self.from_numpy(x) for x in y]
-        return self.from_numpy(y)
+        return self.model(im.cpu().numpy())

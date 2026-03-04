@@ -72,6 +72,4 @@ class PaddleBackend(BaseBackend):
         """
         self.input_handle.copy_from_cpu(im.cpu().numpy().astype(np.float32))
         self.predictor.run()
-        y = [self.predictor.get_output_handle(x).copy_to_cpu() for x in self.output_names]
-
-        return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])
+        return [self.predictor.get_output_handle(x).copy_to_cpu() for x in self.output_names]
