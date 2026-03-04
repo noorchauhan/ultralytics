@@ -77,11 +77,11 @@ class OpenVINOBackend(BaseBackend):
         Returns:
             Model output tensor(s).
         """
-        im_np = im.cpu().numpy().astype(np.float32)
+        im = im.cpu().numpy().astype(np.float32)
 
         if self.inference_mode in {"THROUGHPUT", "CUMULATIVE_THROUGHPUT"}:
             # Async inference for larger batch sizes
-            n = im_np.shape[0]
+            n = im.shape[0]
             results = [None] * n
 
             def callback(request, userdata):
@@ -92,13 +92,13 @@ class OpenVINOBackend(BaseBackend):
             async_queue.set_callback(callback)
 
             for i in range(n):
-                async_queue.start_async(inputs={self.input_name: im_np[i : i + 1]}, userdata=i)
+                async_queue.start_async(inputs={self.input_name: im[i : i + 1]}, userdata=i)
             async_queue.wait_all()
 
             y = [list(r.values()) for r in results]
             y = [np.concatenate(x) for x in zip(*y)]
         else:
             # Sync inference for LATENCY mode
-            y = list(self.ov_compiled_model(im_np).values())
+            y = list(self.ov_compiled_model(im).values())
 
         return [self.from_numpy(x) for x in y] if len(y) > 1 else self.from_numpy(y[0])
