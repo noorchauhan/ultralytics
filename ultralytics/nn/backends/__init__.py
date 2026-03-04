@@ -7,37 +7,37 @@ Each backend is implemented as a separate class that can be used independently
 or through the unified AutoBackend API.
 """
 
+from .axelera import AxeleraBackend
 from .base import BaseBackend
-from .pytorch import PyTorchBackend, TorchScriptBackend
-from .onnx import ONNXBackend, ONNXIMXBackend
-from .openvino import OpenVINOBackend
-from .tensorrt import TensorRTBackend
 from .coreml import CoreMLBackend
-from .tensorflow import TFLiteBackend, TensorFlowBackend
-from .paddle import PaddleBackend
+from .executorch import ExecuTorchBackend
 from .mnn import MNNBackend
 from .ncnn import NCNNBackend
+from .onnx import ONNXBackend, ONNXIMXBackend
+from .openvino import OpenVINOBackend
+from .paddle import PaddleBackend
+from .pytorch import PyTorchBackend, TorchScriptBackend
 from .rknn import RKNNBackend
-from .executorch import ExecuTorchBackend
-from .axelera import AxeleraBackend
+from .tensorflow import TensorFlowBackend, TFLiteBackend
+from .tensorrt import TensorRTBackend
 from .triton import TritonBackend
 
 __all__ = [
+    "AxeleraBackend",
     "BaseBackend",
-    "PyTorchBackend",
-    "TorchScriptBackend",
+    "CoreMLBackend",
+    "ExecuTorchBackend",
+    "MNNBackend",
+    "NCNNBackend",
     "ONNXBackend",
     "ONNXIMXBackend",
     "OpenVINOBackend",
-    "TensorRTBackend",
-    "CoreMLBackend",
-    "TensorFlowBackend",
-    "TFLiteBackend",
     "PaddleBackend",
-    "MNNBackend",
-    "NCNNBackend",
+    "PyTorchBackend",
     "RKNNBackend",
-    "ExecuTorchBackend",
-    "AxeleraBackend",
+    "TFLiteBackend",
+    "TensorFlowBackend",
+    "TensorRTBackend",
+    "TorchScriptBackend",
     "TritonBackend",
 ]

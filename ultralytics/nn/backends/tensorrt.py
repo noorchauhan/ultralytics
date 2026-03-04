@@ -10,9 +10,9 @@ from typing import Any
 import numpy as np
 import torch
 
+from ultralytics.nn.backends.base import BaseBackend
 from ultralytics.utils import IS_JETSON, LINUX, LOGGER, PYTHON_VERSION
 from ultralytics.utils.checks import check_requirements, check_version
-from ultralytics.nn.backends.base import BaseBackend
 
 
 class TensorRTBackend(BaseBackend):
@@ -76,7 +76,7 @@ class TensorRTBackend(BaseBackend):
         try:
             self.context = engine.create_execution_context()
         except Exception as e:
-            LOGGER.error(f"TensorRT model exported with a different version than expected\n")
+            LOGGER.error("TensorRT model exported with a different version than expected\n")
             raise e
 
         # Setup bindings

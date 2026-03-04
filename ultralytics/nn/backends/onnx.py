@@ -8,9 +8,9 @@ from typing import Any
 import numpy as np
 import torch
 
+from ultralytics.nn.backends.base import BaseBackend
 from ultralytics.utils import LOGGER
 from ultralytics.utils.checks import check_requirements
-from ultralytics.nn.backends.base import BaseBackend
 
 
 class ONNXBackend(BaseBackend):
@@ -166,8 +166,8 @@ class ONNXIMXBackend(ONNXBackend):
         """Load the IMX model."""
         check_requirements(("model-compression-toolkit>=2.4.1", "edge-mdt-cl<1.1.0", "onnxruntime-extensions"))
         check_requirements(("onnx", "onnxruntime"))
-        import onnxruntime
         import mct_quantizers as mctq
+        import onnxruntime
         from edgemdt_cl.pytorch.nms import nms_ort  # noqa - register custom NMS ops
 
         w = Path(self.weights)

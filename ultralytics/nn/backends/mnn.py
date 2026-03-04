@@ -9,9 +9,9 @@ from typing import Any
 
 import torch
 
+from ultralytics.nn.backends.base import BaseBackend
 from ultralytics.utils import LOGGER
 from ultralytics.utils.checks import check_requirements
-from ultralytics.nn.backends.base import BaseBackend
 
 
 class MNNBackend(BaseBackend):

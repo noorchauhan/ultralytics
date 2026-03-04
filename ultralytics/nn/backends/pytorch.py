@@ -8,8 +8,8 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from ultralytics.utils import IS_JETSON, LOGGER, is_jetson
 from ultralytics.nn.backends.base import BaseBackend
+from ultralytics.utils import IS_JETSON, LOGGER, is_jetson
 
 
 class PyTorchBackend(BaseBackend):

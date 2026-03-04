@@ -9,9 +9,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ultralytics.utils.checks import check_suffix
-from ultralytics.utils.downloads import attempt_download_asset, is_url
-
 from ultralytics.nn.backends import (
     AxeleraBackend,
     CoreMLBackend,
@@ -24,12 +21,14 @@ from ultralytics.nn.backends import (
     PaddleBackend,
     PyTorchBackend,
     RKNNBackend,
-    TFLiteBackend,
     TensorFlowBackend,
     TensorRTBackend,
+    TFLiteBackend,
     TorchScriptBackend,
     TritonBackend,
 )
+from ultralytics.utils.checks import check_suffix
+from ultralytics.utils.downloads import attempt_download_asset, is_url
 
 
 def check_class_names(names: list | dict) -> dict[int, str]:

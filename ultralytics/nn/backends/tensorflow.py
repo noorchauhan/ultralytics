@@ -12,8 +12,8 @@ from typing import Any
 import numpy as np
 import torch
 
-from ultralytics.utils import LOGGER
 from ultralytics.nn.backends.base import BaseBackend
+from ultralytics.utils import LOGGER
 
 
 class TensorFlowBackend(BaseBackend):
