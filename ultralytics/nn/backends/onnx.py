@@ -19,39 +19,33 @@ class ONNXBackend(BaseBackend):
     Supports loading and inference with ONNX models (.onnx files).
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, dnn: bool = False, **kwargs: Any):
+    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, dnn: bool = False, **kwargs: Any):
         """Initialize ONNX backend.
 
         Args:
-            weights: Path to the .onnx model file.
+            weight: Path to the .onnx model file.
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
             dnn: Use OpenCV DNN module instead of ONNX Runtime.
             **kwargs: Additional arguments.
         """
-        super().__init__(weights, device, fp16, **kwargs)
         self.dnn = dnn  # Keep this to distinguish DNN vs ONNX Runtime
-        self.session = None
-        self.net = None
-        self.output_names = None
-        self.io = None
-        self.bindings = None
-        self.use_io_binding = False
+        super().__init__(weight, device, fp16, **kwargs)
 
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the ONNX model."""
         cuda = self.device.type != "cpu" and torch.cuda.is_available()
 
         if self.dnn:
             # OpenCV DNN
-            LOGGER.info(f"Loading {self.weights} for ONNX OpenCV DNN inference...")
+            LOGGER.info(f"Loading {weight} for ONNX OpenCV DNN inference...")
             check_requirements("opencv-python>=4.5.4")
             import cv2
 
-            self.net = cv2.dnn.readNetFromONNX(self.weights)
+            self.net = cv2.dnn.readNetFromONNX(weight)
         else:
             # ONNX Runtime
-            LOGGER.info(f"Loading {self.weights} for ONNX Runtime inference...")
+            LOGGER.info(f"Loading {weight} for ONNX Runtime inference...")
             check_requirements(("onnx", "onnxruntime-gpu" if cuda else "onnxruntime"))
             import onnxruntime
 
@@ -72,7 +66,7 @@ class ONNXBackend(BaseBackend):
                 f"{providers[0] if isinstance(providers[0], str) else providers[0][0]}"
             )
 
-            self.session = onnxruntime.InferenceSession(self.weights, providers=providers)
+            self.session = onnxruntime.InferenceSession(weight, providers=providers)
             self.output_names = [x.name for x in self.session.get_outputs()]
 
             # Get metadata
@@ -150,19 +144,19 @@ class ONNXIMXBackend(ONNXBackend):
     Supports inference on NXP i.MX devices with quantized models.
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
+    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
         """Initialize IMX backend.
 
         Args:
-            weights: Path to the IMX model directory.
+            weight: Path to the IMX model directory.
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
             **kwargs: Additional arguments.
         """
-        super().__init__(weights, device, fp16, **kwargs)
         self.device = torch.device("cpu")  # IMX always uses CPU
+        super().__init__(weight, device, fp16, **kwargs)
 
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the IMX model."""
         check_requirements(("model-compression-toolkit>=2.4.1", "edge-mdt-cl<1.1.0", "onnxruntime-extensions"))
         check_requirements(("onnx", "onnxruntime"))
@@ -170,7 +164,7 @@ class ONNXIMXBackend(ONNXBackend):
         import onnxruntime
         from edgemdt_cl.pytorch.nms import nms_ort  # noqa - register custom NMS ops
 
-        w = Path(self.weights)
+        w = Path(weight)
         onnx_file = next(w.glob("*.onnx"))
         LOGGER.info(f"Loading {onnx_file} for ONNX IMX inference...")
 

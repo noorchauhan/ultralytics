@@ -57,7 +57,7 @@ class BaseBackend(ABC):
         self.load_model(weight)
 
     @abstractmethod
-    def load_model(self) -> None:
+    def load_model(self, weight: str | torch.nn.Module) -> None:
         """Load the model from weight."""
         raise NotImplementedError
 

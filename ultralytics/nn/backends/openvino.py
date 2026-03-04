@@ -19,24 +19,9 @@ class OpenVINOBackend(BaseBackend):
     Supports loading and inference with OpenVINO IR models (*_openvino_model/ directories).
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
-        """Initialize OpenVINO backend.
-
-        Args:
-            weights: Path to the OpenVINO model directory or .xml file.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
-        """
-        super().__init__(weights, device, fp16, **kwargs)
-        self.ov = None
-        self.ov_compiled_model = None
-        self.input_name = None
-        self.inference_mode = "LATENCY"
-
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the OpenVINO model."""
-        LOGGER.info(f"Loading {self.weights} for OpenVINO inference...")
+        LOGGER.info(f"Loading {weight} for OpenVINO inference...")
         check_requirements("openvino>=2024.0.0")
         import openvino as ov
 
@@ -50,7 +35,7 @@ class OpenVINOBackend(BaseBackend):
                 LOGGER.warning(f"OpenVINO device '{device_name}' not available. Using 'AUTO' instead.")
                 device_name = "AUTO"
 
-        w = Path(self.weights)
+        w = Path(weight)
         if not w.is_file():
             w = next(w.glob("*.xml"))
 

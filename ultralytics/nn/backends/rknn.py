@@ -18,28 +18,16 @@ class RKNNBackend(BaseBackend):
     Supports loading and inference with RKNN models on Rockchip devices.
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
-        """Initialize RKNN backend.
-
-        Args:
-            weights: Path to the RKNN model file or directory.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
-        """
-        super().__init__(weights, device, fp16, **kwargs)
-        self.rknn_model = None
-
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the RKNN model."""
         if not is_rockchip():
             raise OSError("RKNN inference is only supported on Rockchip devices.")
 
-        LOGGER.info(f"Loading {self.weights} for RKNN inference...")
+        LOGGER.info(f"Loading {weight} for RKNN inference...")
         check_requirements("rknn-toolkit-lite2")
         from rknnlite.api import RKNNLite
 
-        w = Path(self.weights)
+        w = Path(weight)
         if not w.is_file():
             w = next(w.rglob("*.rknn"))
 

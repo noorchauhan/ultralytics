@@ -20,25 +20,25 @@ class CoreMLBackend(BaseBackend):
     Supports loading and inference with CoreML models (.mlpackage files).
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
+    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
         """Initialize CoreML backend.
 
         Args:
-            weights: Path to the .mlpackage model file.
+            weight: Path to the .mlpackage model file.
             device: Device to run inference on (always CPU for CoreML).
             fp16: Whether to use FP16 precision.
             **kwargs: Additional arguments.
         """
-        super().__init__(weights, device, fp16, **kwargs)
         self.device = torch.device("cpu")  # CoreML uses CPU
+        super().__init__(weight, device, fp16, **kwargs)
 
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the CoreML model."""
         check_requirements(["coremltools>=9.0", "numpy>=1.14.5,<=2.3.5"])
         import coremltools as ct
 
-        LOGGER.info(f"Loading {self.weights} for CoreML inference...")
-        self.model = ct.models.MLModel(str(self.weights))
+        LOGGER.info(f"Loading {weight} for CoreML inference...")
+        self.model = ct.models.MLModel(str(weight))
         self.dynamic = self.model.get_spec().description.input[0].type.HasField("multiArrayType")
 
         # Load metadata

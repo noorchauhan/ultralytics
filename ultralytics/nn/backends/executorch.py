@@ -18,27 +18,14 @@ class ExecuTorchBackend(BaseBackend):
     Supports loading and inference with ExecuTorch models (.pte files).
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
-        """Initialize ExecuTorch backend.
-
-        Args:
-            weights: Path to the .pte model file or directory.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
-        """
-        super().__init__(weights, device, fp16, **kwargs)
-        self.program = None
-        self.model = None
-
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the ExecuTorch model."""
-        LOGGER.info(f"Loading {self.weights} for ExecuTorch inference...")
+        LOGGER.info(f"Loading {weight} for ExecuTorch inference...")
         check_executorch_requirements()
 
         from executorch.runtime import Runtime
 
-        w = Path(self.weights)
+        w = Path(weight)
         if w.is_dir():
             model_file = next(w.rglob("*.pte"))
             metadata_file = w / "metadata.yaml"

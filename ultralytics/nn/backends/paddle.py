@@ -19,25 +19,11 @@ class PaddleBackend(BaseBackend):
     Supports loading and inference with PaddlePaddle models (*_paddle_model/ directories).
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
-        """Initialize PaddlePaddle backend.
-
-        Args:
-            weights: Path to the PaddlePaddle model directory.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
-        """
-        super().__init__(weights, device, fp16, **kwargs)
-        self.predictor = None
-        self.input_handle = None
-        self.output_names = None
-
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the PaddlePaddle model."""
         cuda = torch.cuda.is_available()
 
-        LOGGER.info(f"Loading {self.weights} for PaddlePaddle inference...")
+        LOGGER.info(f"Loading {weight} for PaddlePaddle inference...")
         if cuda:
             check_requirements("paddlepaddle-gpu>=3.0.0,!=3.3.0")
         elif ARM64:
@@ -47,7 +33,7 @@ class PaddleBackend(BaseBackend):
 
         import paddle.inference as pdi
 
-        w = Path(self.weights)
+        w = Path(weight)
         model_file, params_file = None, None
 
         if w.is_dir():

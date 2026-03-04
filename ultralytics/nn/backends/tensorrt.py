@@ -21,25 +21,9 @@ class TensorRTBackend(BaseBackend):
     Supports loading and inference with TensorRT engines (.engine files).
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
-        """Initialize TensorRT backend.
-
-        Args:
-            weights: Path to the .engine model file.
-            device: Device to run inference on (must be CUDA).
-            fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
-        """
-        super().__init__(weights, device, fp16, **kwargs)
-        self.context = None
-        self.bindings = None
-        self.binding_addrs = None
-        self.output_names = None
-        self.is_trt10 = False
-
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the TensorRT engine."""
-        LOGGER.info(f"Loading {self.weights} for TensorRT inference...")
+        LOGGER.info(f"Loading {weight} for TensorRT inference...")
 
         if IS_JETSON and check_version(PYTHON_VERSION, "<=3.8.10"):
             check_requirements("numpy==1.23.5")
@@ -61,7 +45,7 @@ class TensorRTBackend(BaseBackend):
         logger = trt.Logger(trt.Logger.INFO)
 
         # Read engine file
-        with open(self.weights, "rb") as f, trt.Runtime(logger) as runtime:
+        with open(weight, "rb") as f, trt.Runtime(logger) as runtime:
             try:
                 meta_len = int.from_bytes(f.read(4), byteorder="little")
                 metadata = json.loads(f.read(meta_len).decode("utf-8"))

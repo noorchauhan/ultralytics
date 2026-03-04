@@ -23,37 +23,36 @@ class TensorFlowBackend(BaseBackend):
     """
 
     def __init__(
-        self, weights: str | Path, device: torch.device, fp16: bool = False, is_savedmodel: bool = True, **kwargs: Any
+        self, weight: str | Path, device: torch.device, fp16: bool = False, is_savedmodel: bool = True, **kwargs: Any
     ):
         """Initialize TensorFlow backend.
 
         Args:
-            weights: Path to the SavedModel directory or .pb file.
+            weight: Path to the SavedModel directory or .pb file.
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
-            is_savedmodel: Whether weights is a SavedModel (True) or GraphDef (False).
+            is_savedmodel: Whether weight is a SavedModel (True) or GraphDef (False).
             **kwargs: Additional arguments.
         """
-        super().__init__(weights, device, fp16, **kwargs)
         self.saved_model = is_savedmodel  # Keep to distinguish SavedModel vs GraphDef
         self.pb = not is_savedmodel
-        self.frozen_func = None
+        super().__init__(weight, device, fp16, **kwargs)
 
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the TensorFlow model."""
         import tensorflow as tf
 
         if self.saved_model:
-            LOGGER.info(f"Loading {self.weights} for TensorFlow SavedModel inference...")
-            self.model = tf.saved_model.load(self.weights)
+            LOGGER.info(f"Loading {weight} for TensorFlow SavedModel inference...")
+            self.model = tf.saved_model.load(weight)
             # Load metadata
-            metadata_file = Path(self.weights) / "metadata.yaml"
+            metadata_file = Path(weight) / "metadata.yaml"
             if metadata_file.exists():
                 from ultralytics.utils import YAML
 
                 self.apply_metadata(YAML.load(metadata_file))
         else:
-            LOGGER.info(f"Loading {self.weights} for TensorFlow GraphDef inference...")
+            LOGGER.info(f"Loading {weight} for TensorFlow GraphDef inference...")
             from ultralytics.utils.export.tensorflow import gd_outputs
 
             def wrap_frozen_graph(gd, inputs, outputs):
@@ -63,14 +62,14 @@ class TensorFlowBackend(BaseBackend):
                 return x.prune(tf.nest.map_structure(ge, inputs), tf.nest.map_structure(ge, outputs))
 
             gd = tf.Graph().as_graph_def()
-            with open(self.weights, "rb") as f:
+            with open(weight, "rb") as f:
                 gd.ParseFromString(f.read())
             self.frozen_func = wrap_frozen_graph(gd, inputs="x:0", outputs=gd_outputs(gd))
 
             # Try to find metadata
             try:
                 metadata_file = next(
-                    Path(self.weights).resolve().parent.rglob(f"{Path(self.weights).stem}_saved_model*/metadata.yaml")
+                    Path(weight).resolve().parent.rglob(f"{Path(weight).stem}_saved_model*/metadata.yaml")
                 )
                 from ultralytics.utils import YAML
 
@@ -124,25 +123,21 @@ class TFLiteBackend(BaseBackend):
     """
 
     def __init__(
-        self, weights: str | Path, device: torch.device, fp16: bool = False, edgetpu: bool = False, **kwargs: Any
+        self, weight: str | Path, device: torch.device, fp16: bool = False, edgetpu: bool = False, **kwargs: Any
     ):
         """Initialize TFLite backend.
 
         Args:
-            weights: Path to the .tflite model file.
+            weight: Path to the .tflite model file.
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
             edgetpu: Whether this is an Edge TPU model.
             **kwargs: Additional arguments.
         """
-        super().__init__(weights, device, fp16, **kwargs)
         self.edgetpu = edgetpu  # Keep to distinguish Edge TPU vs regular TFLite
-        self.interpreter = None
-        self.input_details = None
-        self.output_details = None
-        self.tf = None
+        super().__init__(weight, device, fp16, **kwargs)
 
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the TFLite model."""
         try:
             from tflite_runtime.interpreter import Interpreter, load_delegate
@@ -157,18 +152,18 @@ class TFLiteBackend(BaseBackend):
         if self.edgetpu:
             device = str(self.device)
             device = device[3:] if device.startswith("tpu") else ":0"
-            LOGGER.info(f"Loading {self.weights} on device {device[1:]} for TensorFlow Lite Edge TPU inference...")
+            LOGGER.info(f"Loading {weight} on device {device[1:]} for TensorFlow Lite Edge TPU inference...")
             delegate = {"Linux": "libedgetpu.so.1", "Darwin": "libedgetpu.1.dylib", "Windows": "edgetpu.dll"}[
                 platform.system()
             ]
             self.interpreter = Interpreter(
-                model_path=str(self.weights),
+                model_path=str(weight),
                 experimental_delegates=[load_delegate(delegate, options={"device": device})],
             )
             self.device = torch.device("cpu")
         else:
-            LOGGER.info(f"Loading {self.weights} for TensorFlow Lite inference...")
-            self.interpreter = Interpreter(model_path=str(self.weights))
+            LOGGER.info(f"Loading {weight} for TensorFlow Lite inference...")
+            self.interpreter = Interpreter(model_path=str(weight))
 
         self.interpreter.allocate_tensors()
         self.input_details = self.interpreter.get_input_details()
@@ -176,7 +171,7 @@ class TFLiteBackend(BaseBackend):
 
         # Load metadata
         try:
-            with zipfile.ZipFile(self.weights, "r") as zf:
+            with zipfile.ZipFile(weight, "r") as zf:
                 name = zf.namelist()[0]
                 contents = zf.read(name).decode("utf-8")
                 if name == "metadata.json":

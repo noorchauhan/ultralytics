@@ -19,22 +19,9 @@ class NCNNBackend(BaseBackend):
     Supports loading and inference with NCNN models (*_ncnn_model/ directories).
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
-        """Initialize NCNN backend.
-
-        Args:
-            weights: Path to the NCNN model directory or .param file.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
-        """
-        super().__init__(weights, device, fp16, **kwargs)
-        self.net = None
-        self.pyncnn = None
-
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the NCNN model."""
-        LOGGER.info(f"Loading {self.weights} for NCNN inference...")
+        LOGGER.info(f"Loading {weight} for NCNN inference...")
         check_requirements("ncnn", cmds="--no-deps")
         import ncnn as pyncnn
 
@@ -50,7 +37,7 @@ class NCNNBackend(BaseBackend):
         elif cuda:
             self.net.opt.use_vulkan_compute = True
 
-        w = Path(self.weights)
+        w = Path(weight)
         if not w.is_file():
             w = next(w.glob("*.param"))
 

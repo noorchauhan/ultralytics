@@ -20,28 +20,15 @@ class MNNBackend(BaseBackend):
     Supports loading and inference with MNN models (.mnn files).
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
-        """Initialize MNN backend.
-
-        Args:
-            weights: Path to the .mnn model file.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
-        """
-        super().__init__(weights, device, fp16, **kwargs)
-        self.rt = None
-        self.net = None
-
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the MNN model."""
-        LOGGER.info(f"Loading {self.weights} for MNN inference...")
+        LOGGER.info(f"Loading {weight} for MNN inference...")
         check_requirements("MNN")
         import MNN
 
         config = {"precision": "low", "backend": "CPU", "numThread": (os.cpu_count() + 1) // 2}
         self.rt = MNN.nn.create_runtime_manager((config,))
-        self.net = MNN.nn.load_module_from_file(str(self.weights), [], [], runtime_manager=self.rt, rearrange=True)
+        self.net = MNN.nn.load_module_from_file(str(weight), [], [], runtime_manager=self.rt, rearrange=True)
 
         # Load metadata from bizCode
         info = self.net.get_info()

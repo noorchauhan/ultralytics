@@ -19,19 +19,7 @@ class AxeleraBackend(BaseBackend):
     Supports loading and inference with Axelera models on Axelera hardware.
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
-        """Initialize Axelera backend.
-
-        Args:
-            weights: Path to the Axelera model directory.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
-        """
-        super().__init__(weights, device, fp16, **kwargs)
-        self.model = None
-
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the Axelera model."""
         if not os.environ.get("AXELERA_RUNTIME_DIR"):
             LOGGER.warning(
@@ -50,7 +38,7 @@ class AxeleraBackend(BaseBackend):
             )
             from axelera.runtime import op
 
-        w = Path(self.weights)
+        w = Path(weight)
         found = next(w.rglob("*.axm"), None)
         if found is None:
             raise FileNotFoundError(f"No .axm file found in: {w}")

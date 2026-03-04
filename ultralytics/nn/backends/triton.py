@@ -17,24 +17,12 @@ class TritonBackend(BaseBackend):
     Supports loading and inference with models hosted on NVIDIA Triton Inference Server.
     """
 
-    def __init__(self, weights: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
-        """Initialize Triton backend.
-
-        Args:
-            weights: Triton model URL (triton://model_name).
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
-        """
-        super().__init__(weights, device, fp16, **kwargs)
-        self.fp16 &= fp16  # Triton supports FP16
-
-    def load_model(self) -> None:
+    def load_model(self, weight: str | Path) -> None:
         """Load the Triton remote model."""
         check_requirements("tritonclient[all]")
         from ultralytics.utils.triton import TritonRemoteModel
 
-        self.model = TritonRemoteModel(str(self.weights))
+        self.model = TritonRemoteModel(str(weight))
 
         # Copy metadata from Triton model
         if hasattr(self.model, "metadata"):
