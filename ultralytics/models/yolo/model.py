@@ -17,7 +17,6 @@ from ultralytics.nn.tasks import (
     PoseModel,
     SegmentationModel,
     WorldModel,
-    YOLOAnomalyDetectionModel,
     YOLOAnomalyModel,
     YOLOEModel,
     YOLOESegModel,
@@ -493,20 +492,15 @@ class YOLOAnomaly(Model):
         Raises:
             AssertionError: If the loaded model is not a YOLOEModel instance.
         """
-        super().__init__(model=model, task="detect", verbose=verbose)
-        if isinstance(self.model, YOLOEModel):
-            # YOLOE checkpoint (e.g. yoloe-v8s.pt) — use vocab-fusion path
-            if not isinstance(self.model, YOLOAnomalyModel):
+        super().__init__(model=model, task=None, verbose=verbose)
+        if not isinstance(self.model, YOLOAnomalyModel):
+            if isinstance(self.model, DetectionModel):
                 self.model.__class__ = YOLOAnomalyModel
-        elif isinstance(self.model, DetectionModel):
-            # Plain YOLO checkpoint (e.g. yolo26l.pt) — use AnomalyDetection head path
-            if not isinstance(self.model, YOLOAnomalyDetectionModel):
-                self.model.__class__ = YOLOAnomalyDetectionModel
-        else:
-            raise AssertionError(
-                f"YOLOAnomaly requires a DetectionModel or YOLOEModel checkpoint, "
-                f"but loaded {type(self.model).__name__}."
-            )
+            else:
+                raise AssertionError(
+                    f"YOLOAnomaly requires a DetectionModel or YOLOEModel checkpoint, "
+                    f"but loaded {type(self.model).__name__}."
+                )
 
     @property
     def task_map(self) -> dict[str, dict[str, Any]]:
@@ -532,16 +526,29 @@ class YOLOAnomaly(Model):
 
         Must be called before load_support_set() and predict().
 
+        Pass ``["anomaly"]`` (or any custom single name) to enable memory-bank cosine-similarity
+        scoring (nc=1).  Pass ``["detect"]`` to use the model's original classification head
+        scores with the original class names — useful for baseline comparison.
+
         Args:
-            names (list[str]): Anomaly class names, e.g. ["defect", "crack", "scratch"].
-            conf (float): Anomaly score threshold in [0, 1]. Lower = more sensitive.
+            names (list[str]): Anomaly class names, e.g. ["anomaly"] or ["defect", "scratch"].
+                Use ["detect"] as a special sentinel to start in original-classifier mode.
+            conf (float): Detection threshold in [0, 1]. Lower = more sensitive.
         """
-        assert isinstance(self.model, (YOLOAnomalyModel, YOLOAnomalyDetectionModel)), (
-            f"Expected YOLOAnomalyModel or YOLOAnomalyDetectionModel, got {type(self.model).__name__}. "
+        assert isinstance(self.model, YOLOAnomalyModel), (
+            f"Expected YOLOAnomalyModel, got {type(self.model).__name__}. "
             "Ensure you loaded a YOLOE or plain YOLO detection model."
         )
-        self.model.setup_anomaly_detection(names, conf)
-        self.model.names = {i: n for i, n in enumerate(names)}
+        detect_mode = names == ["detect"]
+        if detect_mode:
+            # Use the model's current (original) class names so vocab embeddings are correct
+            init_names = list(self.model.names.values())
+        else:
+            init_names = names
+        self.model.setup_anomaly_detection(init_names, conf)
+        if detect_mode:
+            self.model.set_anomaly_mode(False)  # confidence = original head scores
+        # names are already set correctly inside setup_anomaly_detection / set_anomaly_mode
 
     def load_support_set(
         self,
@@ -573,7 +580,7 @@ class YOLOAnomaly(Model):
         """
         from ultralytics.utils import LOGGER
 
-        assert isinstance(self.model, (YOLOAnomalyModel, YOLOAnomalyDetectionModel)), (
+        assert isinstance(self.model, YOLOAnomalyModel), (
             "Call setup() before load_support_set()."
         )
         if verbose:
@@ -593,7 +600,7 @@ class YOLOAnomaly(Model):
 
         Does not require reloading the model.
         """
-        assert isinstance(self.model, (YOLOAnomalyModel, YOLOAnomalyDetectionModel))
+        assert isinstance(self.model, YOLOAnomalyModel)
         self.model.reset_memory_bank()
 
     def get_memory_bank_stats(self) -> list[dict]:
@@ -603,7 +610,7 @@ class YOLOAnomaly(Model):
         Returns:
             list[dict]: Per-head stats with keys 'size', 'feature_dim', 'num_batches'.
         """
-        assert isinstance(self.model, (YOLOAnomalyModel, YOLOAnomalyDetectionModel))
+        assert isinstance(self.model, YOLOAnomalyModel)
         return self.model.get_memory_bank_stats()
 
     def set_mode(self, mode: str) -> None:
@@ -626,7 +633,7 @@ class YOLOAnomaly(Model):
             >>> model.set_mode("anomaly")  # switch back to memory-bank scoring
         """
         assert mode in ("anomaly", "detect"), f"mode must be 'anomaly' or 'detect', got {mode!r}"
-        assert isinstance(self.model, (YOLOAnomalyModel, YOLOAnomalyDetectionModel)), (
+        assert isinstance(self.model, YOLOAnomalyModel), (
             "Call setup() before set_mode()."
         )
         self.model.set_anomaly_mode(mode == "anomaly")

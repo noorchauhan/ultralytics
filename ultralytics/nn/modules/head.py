@@ -2130,22 +2130,30 @@ class AnomalyDetection(Detect):
         super().__init__(nc, reg_max, end2end, ch)
         self.adhead = None  # Anomaly detection head will be built separately with build_adhead()
 
-    def build_adhead(self, head, conf=0.1, max_det=1000):
-        """Build anomaly detection sub-heads, supporting both end2end and non-end2end models.
+    def build_adhead(self, conf=0.1, max_det=1000):
+        """Build anomaly detection sub-heads from self's cv2/cv3 layers.
 
-        End2end models (yolo26, YOLOE-seg): have `one2one_cv2` / `one2one_cv3`.
-        Non-end2end models (yolov8, yolov5 …): only have `cv2` / `cv3`.
+        Saves the final conv layers BEFORE deep-copying and truncating, so adhead
+        always receives the original (pre-truncation) final layers.
+
+        End2end models (yolo26, YOLOE-seg): use `one2one_cv2` / `one2one_cv3`.
+        Non-end2end models (yolov8, yolov5 …): use `cv2` / `cv3`.
         """
-        self.original_nc = self.nc  # save for set_anomaly_mode(False)
         import copy
+        self.original_nc = self.nc  # save for set_anomaly_mode(False)
 
-        # Choose the right cv2/cv3 branch from the source head
-        _e2e = hasattr(head, "one2one_cv2")
-        src_cv2 = head.one2one_cv2 if _e2e else head.cv2
-        src_cv3 = head.one2one_cv3 if _e2e else head.cv3
+        _e2e = hasattr(self, "one2one_cv2")
+        src_cv2 = self.one2one_cv2 if _e2e else self.cv2
+        src_cv3 = self.one2one_cv3 if _e2e else self.cv3
         assert len(src_cv2) == self.nl, "Number of heads must match number of feature levels."
 
-        # Deep-copy and truncate (remove last layer) in the *self* branch we'll run features through
+        # Save references to the original final layers BEFORE any rebinding.
+        # These become the vocab / loc modules of each AnomalyDetectionLRPCHead.
+        saved_vocab = [src_cv3[i][-1] for i in range(self.nl)]
+        saved_loc   = [src_cv2[i][-1] for i in range(self.nl)]
+
+        # Deep-copy and truncate the cv branches so the backbone features are
+        # forwarded up to (but not including) the original final projection.
         if _e2e:
             self.one2one_cv2 = copy.deepcopy(self.one2one_cv2)
             self.one2one_cv3 = copy.deepcopy(self.one2one_cv3)
@@ -2161,18 +2169,25 @@ class AnomalyDetection(Detect):
             del loc_head[-1]
             del cls_head[-1]
 
-        # adhead holds the detached last layers from the original head
         self.adhead = nn.ModuleList(
-            AnomalyDetectionLRPCHead(
-                vocab=src_cv3[i][-1],
-                pf=None,
-                loc=src_cv2[i][-1],
-                enabled=True,
-            )
+            AnomalyDetectionLRPCHead(vocab=saved_vocab[i], pf=None, loc=saved_loc[i], enabled=True)
             for i in range(self.nl)
         )
         self.conf = conf
         self.max_det = max_det
+
+    def postprocess(self, preds: torch.Tensor) -> torch.Tensor:
+        """Postprocess end2end predictions using actual score-channel count.
+
+        Reads the number of score channels from the tensor itself instead of
+        `self.nc`, so it stays correct regardless of when set_anomaly_mode() is
+        called relative to the forward pass.
+        """
+        nc_actual = preds.shape[-1] - 4  # preds: [B, N, 4+nc]
+        boxes, scores = preds.split([4, nc_actual], dim=-1)
+        scores, conf, idx = self.get_topk_index(scores, self.max_det)
+        boxes = boxes.gather(dim=1, index=idx.repeat(1, 1, 4))
+        return torch.cat([boxes, scores, conf], dim=-1)
 
     def set_anomaly_mode(self, anomaly_mode: bool) -> None:
         """Switch between anomaly scoring (nc=1) and original classification (nc=original_nc).
@@ -2185,8 +2200,6 @@ class AnomalyDetection(Detect):
         self.nc = 1 if anomaly_mode else getattr(self, "original_nc", self.nc)
         for h in self.adhead:
             h.anomaly_mode = anomaly_mode
-        # nc must match the scores channel dimension for postprocess split([4, nc])
-        self.nc = 1 if anomaly_mode else getattr(self, "original_nc", self.nc)
 
     def _get_decode_boxes(self, x):
         """Decode boxes; for end2end filter to anomaly-selected positions, for non-end2end keep all."""
