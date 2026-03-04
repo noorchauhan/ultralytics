@@ -269,11 +269,9 @@ class AutoBackend(nn.Module):
             im = im.permute(0, 2, 3, 1)  # torch BCHW to numpy BHWC shape(1,320,192,3)
 
         # Build forward kwargs based on backend type
+        forward_kwargs = {}
         if self.format == "pt":
             forward_kwargs = {"augment": augment, "visualize": visualize, "embed": embed, **kwargs}
-        else:
-            # Pass task and image dimensions for coordinate scaling (used by some backends)
-            forward_kwargs = {"task": self.task}
 
         y = self.backend.forward(im, **forward_kwargs)
 
