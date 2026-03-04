@@ -51,12 +51,11 @@ class NCNNBackend(BaseBackend):
 
             self.apply_metadata(YAML.load(metadata_file))
 
-    def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Run NCNN inference.
 
         Args:
             im: Input image tensor in BCHW format.
-            **kwargs: Additional arguments.
 
         Returns:
             Model output tensor(s).

@@ -76,12 +76,11 @@ class TensorFlowBackend(BaseBackend):
             except StopIteration:
                 pass
 
-    def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Run TensorFlow inference.
 
         Args:
             im: Input image tensor in BCHW format.
-            **kwargs: Additional arguments.
 
         Returns:
             Model output tensor(s).
@@ -103,7 +102,7 @@ class TensorFlowBackend(BaseBackend):
         y = [x.numpy() if hasattr(x, "numpy") else x for x in y]
 
         # Handle segmentation task output ordering
-        task = kwargs.get("task", self.task)
+        task = self.task
         if task == "segment":
             if len(y) == 2 and len(y[1].shape) != 4:
                 y = list(reversed(y))
@@ -178,12 +177,11 @@ class TFLiteBackend(BaseBackend):
         except (zipfile.BadZipFile, SyntaxError, ValueError, json.JSONDecodeError):
             pass
 
-    def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Run TFLite inference.
 
         Args:
             im: Input image tensor in BCHW format.
-            **kwargs: Additional arguments (includes h, w for coordinate scaling).
 
         Returns:
             Model output tensor(s).
@@ -224,8 +222,7 @@ class TFLiteBackend(BaseBackend):
             y.append(x)
 
         # Handle segmentation
-        task = kwargs.get("task", self.task)
-        if task == "segment":
+        if self.task == "segment":
             if len(y) == 2 and len(y[1].shape) != 4:
                 y = list(reversed(y))
             if y[1].shape[-1] == 6:

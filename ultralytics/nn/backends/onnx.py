@@ -97,12 +97,11 @@ class ONNXBackend(BaseBackend):
                     )
                     self.bindings.append(y_tensor)
 
-    def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Run ONNX inference.
 
         Args:
             im: Input image tensor in BCHW format.
-            **kwargs: Additional arguments.
 
         Returns:
             Model output tensor(s).
@@ -166,26 +165,24 @@ class ONNXIMXBackend(ONNXBackend):
         if metadata_map:
             self.apply_metadata(dict(metadata_map))
 
-    def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Run IMX inference with task-specific output formatting.
 
         Args:
             im: Input image tensor in BCHW format.
-            **kwargs: Additional arguments.
 
         Returns:
             Model output tensor(s).
         """
         y = self.session.run(self.output_names, {self.session.get_inputs()[0].name: im.cpu().numpy()})
 
-        task = kwargs.get("task", self.task)
-        if task == "detect":
+        if self.task == "detect":
             # boxes, conf, cls
             y = np.concatenate([y[0], y[1][:, :, None], y[2][:, :, None]], axis=-1)
-        elif task == "pose":
+        elif self.task == "pose":
             # boxes, conf, kpts
             y = np.concatenate([y[0], y[1][:, :, None], y[2][:, :, None], y[3]], axis=-1, dtype=y[0].dtype)
-        elif task == "segment":
+        elif self.task == "segment":
             y = (
                 np.concatenate([y[0], y[1][:, :, None], y[2][:, :, None], y[3]], axis=-1, dtype=y[0].dtype),
                 y[4],

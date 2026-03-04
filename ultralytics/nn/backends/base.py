@@ -60,12 +60,11 @@ class BaseBackend(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Run inference on the input image.
 
         Args:
             im: Input image tensor in BCHW format.
-            **kwargs: Additional arguments for inference.
 
         Returns:
             Model output tensor(s).

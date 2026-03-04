@@ -32,12 +32,11 @@ class CoreMLBackend(BaseBackend):
         # Load metadata
         self.apply_metadata(dict(self.model.user_defined_metadata))
 
-    def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Run CoreML inference.
 
         Args:
             im: Input image tensor in BCHW format.
-            **kwargs: Additional arguments (includes h, w for coordinate scaling).
 
         Returns:
             Model output tensor(s).

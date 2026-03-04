@@ -51,12 +51,11 @@ class MNNBackend(BaseBackend):
 
         return MNN.expr.const(x.data_ptr(), x.shape)
 
-    def forward(self, im: torch.Tensor, **kwargs: Any) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Run MNN inference.
 
         Args:
             im: Input image tensor in BCHW format.
-            **kwargs: Additional arguments.
 
         Returns:
             Model output tensor(s).
