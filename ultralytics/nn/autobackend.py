@@ -360,15 +360,6 @@ class AutoBackend(nn.Module):
         Args:
             imgsz (tuple[int, int, int, int]): Dummy input shape in (batch, channels, height, width) format.
         """
-        # Delegate to backend's warmup method
-        self.backend.warmup(imgsz)
-
-    def warmup(self, imgsz: tuple[int, int, int, int] = (1, 3, 640, 640)) -> None:
-        """Warm up the model by running forward pass(es) with a dummy input.
-
-        Args:
-            imgsz (tuple[int, int, int, int]): Dummy input shape in (batch, channels, height, width) format.
-        """
         from ultralytics.utils.nms import non_max_suppression
 
         if self.format in {"pt", "jit", "onnx", "engine", "saved_model", "pb", "triton", "nn_module"} and (
