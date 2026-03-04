@@ -71,8 +71,7 @@ class PaddleBackend(BaseBackend):
         Returns:
             Model output tensor(s).
         """
-        im_np = im.cpu().numpy().astype(np.float32)
-        self.input_handle.copy_from_cpu(im_np)
+        self.input_handle.copy_from_cpu(im.cpu().numpy().astype(np.float32))
         self.predictor.run()
         y = [self.predictor.get_output_handle(x).copy_to_cpu() for x in self.output_names]
 

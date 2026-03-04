@@ -60,11 +60,7 @@ class PyTorchBackend(BaseBackend):
         self.stride = max(int(model.stride.max()), 32) if hasattr(model, "stride") else 32
         self.names = model.module.names if hasattr(model, "module") else getattr(model, "names", {})
         self.ch = model.yaml.get("channels", 3) if hasattr(model, "yaml") else 3
-
-        if self.fp16:
-            model.half()
-        else:
-            model.float()
+        model.half() if self.fp16 else model.float()
 
         for p in model.parameters():
             p.requires_grad = False
@@ -117,11 +113,7 @@ class TorchScriptBackend(BaseBackend):
         LOGGER.info(f"Loading {weight} for TorchScript inference...")
         extra_files = {"config.txt": ""}
         self.model = torch.jit.load(weight, _extra_files=extra_files, map_location=self.device)
-
-        if self.fp16:
-            self.model.half()
-        else:
-            self.model.float()
+        self.model.half() if self.fp16 else self.model.float()
 
         if extra_files["config.txt"]:
             self.apply_metadata(json.loads(extra_files["config.txt"], object_hook=lambda x: dict(x.items())))

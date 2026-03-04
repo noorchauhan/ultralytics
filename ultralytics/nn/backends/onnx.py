@@ -144,18 +144,6 @@ class ONNXIMXBackend(ONNXBackend):
     Supports inference on NXP i.MX devices with quantized models.
     """
 
-    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
-        """Initialize IMX backend.
-
-        Args:
-            weight: Path to the IMX model directory.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
-        """
-        self.device = torch.device("cpu")  # IMX always uses CPU
-        super().__init__(weight, device, fp16, **kwargs)
-
     def load_model(self, weight: str | Path) -> None:
         """Load the IMX model."""
         check_requirements(("model-compression-toolkit>=2.4.1", "edge-mdt-cl<1.1.0", "onnxruntime-extensions"))
@@ -189,8 +177,7 @@ class ONNXIMXBackend(ONNXBackend):
         Returns:
             Model output tensor(s).
         """
-        im_np = im.cpu().numpy()
-        y = self.session.run(self.output_names, {self.session.get_inputs()[0].name: im_np})
+        y = self.session.run(self.output_names, {self.session.get_inputs()[0].name: im.cpu().numpy()})
 
         task = kwargs.get("task", self.task)
         if task == "detect":

@@ -150,8 +150,7 @@ class TFLiteBackend(BaseBackend):
             Interpreter, load_delegate = tf.lite.Interpreter, tf.lite.experimental.load_delegate
 
         if self.edgetpu:
-            device = str(self.device)
-            device = device[3:] if device.startswith("tpu") else ":0"
+            device = device[3:] if str(self.device).startswith("tpu") else ":0"
             LOGGER.info(f"Loading {weight} on device {device[1:]} for TensorFlow Lite Edge TPU inference...")
             delegate = {"Linux": "libedgetpu.so.1", "Darwin": "libedgetpu.1.dylib", "Windows": "edgetpu.dll"}[
                 platform.system()
@@ -160,10 +159,10 @@ class TFLiteBackend(BaseBackend):
                 model_path=str(weight),
                 experimental_delegates=[load_delegate(delegate, options={"device": device})],
             )
-            self.device = torch.device("cpu")
+            self.device = torch.device("cpu")  # Required, otherwise PyTorch will try to use the wrong device
         else:
             LOGGER.info(f"Loading {weight} for TensorFlow Lite inference...")
-            self.interpreter = Interpreter(model_path=str(weight))
+            self.interpreter = Interpreter(model_path=weight)
 
         self.interpreter.allocate_tensors()
         self.input_details = self.interpreter.get_input_details()
@@ -191,7 +190,7 @@ class TFLiteBackend(BaseBackend):
         Returns:
             Model output tensor(s).
         """
-        im_np = im.cpu().numpy()
+        im = im.cpu().numpy()
         h, w = kwargs.get("h", im.shape[2]), kwargs.get("w", im.shape[3])
 
         details = self.input_details[0]
@@ -199,9 +198,9 @@ class TFLiteBackend(BaseBackend):
 
         if is_int:
             scale, zero_point = details["quantization"]
-            im_np = (im_np / scale + zero_point).astype(details["dtype"])
+            im = (im / scale + zero_point).astype(details["dtype"])
 
-        self.interpreter.set_tensor(details["index"], im_np)
+        self.interpreter.set_tensor(details["index"], im)
         self.interpreter.invoke()
 
         y = []

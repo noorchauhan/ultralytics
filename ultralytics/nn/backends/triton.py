@@ -22,7 +22,7 @@ class TritonBackend(BaseBackend):
         check_requirements("tritonclient[all]")
         from ultralytics.utils.triton import TritonRemoteModel
 
-        self.model = TritonRemoteModel(str(weight))
+        self.model = TritonRemoteModel(weight)
 
         # Copy metadata from Triton model
         if hasattr(self.model, "metadata"):
