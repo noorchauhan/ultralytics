@@ -133,7 +133,6 @@ class AutoBackend(nn.Module):
     """
 
     _BACKEND_MAP = {
-        "nn_module": PyTorchBackend,
         "pt": PyTorchBackend,
         "jit": TorchScriptBackend,
         "onnx": ONNXBackend,
@@ -178,23 +177,18 @@ class AutoBackend(nn.Module):
             verbose (bool): Enable verbose logging.
         """
         super().__init__()
-        nn_module = isinstance(model, nn.Module)
-
         # Determine model format from path/URL
-        format = "nn_module" if nn_module else self._model_type(model, dnn)
+        format = "pt" if isinstance(model, nn.Module) else self._model_type(model, dnn)
 
         # Check if format supports FP16
-        fp16_supported = format in {"pt", "jit", "onnx", "openvino", "engine", "triton", "nn_module"}
+        fp16_supported = format in {"pt", "jit", "onnx", "openvino", "engine", "triton"}
         fp16 &= fp16_supported
 
         # Set device
         cuda = isinstance(device, torch.device) and torch.cuda.is_available() and device.type != "cpu"
-        if cuda and format not in {"pt", "jit", "engine", "onnx", "paddle", "nn_module"}:
+        if cuda and format not in {"pt", "jit", "engine", "onnx", "paddle"}:
             device = torch.device("cpu")
             cuda = False
-
-        # Download if not local
-        w = attempt_download_asset(model) if format == "pt" else model
 
         # Select and initialize the appropriate backend
         backend_kwargs = {"device": device, "fp16": fp16}
@@ -203,7 +197,7 @@ class AutoBackend(nn.Module):
             from ultralytics.engine.exporter import export_formats
 
             raise TypeError(
-                f"model='{w}' is not a supported model format. "
+                f"model='{model}' is not a supported model format. "
                 f"Ultralytics supports: {export_formats()['Format']}\n"
                 f"See https://docs.ultralytics.com/modes/predict for help."
             )
@@ -222,7 +216,7 @@ class AutoBackend(nn.Module):
             backend_kwargs["edgetpu"] = True
         elif format == "tfjs":
             raise NotImplementedError("Ultralytics TF.js inference is not currently supported.")
-        self.backend = self._BACKEND_MAP[format](w, **backend_kwargs)
+        self.backend = self._BACKEND_MAP[format](model, **backend_kwargs)
         self.backend.load_model()
 
         self.nhwc = format in {"coreml", "saved_model", "pb", "tflite", "edgetpu", "rknn"}
@@ -277,7 +271,7 @@ class AutoBackend(nn.Module):
             im = im.permute(0, 2, 3, 1)  # torch BCHW to numpy BHWC shape(1,320,192,3)
 
         # Build forward kwargs based on backend type
-        if self.format in {"pt", "nn_module"}:
+        if self.format == "pt":
             forward_kwargs = {"augment": augment, "visualize": visualize, "embed": embed, **kwargs}
         else:
             # Pass task and image dimensions for coordinate scaling (used by some backends)
@@ -316,7 +310,7 @@ class AutoBackend(nn.Module):
         """
         from ultralytics.utils.nms import non_max_suppression
 
-        if self.format in {"pt", "jit", "onnx", "engine", "saved_model", "pb", "triton", "nn_module"} and (
+        if self.format in {"pt", "jit", "onnx", "engine", "saved_model", "pb", "triton"} and (
             self.device.type != "cpu" or self.format == "triton"
         ):
             im = torch.empty(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
