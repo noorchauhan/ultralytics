@@ -130,6 +130,7 @@ fliplr: 0.5 # (float) horizontal flip probability
 bgr: 0.0 # (float) RGB↔BGR channel swap probability
 mosaic: 1.0 # (float) mosaic augmentation probability
 mosaic_use_cache: True # (bool) cache RT-DETR DEIM mosaic source samples
+rtdetr_input_normalize: False # (bool) apply RT-DETR mean/std normalization after /255 in train/val preprocess
 mixup: 0.0 # (float) MixUp augmentation probability
 cutmix: 0.0 # (float) CutMix augmentation probability
 copy_paste: 0.0 # (float) segmentation copy-paste probability

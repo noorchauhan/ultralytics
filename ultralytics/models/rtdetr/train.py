@@ -47,6 +47,18 @@ class RTDETRTrainer(DetectionTrainer):
         - AMP training can lead to NaN outputs and may produce errors during bipartite graph matching.
     """
 
+    def _maybe_normalize_input(self, img: torch.Tensor) -> torch.Tensor:
+        """Optionally apply DEIM-style mean/std normalization after /255 scaling."""
+        if not bool(self.args.rtdetr_input_normalize):
+            return img
+        if img.shape[1] != 3:
+            raise ValueError(f"rtdetr_input_normalize expects 3-channel input, got shape={tuple(img.shape)}.")
+        mean = (0.485, 0.456, 0.406)
+        std = (0.229, 0.224, 0.225)
+        mean_t = img.new_tensor(mean).view(1, 3, 1, 1)
+        std_t = img.new_tensor(std).view(1, 3, 1, 1)
+        return (img - mean_t) / std_t
+
     def _sample_multiscale_size(self) -> int:
         """Sample multi-scale size using legacy range, with optional base-size repeat weighting."""
         low = int(self.args.imgsz * (1.0 - self.args.multi_scale))
@@ -74,6 +86,7 @@ class RTDETRTrainer(DetectionTrainer):
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
         batch["img"] = batch["img"].float() / 255
+        batch["img"] = self._maybe_normalize_input(batch["img"])
         if self.args.multi_scale > 0.0:
             imgs = batch["img"]
             sz = self._sample_multiscale_size()

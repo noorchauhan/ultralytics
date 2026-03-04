@@ -133,6 +133,27 @@ class RTDETRValidator(DetectionValidator):
         For further details on the attributes and methods, refer to the parent DetectionValidator class.
     """
 
+    def _maybe_normalize_input(self, img: torch.Tensor) -> torch.Tensor:
+        """Optionally apply DEIM-style mean/std normalization after /255 scaling."""
+        if not bool(self.args.rtdetr_input_normalize):
+            return img
+        if img.shape[1] != 3:
+            raise ValueError(f"rtdetr_input_normalize expects 3-channel input, got shape={tuple(img.shape)}.")
+        mean = (0.485, 0.456, 0.406)
+        std = (0.229, 0.224, 0.225)
+        mean_t = img.new_tensor(mean).view(1, 3, 1, 1)
+        std_t = img.new_tensor(std).view(1, 3, 1, 1)
+        return (img - mean_t) / std_t
+
+    def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
+        """Preprocess validation batch and optionally apply RT-DETR mean/std normalization."""
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
+        batch["img"] = (batch["img"].half() if self.args.half else batch["img"].float()) / 255
+        batch["img"] = self._maybe_normalize_input(batch["img"])
+        return batch
+
     def build_dataset(self, img_path, mode="val", batch=None):
         """Build an RTDETR Dataset.
 
