@@ -32,14 +32,13 @@ class BaseBackend(ABC):
         metadata (dict | None): Model metadata dictionary or None if not available.
     """
 
-    def __init__(self, weight: str | torch.nn.Module, device: torch.device | str, fp16: bool = False, **kwargs: Any):
+    def __init__(self, weight: str | torch.nn.Module, device: torch.device | str, fp16: bool = False):
         """Initialize the base backend.
 
         Args:
             weight: Path to the model weight or a torch.nn.Module instance.
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
-            **kwargs: Additional backend-specific arguments.
         """
         self.device = device
         self.fp16 = fp16

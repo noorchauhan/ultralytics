@@ -23,7 +23,7 @@ class TensorFlowBackend(BaseBackend):
     """
 
     def __init__(
-        self, weight: str | Path, device: torch.device, fp16: bool = False, is_savedmodel: bool = True, **kwargs: Any
+        self, weight: str | Path, device: torch.device, fp16: bool = False, is_savedmodel: bool = True
     ):
         """Initialize TensorFlow backend.
 
@@ -32,11 +32,10 @@ class TensorFlowBackend(BaseBackend):
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
             is_savedmodel: Whether weight is a SavedModel (True) or GraphDef (False).
-            **kwargs: Additional arguments.
         """
         self.saved_model = is_savedmodel  # Keep to distinguish SavedModel vs GraphDef
         self.pb = not is_savedmodel
-        super().__init__(weight, device, fp16, **kwargs)
+        super().__init__(weight, device, fp16)
 
     def load_model(self, weight: str | Path) -> None:
         """Load the TensorFlow model."""
@@ -123,7 +122,7 @@ class TFLiteBackend(BaseBackend):
     """
 
     def __init__(
-        self, weight: str | Path, device: torch.device, fp16: bool = False, edgetpu: bool = False, **kwargs: Any
+        self, weight: str | Path, device: torch.device, fp16: bool = False, edgetpu: bool = False
     ):
         """Initialize TFLite backend.
 
@@ -132,10 +131,9 @@ class TFLiteBackend(BaseBackend):
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
             edgetpu: Whether this is an Edge TPU model.
-            **kwargs: Additional arguments.
         """
         self.edgetpu = edgetpu  # Keep to distinguish Edge TPU vs regular TFLite
-        super().__init__(weight, device, fp16, **kwargs)
+        super().__init__(weight, device, fp16)
 
     def load_model(self, weight: str | Path) -> None:
         """Load the TFLite model."""

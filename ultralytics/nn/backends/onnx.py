@@ -19,7 +19,7 @@ class ONNXBackend(BaseBackend):
     Supports loading and inference with ONNX models (.onnx files).
     """
 
-    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, dnn: bool = False, **kwargs: Any):
+    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, dnn: bool = False):
         """Initialize ONNX backend.
 
         Args:
@@ -27,10 +27,9 @@ class ONNXBackend(BaseBackend):
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
             dnn: Use OpenCV DNN module instead of ONNX Runtime.
-            **kwargs: Additional arguments.
         """
         self.dnn = dnn  # Keep this to distinguish DNN vs ONNX Runtime
-        super().__init__(weight, device, fp16, **kwargs)
+        super().__init__(weight, device, fp16)
 
     def load_model(self, weight: str | Path) -> None:
         """Load the ONNX model."""

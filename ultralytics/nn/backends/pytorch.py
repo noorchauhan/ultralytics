@@ -25,7 +25,6 @@ class PyTorchBackend(BaseBackend):
         fp16: bool = False,
         fuse: bool = True,
         verbose: bool = True,
-        **kwargs: Any,
     ):
         """Initialize PyTorch backend.
 
@@ -35,11 +34,10 @@ class PyTorchBackend(BaseBackend):
             fp16: Whether to use FP16 precision.
             fuse: Whether to fuse Conv2D + BatchNorm layers.
             verbose: Whether to print verbose messages.
-            **kwargs: Additional arguments.
         """
         self.fuse = fuse
         self.verbose = verbose
-        super().__init__(weight, device, fp16, **kwargs)
+        super().__init__(weight, device, fp16)
 
     def load_model(self, weight: str | torch.nn.Module) -> None:
         """Load the PyTorch model."""
@@ -94,16 +92,15 @@ class TorchScriptBackend(BaseBackend):
     Supports loading and inference with TorchScript models (.torchscript files).
     """
 
-    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, **kwargs: Any):
+    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False):
         """Initialize TorchScript backend.
 
         Args:
             weight: Path to the .torchscript model file.
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
-            **kwargs: Additional arguments.
         """
-        super().__init__(weight, device, fp16, **kwargs)
+        super().__init__(weight, device, fp16)
 
     def load_model(self, weight: str) -> None:
         """Load the TorchScript model."""
