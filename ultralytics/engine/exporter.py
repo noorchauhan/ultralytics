@@ -1043,7 +1043,7 @@ class Exporter:
         ):
             LOGGER.warning(
                 f"{prefix} disabling trt_hardware_compatibility_level='{trt_hw_compat_level}' because it is supported "
-                f"on Thor/DGX Spark (ARM64) only with TensorRT 10.13.3.9 (found {trt.__version__})."
+                f"on Jetson Thor and DGX Spark (ARM64) only with TensorRT 10.13.3.9 (found {trt.__version__})."
             )
             trt_hw_compat_level = "none"
         onnx2engine(
