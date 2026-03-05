@@ -57,7 +57,7 @@ class ClassificationPredictor(BasePredictor):
             else False
         )
         self.transforms = (
-            classify_transforms(self.imgsz) if updated or not self.model.pt else self.model.model.transforms
+            classify_transforms(self.imgsz) if updated or self.model.format != "pt" else self.model.model.transforms
         )
 
     def preprocess(self, img):
