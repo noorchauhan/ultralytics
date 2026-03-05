@@ -349,8 +349,28 @@ class AutoBackend(nn.Module):
                 format = "triton"
         return format
 
-    def eval(self):
+    def eval(self) -> AutoBackend:
         """Set the backend model to evaluation mode if supported."""
         if hasattr(self.backend, "model") and hasattr(self.backend.model, "eval"):
             self.backend.model.eval()
+        return self
+
+    def _apply(self, fn) -> AutoBackend:
+        """Apply a function to backend.model parameters, buffers, and tensors.
+
+        This method extends the functionality of the parent class's _apply method by additionally resetting the
+        predictor and updating the device in the model's overrides. It's typically used for operations like moving the
+        model to a different device or changing its precision.
+
+        Args:
+            fn (Callable): A function to be applied to the model's tensors. This is typically a method like to(), cpu(),
+                cuda(), half(), or float().
+
+        Returns:
+            (AutoBackend): The model instance with the function applied and updated attributes.
+        """
+        self = super()._apply(fn)
+        if hasattr(self.backend, "model") and isinstance(self.backend.model, nn.Module):
+            self.backend.model._apply(fn)
+            self.backend.device = next(self.backend.model.parameters()).device  # device change
         return self
