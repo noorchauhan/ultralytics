@@ -73,7 +73,8 @@ def default_class_names(data: str | Path | None = None) -> dict[int, str]:
     """
     if data:
         try:
-            from ultralytics.utils import YAML, check_yaml
+            from ultralytics.utils import YAML
+            from ultralytics.utils.checks import check_yaml
 
             return YAML.load(check_yaml(data))["names"]
         except Exception:
