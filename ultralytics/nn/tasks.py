@@ -1009,7 +1009,11 @@ class RTDETRDetectionModel(DetectionModel):
         if supports_dfine:
             loss_kwargs["dfine_meta"] = dfine_meta
             loss_kwargs["matcher_epoch"] = matcher_epoch
-        loss = self.criterion((dec_bboxes, dec_scores), targets, **loss_kwargs)
+        if supports_dfine:
+            with torch.autocast(device_type=img.device.type, enabled=False):
+                loss = self.criterion((dec_bboxes, dec_scores), targets, **loss_kwargs)
+        else:
+            loss = self.criterion((dec_bboxes, dec_scores), targets, **loss_kwargs)
 
         # One-to-many loss (auxiliary)
         if self.training and one_to_many_groups > 0:
@@ -1023,7 +1027,11 @@ class RTDETRDetectionModel(DetectionModel):
             if supports_dfine:
                 loss_o2m_kwargs["dfine_meta"] = dfine_meta_o2m
                 loss_o2m_kwargs["matcher_epoch"] = matcher_epoch
-            loss_o2m = self.criterion((o2m_bboxes, o2m_scores), targets_o2m, **loss_o2m_kwargs)
+            if supports_dfine:
+                with torch.autocast(device_type=img.device.type, enabled=False):
+                    loss_o2m = self.criterion((o2m_bboxes, o2m_scores), targets_o2m, **loss_o2m_kwargs)
+            else:
+                loss_o2m = self.criterion((o2m_bboxes, o2m_scores), targets_o2m, **loss_o2m_kwargs)
             # Combine one-to-many losses for all available coefficients (main + aux + optional DFine terms).
             # Denoising is disabled for o2m branch, so *_dn keys are placeholder zeros and are skipped.
             o2m_weight = 1.0
