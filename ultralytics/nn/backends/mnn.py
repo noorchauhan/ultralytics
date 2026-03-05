@@ -10,6 +10,7 @@ import torch
 
 from ultralytics.utils import LOGGER
 from ultralytics.utils.checks import check_requirements
+import MNN
 
 from .base import BaseBackend
 
@@ -24,7 +25,7 @@ class MNNBackend(BaseBackend):
         """Load the MNN model."""
         LOGGER.info(f"Loading {weight} for MNN inference...")
         check_requirements("MNN")
-        import MNN
+        # import MNN
 
         config = {"precision": "low", "backend": "CPU", "numThread": (os.cpu_count() + 1) // 2}
         rt = MNN.nn.create_runtime_manager((config,))
@@ -47,8 +48,6 @@ class MNNBackend(BaseBackend):
         Returns:
             MNN tensor.
         """
-        import MNN
-
         return MNN.expr.const(x.data_ptr(), x.shape)
 
     def forward(self, im: torch.Tensor) -> list:
