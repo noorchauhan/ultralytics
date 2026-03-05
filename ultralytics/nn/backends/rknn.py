@@ -31,12 +31,12 @@ class RKNNBackend(BaseBackend):
         if not w.is_file():
             w = next(w.rglob("*.rknn"))
 
-        self.rknn_model = RKNNLite()
-        ret = self.rknn_model.load_rknn(str(w))
+        self.model = RKNNLite()
+        ret = self.model.load_rknn(str(w))
         if ret != 0:
             raise RuntimeError(f"Failed to load RKNN model: {ret}")
 
-        ret = self.rknn_model.init_runtime()
+        ret = self.model.init_runtime()
         if ret != 0:
             raise RuntimeError(f"Failed to init RKNN runtime: {ret}")
 
@@ -58,4 +58,4 @@ class RKNNBackend(BaseBackend):
         """
         im = (im.cpu().numpy() * 255).astype("uint8")
         im = im if isinstance(im, (list, tuple)) else [im]
-        return self.rknn_model.inference(inputs=im)
+        return self.model.inference(inputs=im)

@@ -33,8 +33,8 @@ class ExecuTorchBackend(BaseBackend):
             model_file = w
             metadata_file = w.parent / "metadata.yaml"
 
-        self.program = Runtime.get().load_program(str(model_file))
-        self.model = self.program.load_method("forward")
+        program = Runtime.get().load_program(str(model_file))
+        self.model = program.load_method("forward")
 
         # Load metadata
         if metadata_file.exists():

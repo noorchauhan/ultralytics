@@ -111,8 +111,7 @@ class ONNXBackend(BaseBackend):
 
         if self.dnn:
             # OpenCV DNN
-            im = im.cpu().numpy()
-            self.net.setInput(im)
+            self.net.setInput(im.cpu().numpy())
             return self.net.forward()
 
         # ONNX Runtime
