@@ -29,13 +29,12 @@ class NCNNBackend(BaseBackend):
         self.net = pyncnn.Net()
 
         # Setup Vulkan if available
-        cuda = self.device.type != "cpu" and torch.cuda.is_available()
         if isinstance(self.device, str) and self.device.startswith("vulkan"):
             self.net.opt.use_vulkan_compute = True
             self.net.set_vulkan_device(int(self.device.split(":")[1]))
             self.device = torch.device("cpu")
-        elif cuda:
-            self.net.opt.use_vulkan_compute = True
+        else:
+            self.net.opt.use_vulkan_compute = False
 
         w = Path(weight)
         if not w.is_file():

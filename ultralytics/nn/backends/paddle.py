@@ -21,8 +21,7 @@ class PaddleBackend(BaseBackend):
 
     def load_model(self, weight: str | Path) -> None:
         """Load the PaddlePaddle model."""
-        cuda = torch.cuda.is_available()
-
+        cuda = isinstance(self.device, torch.device) and torch.cuda.is_available() and self.device.type != "cpu"
         LOGGER.info(f"Loading {weight} for PaddlePaddle inference...")
         if cuda:
             check_requirements("paddlepaddle-gpu>=3.0.0,!=3.3.0")
@@ -47,7 +46,7 @@ class PaddleBackend(BaseBackend):
             raise FileNotFoundError(f"Paddle model not found in {w}. Both .json and .pdiparams files are required.")
 
         config = pdi.Config(str(model_file), str(params_file))
-        if torch.cuda.is_available() and self.device.type != "cpu":
+        if cuda:
             config.enable_use_gpu(memory_pool_init_size_mb=2048, device_id=0)
 
         self.predictor = pdi.create_predictor(config)

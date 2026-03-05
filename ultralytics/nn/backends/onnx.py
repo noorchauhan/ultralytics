@@ -34,7 +34,7 @@ class ONNXBackend(BaseBackend):
 
     def load_model(self, weight: str | Path) -> None:
         """Load the ONNX model."""
-        cuda = self.device.type != "cpu" and torch.cuda.is_available()
+        cuda = isinstance(self.device, torch.device) and torch.cuda.is_available() and self.device.type != "cpu"
 
         if self.format == "dnn":
             # OpenCV DNN
