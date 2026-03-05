@@ -173,7 +173,7 @@ class BaseValidator:
             stride, fmt = model.stride, model.format
             pt = fmt == "pt"
             imgsz = check_imgsz(self.args.imgsz, stride=stride)
-            if fmt not in {"pt", "jit"} and not getattr(model, "dynamic", False):
+            if fmt not in {"pt", "torchscript"} and not getattr(model, "dynamic", False):
                 self.args.batch = model.metadata.get("batch", 1)  # export.py models default to batch-size 1
                 LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz}, {imgsz})")
 

@@ -182,12 +182,12 @@ class AutoBackend(nn.Module):
         format = "pt" if isinstance(model, nn.Module) else self._model_type(model, dnn)
 
         # Check if format supports FP16
-        fp16_supported = format in {"pt", "jit", "onnx", "openvino", "engine", "triton"}
+        fp16_supported = format in {"pt", "torchscript", "onnx", "openvino", "engine", "triton"}
         fp16 &= fp16_supported
 
         # Set device
         cuda = isinstance(device, torch.device) and torch.cuda.is_available() and device.type != "cpu"
-        if cuda and format not in {"pt", "jit", "engine", "onnx", "paddle"}:
+        if cuda and format not in {"pt", "torchscript", "engine", "onnx", "paddle"}:
             device = torch.device("cpu")
             cuda = False
 
@@ -303,11 +303,11 @@ class AutoBackend(nn.Module):
         """
         from ultralytics.utils.nms import non_max_suppression
 
-        if self.format in {"pt", "jit", "onnx", "engine", "saved_model", "pb", "triton"} and (
+        if self.format in {"pt", "torchscript", "onnx", "engine", "saved_model", "pb", "triton"} and (
             self.device.type != "cpu" or self.format == "triton"
         ):
             im = torch.empty(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
-            for _ in range(2 if self.format == "jit" else 1):
+            for _ in range(2 if self.format == "torchscript" else 1):
                 self.forward(im)  # warmup model
                 warmup_boxes = torch.rand(1, 84, 16, device=self.device)  # 16 boxes works best empirically
                 warmup_boxes[:, :4] *= imgsz[-1]
