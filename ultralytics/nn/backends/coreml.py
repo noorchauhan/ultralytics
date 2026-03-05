@@ -8,9 +8,10 @@ import numpy as np
 import torch
 from PIL import Image
 
-from .base import BaseBackend
 from ultralytics.utils import LOGGER
 from ultralytics.utils.checks import check_requirements
+
+from .base import BaseBackend
 
 
 class CoreMLBackend(BaseBackend):

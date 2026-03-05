@@ -11,8 +11,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .base import BaseBackend
 from ultralytics.utils import LOGGER
+
+from .base import BaseBackend
 
 
 class TensorFlowBackend(BaseBackend):

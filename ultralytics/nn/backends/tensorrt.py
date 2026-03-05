@@ -9,9 +9,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .base import BaseBackend
 from ultralytics.utils import IS_JETSON, LINUX, LOGGER, PYTHON_VERSION
 from ultralytics.utils.checks import check_requirements, check_version
+
+from .base import BaseBackend
 
 
 class TensorRTBackend(BaseBackend):

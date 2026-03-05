@@ -6,9 +6,10 @@ from pathlib import Path
 
 import torch
 
-from .base import BaseBackend
 from ultralytics.utils import LOGGER
 from ultralytics.utils.checks import check_executorch_requirements
+
+from .base import BaseBackend
 
 
 class ExecuTorchBackend(BaseBackend):
