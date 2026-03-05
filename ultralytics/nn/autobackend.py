@@ -268,7 +268,7 @@ class AutoBackend(nn.Module):
         y = self.backend.forward(im, **forward_kwargs)
 
         if isinstance(y, (list, tuple)):
-            print("middle:", y)
+            print("middle:", y, len(y))
             if len(self.names) == 999 and (self.task == "segment" or len(y) == 2):  # segments and names not defined
                 nc = y[0].shape[1] - y[1].shape[1] - 4  # y = (1, 32, 160, 160), (1, 116, 8400)
                 self.names = {i: f"class{i}" for i in range(nc)}
