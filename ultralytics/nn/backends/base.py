@@ -93,6 +93,7 @@ class BaseBackend(ABC):
 
         # handle models exported with nms
         metadata["end2end"] = metadata.get("end2end", False) or metadata.get("args", {}).get("nms", False)
+        metadata["dynamic"] = metadata.get("args", {}).get("dynamic", self.dynamic)
         # Apply to backend attributes
         for k, v in metadata.items():
             setattr(self, k, v)
