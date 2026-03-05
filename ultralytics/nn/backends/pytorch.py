@@ -48,8 +48,8 @@ class PyTorchBackend(BaseBackend):
             if self.fuse and hasattr(weight, "fuse"):
                 if IS_JETSON and is_jetson(jetpack=5):
                     weight = weight.to(self.device)
-                model = weight.fuse(verbose=self.verbose)
-            model = model.to(self.device)
+                weight = weight.fuse(verbose=self.verbose)
+            model = weight.to(self.device)
         else:
             model, _ = load_checkpoint(weight, device=self.device, fuse=self.fuse)
 

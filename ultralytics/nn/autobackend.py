@@ -353,3 +353,4 @@ class AutoBackend(nn.Module):
         """Set the backend model to evaluation mode if supported."""
         if hasattr(self.backend, "model") and hasattr(self.backend.model, "eval"):
             self.backend.model.eval()
+        return self
