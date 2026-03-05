@@ -17,7 +17,7 @@ from .openvino import OpenVINOBackend
 from .paddle import PaddleBackend
 from .pytorch import PyTorchBackend, TorchScriptBackend
 from .rknn import RKNNBackend
-from .tensorflow import TensorFlowBackend, TFLiteBackend
+from .tensorflow import TensorFlowBackend
 from .tensorrt import TensorRTBackend
 from .triton import TritonBackend
 
@@ -34,7 +34,6 @@ __all__ = [
     "PaddleBackend",
     "PyTorchBackend",
     "RKNNBackend",
-    "TFLiteBackend",
     "TensorFlowBackend",
     "TensorRTBackend",
     "TorchScriptBackend",

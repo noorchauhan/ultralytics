@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ultralytics.nn.backends import (
+from .backends import (
     AxeleraBackend,
     CoreMLBackend,
     ExecuTorchBackend,
@@ -23,7 +23,6 @@ from ultralytics.nn.backends import (
     RKNNBackend,
     TensorFlowBackend,
     TensorRTBackend,
-    TFLiteBackend,
     TorchScriptBackend,
     TritonBackend,
 )
@@ -143,8 +142,8 @@ class AutoBackend(nn.Module):
         "coreml": CoreMLBackend,
         "saved_model": TensorFlowBackend,
         "pb": TensorFlowBackend,
-        "tflite": TFLiteBackend,
-        "edgetpu": TFLiteBackend,
+        "tflite": TensorFlowBackend,
+        "edgetpu": TensorFlowBackend,
         "paddle": PaddleBackend,
         "mnn": MNNBackend,
         "ncnn": NCNNBackend,
@@ -209,14 +208,8 @@ class AutoBackend(nn.Module):
             backend_kwargs["verbose"] = verbose
         elif format == "dnn":
             backend_kwargs["dnn"] = True
-        elif format == "saved_model":
-            backend_kwargs["is_savedmodel"] = True
-        elif format == "pb":
-            backend_kwargs["is_savedmodel"] = False
-        elif format == "tflite":
-            backend_kwargs["edgetpu"] = False
-        elif format == "edgetpu":
-            backend_kwargs["edgetpu"] = True
+        elif format in {"saved_model", "pb", "tflite", "edgetpu"}:
+            backend_kwargs["format"] = format
         self.backend = self._BACKEND_MAP[format](model, **backend_kwargs)
 
         self.nhwc = format in {"coreml", "saved_model", "pb", "tflite", "edgetpu", "rknn"}

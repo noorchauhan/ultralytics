@@ -1,6 +1,6 @@
 ---
-description: Explore TensorFlowBackend for TensorFlow SavedModel and GraphDef inference, and TFLiteBackend for TensorFlow Lite and Edge TPU inference, supporting deployment in TensorFlow serving and edge environments.
-keywords: Ultralytics, TensorFlowBackend, TFLiteBackend, TensorFlow inference, SavedModel, GraphDef, TFLite, Edge TPU, TensorFlow Serving, TensorFlow Lite, deep learning, model deployment, edge inference
+description: Explore TensorFlowBackend for TensorFlow SavedModel and GraphDef inference, supporting deployment in TensorFlow serving environments.
+keywords: Ultralytics, TensorFlowBackend, TensorFlow inference, SavedModel, GraphDef, TensorFlow Serving, deep learning, model deployment
 ---
 
 # Reference for `ultralytics/nn/backends/tensorflow.py`
@@ -12,9 +12,5 @@ keywords: Ultralytics, TensorFlowBackend, TFLiteBackend, TensorFlow inference, S
 <br>
 
 ## ::: ultralytics.nn.backends.tensorflow.TensorFlowBackend
-
-<br><br><hr><br>
-
-## ::: ultralytics.nn.backends.tensorflow.TFLiteBackend
 
 <br><br>
