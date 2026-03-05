@@ -56,7 +56,7 @@ class TensorRTBackend(BaseBackend):
                 f.seek(0)
                 metadata = None
             engine = runtime.deserialize_cuda_engine(f.read())
-
+            self.apply_metadata(metadata)
         try:
             self.context = engine.create_execution_context()
         except Exception as e:
