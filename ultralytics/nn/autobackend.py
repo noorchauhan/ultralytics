@@ -235,7 +235,7 @@ class AutoBackend(nn.Module):
         """
         if "backend" in self.__dict__ and hasattr(self.backend, name):
             return getattr(self.backend, name)
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        return super().__getattr__(name)
 
     def forward(
         self,
