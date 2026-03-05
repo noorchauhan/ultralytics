@@ -455,17 +455,14 @@ class Stereo3DDetDataset(BaseDataset):
                 f"Expected 6 channel stereo image, got {n_ch}. Shape: {stereo_img.shape}"
             )
 
-        # Get labels and calibration from cached data
-        im_file = label["im_file"]
-        idx = self.im_files.index(im_file)
-        cached_label = self.labels[idx]
-        label_list = cached_label["labels"]  # List of dict objects
+        # Get labels and calibration from cached data (label IS self.labels[index] via deepcopy)
+        label_list = label["labels"]  # List of dict objects
 
         # Filter by configured classes (e.g., Car-only dataset skips Ped/Cyc)
         if self.names:
             label_list = [obj for obj in label_list if obj["class_id"] in self.names]
         # Copy calibration so we don't mutate the cached original.
-        calib = dict(cached_label["calibration"]) if cached_label["calibration"] else {}
+        calib = dict(label["calibration"]) if label["calibration"] else {}
 
         # Scale calibration by the pre-resize ratio from load_image().
         # load_image() resizes the image but does NOT update calibration,

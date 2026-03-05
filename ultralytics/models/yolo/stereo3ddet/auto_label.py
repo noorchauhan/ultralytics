@@ -1,8 +1,8 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-"""Auto-generate auxiliary class pseudo-labels for nc=1 stereo 3D detection.
+"""Auto-generate auxiliary class pseudo-labels for stereo 3D detection.
 
-When training with a single class, the depth branch collapses because the backbone
+When training with few classes, the depth branch can collapse because the backbone
 learns spatial shortcuts. This module uses a pretrained 2D detector to find auxiliary
 objects and generates pseudo-labels with two quality tiers:
 
@@ -12,7 +12,12 @@ objects and generates pseudo-labels with two quality tiers:
 During training, the loss function weights these differently from real labels (occ 0-2),
 applying reduced 3D loss weight and phasing them out in the final 10% of epochs.
 
-Usage: Called automatically by Stereo3DDetTrainer when nc=1 and labels lack diversity.
+Supports two modes:
+- **nc=1** (default): class_offset=1, no skips. Pseudo class IDs = COCO_ID + 1.
+- **nc>1** (auto_label): class_offset=nc, skip COCO classes overlapping real classes.
+  Pseudo class IDs are assigned contiguously starting at nc.
+
+Usage: Called automatically by Stereo3DDetTrainer based on nc and model YAML config.
 """
 
 from __future__ import annotations
@@ -29,7 +34,6 @@ OCC_PSEUDO_STEREO = 10  # stereo-matched: triangulated depth (higher quality)
 OCC_PSEUDO_MONO = 20  # mono-only: depth from bbox height (lower quality)
 
 # All 80 COCO classes: (name, [L, W, H] in meters).
-# Aux class ID = COCO class ID + 1 (class 0 reserved for real Car GT).
 # Dimensions are approximate — only height matters for mono depth (z = fx*H/h_pixels).
 # Stereo-matched pseudo-labels use triangulated depth regardless.
 # fmt: off
@@ -117,7 +121,7 @@ _COCO80 = [
 ]
 # fmt: on
 
-MARKER_FILE = ".auto_labeled"
+MARKER_PREFIX = ".auto_labeled"  # marker file: .auto_labeled (offset=1) or .auto_labeled_offset{N}
 
 
 def auto_label_stereo3d(
@@ -128,8 +132,10 @@ def auto_label_stereo3d(
     detector: str = "yolo11m.pt",
     conf: float = 0.25,
     iou: float = 0.7,
+    class_offset: int = 1,
+    skip_coco_ids: set[int] | None = None,
 ) -> int:
-    """Generate pseudo-3D labels for all 80 COCO classes and append to label files.
+    """Generate pseudo-3D labels for COCO classes and append to label files.
 
     Runs a pretrained YOLO detector on left and right stereo images. Stereo-matched
     detections get triangulated depth (occ=10). Unmatched left detections get
@@ -143,6 +149,10 @@ def auto_label_stereo3d(
         detector: Pretrained YOLO 2D model for detection.
         conf: Minimum detection confidence.
         iou: NMS IoU threshold.
+        class_offset: Starting class ID for pseudo-labels. For nc=1, use 1 (default).
+            For nc>1, use nc so pseudo IDs don't collide with real class IDs.
+        skip_coco_ids: Set of COCO class IDs to skip (overlap with real classes).
+            E.g., {0, 1, 2} skips Person/Bicycle/Car when real labels have Ped/Cyc/Car.
 
     Returns:
         Number of pseudo-labels generated.
@@ -152,18 +162,33 @@ def auto_label_stereo3d(
     right_dir = Path(right_dir)
     calib_dir = Path(calib_dir)
 
-    # Skip if already processed
-    marker = label_dir / MARKER_FILE
+    # Skip if already processed (marker includes offset to avoid cross-config collision)
+    marker_name = MARKER_PREFIX if class_offset == 1 else f"{MARKER_PREFIX}_offset{class_offset}"
+    marker = label_dir / marker_name
     if marker.exists():
         n = marker.read_text().strip()
-        LOGGER.info(f"Auto-label: already generated ({n} pseudo-labels), skipping")
+        LOGGER.info(f"Auto-label: already generated ({n} pseudo-labels, offset={class_offset}), skipping")
         return 0
 
     label_files = sorted(label_dir.glob("*.txt"))
     if not label_files:
         return 0
 
-    LOGGER.info(f"Auto-label: generating pseudo-labels for {len(label_files)} images using {detector} (80 COCO classes)...")
+    # Build COCO class → kitti class ID mapping (contiguous, skipping overlaps)
+    skip = skip_coco_ids or set()
+    coco_to_kitti = {}
+    next_id = class_offset
+    for i in range(len(_COCO80)):
+        if i not in skip:
+            coco_to_kitti[i] = next_id
+            next_id += 1
+    n_pseudo_classes = len(coco_to_kitti)
+    skipped_names = [_COCO80[i][0] for i in sorted(skip) if i < len(_COCO80)]
+
+    LOGGER.info(
+        f"Auto-label: generating pseudo-labels for {len(label_files)} images using {detector} "
+        f"({n_pseudo_classes} COCO classes, offset={class_offset}, skip={skipped_names})..."
+    )
 
     from ultralytics import YOLO
 
@@ -198,10 +223,15 @@ def auto_label_stereo3d(
             if calib is None:
                 continue
             img_h, img_w = lr.orig_img.shape[:2]
-            stereo_lines, mono_lines = _generate_pseudo_labels(lr, rr, calib, img_w, img_h)
+            stereo_lines, mono_lines = _generate_pseudo_labels(lr, rr, calib, img_w, img_h, coco_to_kitti)
             lines = stereo_lines + mono_lines
             if lines:
-                with open(label_dir / f"{img_id}.txt", "a") as f:
+                label_path = label_dir / f"{img_id}.txt"
+                # Ensure newline before appending (original file may not end with \n)
+                needs_sep = label_path.stat().st_size > 0 and not label_path.read_bytes().endswith(b"\n")
+                with open(label_path, "a") as f:
+                    if needs_sep:
+                        f.write("\n")
                     f.write("\n".join(lines) + "\n")
                 n_stereo += len(stereo_lines)
                 n_mono += len(mono_lines)
@@ -272,8 +302,12 @@ def _format_label_line(kitti_cls, l_cx, l_cy, l_w, l_h, r_cx, r_cy, r_w, r_h,
     )
 
 
-def _generate_pseudo_labels(left_result, right_result, calib, img_w, img_h):
+def _generate_pseudo_labels(left_result, right_result, calib, img_w, img_h, coco_to_kitti):
     """Generate pseudo-labels from L/R detections: stereo-matched + mono-only fallback.
+
+    Args:
+        coco_to_kitti: Dict mapping COCO class ID → kitti class ID. Classes not in
+            this dict are skipped (either out of range or in skip_coco_ids).
 
     Returns:
         (stereo_lines, mono_lines): Two lists of 26-value label strings.
@@ -303,11 +337,11 @@ def _generate_pseudo_labels(left_result, right_result, calib, img_w, img_h):
     # Pass 1: stereo matching (higher quality depth)
     for li in range(len(l_xyxy)):
         coco_cls = l_cls[li]
-        if coco_cls >= len(_COCO80):
+        kitti_cls = coco_to_kitti.get(coco_cls)
+        if kitti_cls is None:
             continue
 
         _, mean_dims = _COCO80[coco_cls]
-        kitti_cls = coco_cls + 1  # aux class ID (0 = real Car)
         lx1, ly1, lx2, ly2 = l_xyxy[li]
         l_cx, l_cy = (lx1 + lx2) / 2, (ly1 + ly2) / 2
         l_w, l_h = lx2 - lx1, ly2 - ly1
@@ -364,11 +398,11 @@ def _generate_pseudo_labels(left_result, right_result, calib, img_w, img_h):
         if li in stereo_matched:
             continue
         coco_cls = l_cls[li]
-        if coco_cls >= len(_COCO80):
+        kitti_cls = coco_to_kitti.get(coco_cls)
+        if kitti_cls is None:
             continue
 
         _, mean_dims = _COCO80[coco_cls]
-        kitti_cls = coco_cls + 1
         lx1, ly1, lx2, ly2 = l_xyxy[li]
         l_cx, l_cy = (lx1 + lx2) / 2, (ly1 + ly2) / 2
         l_w, l_h = lx2 - lx1, ly2 - ly1

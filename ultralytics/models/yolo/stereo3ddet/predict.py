@@ -103,7 +103,9 @@ class Stereo3DDetPredictor(DetectionPredictor):
         
         # Mean and std dimensions for decoding (from dataset config)
         if isinstance(self.data, (str, Path)):
-            data_cfg = YAML.load(str(self.data))
+            from ultralytics.utils.checks import check_yaml
+
+            data_cfg = YAML.load(check_yaml(str(self.data)))
         else:
             data_cfg = self.data if isinstance(self.data, dict) else {}
         self.mean_dims = data_cfg.get("mean_dims")
@@ -132,8 +134,9 @@ class Stereo3DDetPredictor(DetectionPredictor):
         # Check if source is a single path (not allowed for stereo)
         if isinstance(source, (str, Path)):
             try:
-                left_path, right_path = source.split(",")
-                stereo_pairs = [(left_path, right_path)]
+                source_str = str(source).strip().strip("()[]")
+                left_path, right_path = source_str.split(",")
+                stereo_pairs = [(left_path.strip(), right_path.strip())]
             except ValueError:
                 raise ValueError(
                     "Stereo3DDetPredictor requires both left and right images. "
@@ -321,6 +324,12 @@ class Stereo3DDetPredictor(DetectionPredictor):
                 names=class_names,
                 boxes3d=boxes3d if isinstance(boxes3d, list) else [],
             )
+            # Attach calibration for 3D box projection in plot()
+            calib = self.calib_params.get(img_path)
+            if calib is not None:
+                if isinstance(calib, CalibrationParameters):
+                    calib = {"fx": calib.fx, "fy": calib.fy, "cx": calib.cx, "cy": calib.cy, "baseline": calib.baseline}
+                result._calib = calib
             results.append(result)
 
         return results

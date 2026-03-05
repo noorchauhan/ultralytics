@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from copy import copy
 from pathlib import Path
 from typing import Any
@@ -17,10 +16,31 @@ from ultralytics.models.yolo.stereo3ddet.dataset import Stereo3DDetDataset
 from ultralytics.models.yolo.stereo3ddet.model import Stereo3DDetModel
 from ultralytics.models.yolo.stereo3ddet.preprocess import preprocess_stereo_batch
 from ultralytics.models.yolo.stereo3ddet.visualize import labels_to_box3d
-from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK, ROOT, YAML
-from ultralytics.utils.checks import check_yaml
+from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
+
 from ultralytics.utils.plotting import Annotator, VisualizationConfig, colors, plot_labels, plot_stereo3d_boxes
 from ultralytics.utils.torch_utils import intersect_dicts, unwrap_model
+
+
+def _rekey_dims(dims: dict | None, names: dict[int, str]) -> dict | None:
+    """Convert string-keyed dims dict to integer-keyed using class names mapping.
+
+    Matches string keys (e.g., "Car") to integer class IDs via names dict.
+    Unmatched classes get the first matched class's dims as fallback.
+    """
+    if not dims:
+        return dims
+    int_keyed = {}
+    for cid, cname in names.items():
+        if cname in dims:
+            int_keyed[cid] = dims[cname]
+    if not int_keyed:
+        return dims  # no matches, return original
+    fallback = next(iter(int_keyed.values()))
+    for cid in names:
+        if cid not in int_keyed:
+            int_keyed[cid] = fallback
+    return int_keyed
 
 
 def _scan_label_classes(label_dir: Path, max_files: int = 200) -> set[int]:
@@ -125,12 +145,24 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         mean_dims = data_cfg.get("mean_dims")
         std_dims = data_cfg.get("std_dims")
 
+        # Check if auto_label is enabled in model YAML
+        auto_label = False
+        model_yaml = self.args.model
+        if isinstance(model_yaml, (str, Path)):
+            from ultralytics.nn.tasks import yaml_model_load
+            model_cfg = yaml_model_load(model_yaml)
+            auto_label = model_cfg.get("training", {}).get("auto_label", False)
+
         # Auto-expand nc=1 to all available label classes to prevent depth collapse.
         # With only 1 class, the backbone learns spatial shortcuts (position→depth)
         # that don't generalize. Including all available classes from the labels provides
         # visual diversity that forces the backbone to learn richer features.
+        label_dir = root / "labels" / train_split
+        left_dir = root / "images" / train_split / "left"
+        right_dir = root / "images" / train_split / "right"
+        calib_dir = root / "calib" / train_split
+
         if nc == 1:
-            label_dir = root / "labels" / train_split
             extra_ids = _scan_label_classes(label_dir)
 
             # If labels truly have only 1 class, auto-generate pseudo-labels for
@@ -138,9 +170,6 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             if len(extra_ids) <= 1:
                 from ultralytics.models.yolo.stereo3ddet.auto_label import auto_label_stereo3d
 
-                left_dir = root / "images" / train_split / "left"
-                right_dir = root / "images" / train_split / "right"
-                calib_dir = root / "calib" / train_split
                 auto_label_stereo3d(label_dir, left_dir, right_dir, calib_dir)
                 extra_ids = _scan_label_classes(label_dir)
 
@@ -159,6 +188,38 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                 LOGGER.info(
                     "stereo3ddet: auto-expanded nc=1 → nc=%d using label classes %s",
                     nc, list(names.values()),
+                )
+
+        elif auto_label:
+            # nc>1 with auto-labeling: add COCO pseudo-classes on top of real labels
+            # to provide additional visual diversity for depth feature learning.
+            # Offset must be > max existing class ID to avoid collision (KITTI has 8 classes: 0-7).
+            # Skip COCO classes that overlap with real KITTI classes:
+            #   COCO 0=Person ≈ Pedestrian, 1=Bicycle ≈ Cyclist, 2=Car ≈ Car
+            from ultralytics.models.yolo.stereo3ddet.auto_label import auto_label_stereo3d
+
+            class_offset = nc  # pseudo-classes start right after real classes
+            skip_coco = {0, 1, 2}
+            auto_label_stereo3d(
+                label_dir, left_dir, right_dir, calib_dir,
+                class_offset=class_offset, skip_coco_ids=skip_coco,
+            )
+            extra_ids = _scan_label_classes(label_dir)
+            max_id = max(extra_ids, default=nc - 1)
+            if max_id >= nc:
+                new_names = dict(names) if isinstance(names, dict) else {i: n for i, n in enumerate(names)}
+                n_real = len(new_names)
+                for i in range(nc, max_id + 1):
+                    new_names[i] = f"Aux_{i}"
+                names = new_names
+                nc = max_id + 1
+                # Convert string-keyed dims → int-keyed so compute_dimension_offset works.
+                # Real classes get their correct dims; pseudo-classes get Car dims (fallback).
+                mean_dims = _rekey_dims(mean_dims, names)
+                std_dims = _rekey_dims(std_dims, names)
+                LOGGER.info(
+                    "stereo3ddet: auto-label expanded nc=%d → nc=%d (offset=%d, skip COCO %s)",
+                    n_real, nc, class_offset, sorted(skip_coco),
                 )
 
         # Return a dict compatible with BaseTrainer expectations, plus stereo descriptors

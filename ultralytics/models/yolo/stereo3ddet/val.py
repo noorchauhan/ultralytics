@@ -193,7 +193,9 @@ class Stereo3DDetValidator(BaseValidator):
         # Load YAML if a path is provided; accept dicts directly
         data_cfg = self.args.data
         if isinstance(data_cfg, (str, Path)):
-            data_cfg = YAML.load(str(data_cfg))
+            from ultralytics.utils.checks import check_yaml
+
+            data_cfg = YAML.load(check_yaml(str(data_cfg)))
 
         if not isinstance(data_cfg, dict):
             raise RuntimeError("stereo3ddet: data must be a YAML path or dict")
@@ -529,7 +531,7 @@ class Stereo3DDetValidator(BaseValidator):
                     if gt_boxes_t.shape[0] == 0:
                         tp2d = np.zeros((n_pred, self.det_iouv.numel()), dtype=bool)
                     else:
-                        iou2d = box_iou(gt_boxes_t, pred_boxes_t).T  # NxM
+                        iou2d = box_iou(gt_boxes_t, pred_boxes_t)  # MxN (gt x pred)
                         # Use BaseValidator matching but with det_iouv.
                         # IMPORTANT: guard with try/finally so self.iouv is always restored (prevents leaking 10 IoUs
                         # into the 3D metrics path where tp/fp are shape (N, 2)).
@@ -780,10 +782,6 @@ class Stereo3DDetValidator(BaseValidator):
             # Filter out predictions with confidence == 0 or below threshold before visualization
             if pred_boxes:
                 conf_threshold = self.args.conf
-                if conf_threshold < 0.1:
-                    LOGGER.warning(
-                        f"The prediction conf threshold is less than 0.1, you can set the conf through CLI."
-                    )
                 pred_boxes = [
                     box
                     for box in pred_boxes
@@ -929,6 +927,8 @@ class Stereo3DDetValidator(BaseValidator):
         # Print results per class
         if self.args.verbose and self.metrics.nc > 1 and ap3d:
             for class_id, class_name in self.metrics.names.items():
+                if class_name.startswith("Aux_"):
+                    continue
                 nt_class = int(nt_per_class[class_id]) if class_id < len(nt_per_class) else 0
                 nt_images = int(nt_per_image[class_id]) if class_id < len(nt_per_image) else 0
 

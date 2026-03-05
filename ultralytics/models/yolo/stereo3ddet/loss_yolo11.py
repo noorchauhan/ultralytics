@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import math
 
 import torch
@@ -8,7 +7,7 @@ import torch.nn.functional as F
 
 from ultralytics.utils.loss import DFLoss, v8DetectionLoss
 
-LOGGER = logging.getLogger(__name__)
+
 
 
 class Stereo3DDetLossYOLO11(v8DetectionLoss):
@@ -227,89 +226,5 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
             if k in aux_losses:
                 loss[i] = aux_losses[k] * float(self.aux_w.get(k, 1.0))
 
-        # Diagnostic logging every 50 steps
-        if not hasattr(self, "_step"):
-            self._step = 0
-        self._step += 1
-        if self._step % 50 == 1:
-            self._log_diagnostics(preds, aux_preds, batch, fg_mask, target_gt_idx)
-
         batch_size = preds["boxes"].shape[0]
         return loss * batch_size, loss.detach()
-
-    @torch.no_grad()
-    def _log_diagnostics(self, preds, aux_preds, batch, fg_mask, target_gt_idx):
-        """Log depth prediction and feature diagnostics."""
-        n_fg = fg_mask.sum().item()
-        if n_fg == 0:
-            return
-
-        # 1. Depth prediction distribution at fg anchors
-        if "depth" in aux_preds:
-            depth_pred = aux_preds["depth"]  # [B, 1, HW] log-depth
-            pred_fg = depth_pred.permute(0, 2, 1)[fg_mask]  # [npos, 1]
-            pred_m = pred_fg.exp()  # meters
-
-            # GT depth
-            aux_targets = batch.get("aux_targets", {})
-            if "depth" in aux_targets:
-                gt = aux_targets["depth"].to(depth_pred.device)
-                if gt.shape[1] > 0:
-                    gt_fg = gt.gather(1, target_gt_idx.unsqueeze(-1).long())[fg_mask]
-                    gt_m = gt_fg.exp()
-
-                    err = (pred_m - gt_m).abs()
-                    LOGGER.info(
-                        "DEPTH step=%d n_fg=%d | pred: mean=%.1fm std=%.1fm min=%.1fm max=%.1fm | "
-                        "gt: mean=%.1fm std=%.1fm | err: mean=%.1fm median=%.1fm",
-                        self._step, n_fg,
-                        pred_m.mean(), pred_m.std(), pred_m.min(), pred_m.max(),
-                        gt_m.mean(), gt_m.std(),
-                        err.mean(), err.median(),
-                    )
-
-        # 2. Depth bin logit distribution (pre-softmax)
-        if "depth_bins" in aux_preds:
-            bins = aux_preds["depth_bins"]  # [B, 16, HW]
-            bins_fg = bins.permute(0, 2, 1)[fg_mask]  # [npos, 16]
-            probs = bins_fg.softmax(dim=1)
-            entropy = -(probs * probs.clamp(min=1e-8).log()).sum(dim=1)  # [npos]
-            max_entropy = math.log(bins_fg.shape[1])  # log(16) = 2.77
-
-            # Peak bin: which bin gets highest probability
-            peak_bins = probs.argmax(dim=1)  # [npos]
-
-            LOGGER.info(
-                "BINS  step=%d | entropy: mean=%.2f/%.2f (%.0f%% of max) | "
-                "peak_bin: mean=%.1f std=%.1f | logit_range: [%.1f, %.1f]",
-                self._step,
-                entropy.mean(), max_entropy, entropy.mean() / max_entropy * 100,
-                peak_bins.float().mean(), peak_bins.float().std(),
-                bins_fg.min(), bins_fg.max(),
-            )
-
-        # 3. Classification confidence at fg anchors
-        if "scores" in preds:
-            scores = preds["scores"]  # [B, nc, HW]
-            scores_fg = scores.permute(0, 2, 1)[fg_mask].sigmoid()  # [npos, nc]
-            LOGGER.info(
-                "CLS   step=%d | fg_conf: mean=%.3f max=%.3f | nc=%d",
-                self._step, scores_fg.mean(), scores_fg.max(), scores.shape[1],
-            )
-
-        # 4. Pseudo-label stats
-        aux_targets = batch.get("aux_targets", {})
-        is_pseudo_gt = aux_targets.get("is_pseudo")
-        if is_pseudo_gt is not None and is_pseudo_gt.shape[1] > 0:
-            gathered = is_pseudo_gt.to(fg_mask.device).gather(
-                1, target_gt_idx.unsqueeze(-1).long(),
-            )
-            pf = gathered[fg_mask].squeeze(-1)
-            n_real = (pf == 0).sum().item()
-            n_stereo = (pf == 1).sum().item()
-            n_mono = (pf == 2).sum().item()
-            if n_stereo + n_mono > 0:
-                LOGGER.info(
-                    "PSEUDO step=%d | fg: %d real + %d stereo + %d mono | epoch_frac=%.2f",
-                    self._step, n_real, n_stereo, n_mono, self.epoch_frac,
-                )

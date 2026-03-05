@@ -19,6 +19,7 @@ scales:
   x: [1.00, 1.50, 512]
 
 training:
+  auto_label: true
   loss_weights:
     lr_distance: 2.0
     depth: 3.0
