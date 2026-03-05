@@ -91,6 +91,8 @@ class BaseBackend(ABC):
             elif k in {"imgsz", "names", "kpt_shape", "kpt_names", "args", "end2end"} and isinstance(v, str):
                 metadata[k] = ast.literal_eval(v)
 
+        # handle models exported with nms
+        metadata["end2end"] = metadata.get("end2end", False) or metadata.get("args", {}).get("nms", False)
         # Apply to backend attributes
         for k, v in metadata.items():
             setattr(self, k, v)
