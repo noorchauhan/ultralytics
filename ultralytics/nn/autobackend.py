@@ -206,9 +206,7 @@ class AutoBackend(nn.Module):
         if format == "pt":
             backend_kwargs["fuse"] = fuse
             backend_kwargs["verbose"] = verbose
-        elif format == "dnn":
-            backend_kwargs["dnn"] = True
-        elif format in {"saved_model", "pb", "tflite", "edgetpu"}:
+        elif format in {"saved_model", "pb", "tflite", "edgetpu", "dnn"}:
             backend_kwargs["format"] = format
         self.backend = self._BACKEND_MAP[format](model, **backend_kwargs)
 

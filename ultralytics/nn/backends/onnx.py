@@ -19,23 +19,24 @@ class ONNXBackend(BaseBackend):
     Supports loading and inference with ONNX models (.onnx files).
     """
 
-    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, dnn: bool = False):
+    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, format: str = "onnx"):
         """Initialize ONNX backend.
 
         Args:
             weight: Path to the .onnx model file.
             device: Device to run inference on.
             fp16: Whether to use FP16 precision.
-            dnn: Use OpenCV DNN module instead of ONNX Runtime.
+            format: ONNX model format, choice of "onnx" for ONNX Runtime or "dnn" for OpenCV DNN.
         """
-        self.dnn = dnn  # Keep this to distinguish DNN vs ONNX Runtime
+        assert format in {"onnx", "dnn"}, f"Unsupported ONNX format: {format}."
+        self.format = format
         super().__init__(weight, device, fp16)
 
     def load_model(self, weight: str | Path) -> None:
         """Load the ONNX model."""
         cuda = self.device.type != "cpu" and torch.cuda.is_available()
 
-        if self.dnn:
+        if self.format == "dnn":
             # OpenCV DNN
             LOGGER.info(f"Loading {weight} for ONNX OpenCV DNN inference...")
             check_requirements("opencv-python>=4.5.4")
@@ -109,7 +110,7 @@ class ONNXBackend(BaseBackend):
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()
 
-        if self.dnn:
+        if self.format == "dnn":
             # OpenCV DNN
             self.net.setInput(im.cpu().numpy())
             return self.net.forward()
