@@ -265,13 +265,13 @@ class AutoBackend(nn.Module):
         if self.format == "pt":
             forward_kwargs = {"augment": augment, "visualize": visualize, "embed": embed, **kwargs}
 
-        if self.format == "mnn":
-            input_var = self.backend.expr.const(im.data_ptr(), im.shape)
-            output_var = self.backend.net.onForward([input_var])
-            y = [x.read() for x in output_var]
-            print("raw:", y)
-        else:
-            y = self.backend.forward(im, **forward_kwargs)
+        # if self.format == "mnn":
+        #     input_var = self.backend.expr.const(im.data_ptr(), im.shape)
+        #     output_var = self.backend.net.onForward([input_var])
+        #     y = [x.read() for x in output_var]
+        #     print("raw:", y)
+        # else:
+        y = self.backend.forward(im, **forward_kwargs)
 
         if isinstance(y, (list, tuple)):
             print("middle:", y, len(y))
