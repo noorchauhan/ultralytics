@@ -194,6 +194,8 @@ class AutoBackend(nn.Module):
         # Select and initialize the appropriate backend
         backend_kwargs = {"device": device, "fp16": fp16}
 
+        if format == "tfjs":
+            raise NotImplementedError("Ultralytics TF.js inference is not currently supported.")
         if format not in self._BACKEND_MAP:
             from ultralytics.engine.exporter import export_formats
 
@@ -215,8 +217,6 @@ class AutoBackend(nn.Module):
             backend_kwargs["edgetpu"] = False
         elif format == "edgetpu":
             backend_kwargs["edgetpu"] = True
-        elif format == "tfjs":
-            raise NotImplementedError("Ultralytics TF.js inference is not currently supported.")
         self.backend = self._BACKEND_MAP[format](model, **backend_kwargs)
 
         self.nhwc = format in {"coreml", "saved_model", "pb", "tflite", "edgetpu", "rknn"}
