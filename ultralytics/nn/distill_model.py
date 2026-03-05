@@ -1,7 +1,8 @@
 import math
 from ultralytics.utils.torch_utils import copy_attr
 from ultralytics.utils.metrics import bbox_iou
-from ultralytics.utils.tal import dist2bbox
+from ultralytics.utils.tal import dist2bbox, make_anchors
+from ultralytics.utils import nms as nms_utils
 from .tasks import load_checkpoint
 import torch.nn.functional as F
 from torch import nn
@@ -141,6 +142,26 @@ class DistillationModel(nn.Module):
         #     else:
         #         y.append(x if m.i in self.save else None)  # save output
         # return x
+    @staticmethod
+    def keep_local_max(x, kernel_size=3):
+        # max pooling
+        pooled = F.max_pool2d(
+            x, 
+            kernel_size=kernel_size, 
+            stride=1, 
+            padding=kernel_size//2
+        )
+        
+        # mask: only keep positions equal to local max
+        mask = (x == pooled)
+        
+        # keep max, others set to 0
+        out = x * mask
+
+        # max along channel dimension
+        out = out.max(dim=1, keepdim=True).values
+    
+        return out
 
     def loss(self, batch, preds=None):
         """
@@ -167,9 +188,31 @@ class DistillationModel(nn.Module):
         loss_distill_box = torch.zeros(1, device=batch["img"].device)
         loss_distill_feature = torch.zeros(1, device=batch["img"].device)
         if self.distill_feature_loss == "sl2" or self.distill_feature_loss == "scosine":
-            teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"]
-            parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
-            teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
+            if self.student_model.args.sl2_score == "one2one":
+                teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"]
+                parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
+                teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
+            elif self.student_model.args.sl2_score == "one2many":
+                teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2many")["scores"]
+                parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
+                teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
+            elif self.student_model.args.sl2_score == "avg":
+                teacher_scores = (self.decouple_outputs(teacher_feats[-1], branch="one2many")["scores"] + self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"]) / 2
+                parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
+                teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
+            elif self.student_model.args.sl2_score == "o2m":
+                o2m, o2o = self.student_model.criterion.o2m, self.student_model.criterion.o2o
+                teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2many")["scores"] * o2m + self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"] * o2o
+                parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
+                teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
+            elif self.student_model.args.sl2_score == "local_max":
+                one2many_feats = self.decouple_outputs(teacher_feats[-1], branch="one2many")["scores"]
+                parts = torch.split(one2many_feats, [6400, 1600, 400], dim=-1)
+                one2many_scores = tuple(p.sigmoid() for p in parts)
+                kernel_sizes = (7, 5, 3)
+                teacher_scores = tuple(
+                    self.keep_local_max(t, k) for t, k in zip(one2many_scores, kernel_sizes)
+                )
         if self.distill_box_loss == "siou":
             teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"]
         feature_main_masking = self.distill_area == "main" and self.distill_feature_loss in {"l1", "l2"}

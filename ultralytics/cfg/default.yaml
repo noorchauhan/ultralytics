@@ -118,6 +118,7 @@ distill_model: # (str, optional) path to teacher model for knowledge distillatio
 distill_layer: # (int) the layer index to distill features from
 distill_area: # (str) the area to distill head from, could be "main", "all"
 distill_projector: "linear"  # student projector, could be "linear", "mlp"
+sl2_score: "o2m"  # local max or global max
 dis: 0.2 # (float) distillation loss weight
 box: 7.5 # (float) box loss gain
 cls: 0.5 # (float) classification loss gain
