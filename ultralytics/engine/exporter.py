@@ -164,7 +164,7 @@ def export_formats():
             ".engine",
             False,
             True,
-            ["batch", "dynamic", "half", "int8", "simplify", "nms", "fraction"],
+            ["batch", "dynamic", "half", "int8", "simplify", "nms", "fraction", "trt_hardware_compatibility_level"],
         ],
         ["CoreML", "coreml", ".mlpackage", True, False, ["batch", "dynamic", "half", "int8", "nms"]],
         ["TensorFlow SavedModel", "saved_model", "_saved_model", True, True, ["batch", "int8", "keras", "nms"]],
@@ -224,7 +224,7 @@ def validate_args(format, passed_args, valid_args):
     Raises:
         AssertionError: If an unsupported argument is used, or if the format lacks supported argument listings.
     """
-    export_args = ["half", "int8", "dynamic", "keras", "nms", "batch", "fraction"]
+    export_args = ["half", "int8", "dynamic", "keras", "nms", "batch", "fraction", "trt_hardware_compatibility_level"]
 
     assert valid_args is not None, f"ERROR ❌️ valid arguments for '{format}' not listed."
     custom = {"batch": 1, "data": None, "device": None}  # exporter defaults
@@ -1016,9 +1016,12 @@ class Exporter:
         assert self.im.device.type != "cpu", "export running on CPU but must be on GPU, i.e. use 'device=0'"
         f_onnx = self.export_onnx()  # run before TRT import https://github.com/ultralytics/ultralytics/issues/7016
 
-        # Force re-install TensorRT on CUDA 13 ARM devices to 10.15.x versions for RT-DETR exports
+        # Thor/Spark-specific behavior (ARM64): TensorRT hardware compatibility interop is validated only with 10.13.3.9.
+        # On this platform, do not force TensorRT >=10.15 when compatibility mode is requested.
+        # Force TensorRT >=10.15 on CUDA 13 ARM devices to address RT-DETR export issues when compatibility mode is off.
         # https://github.com/ultralytics/ultralytics/issues/22873
-        if is_jetson(jetpack=7) or is_dgx():
+        trt_hw_compat_level = (self.args.trt_hardware_compatibility_level or "none").lower()
+        if (is_jetson(jetpack=7) or (is_dgx() and ARM64)) and trt_hw_compat_level == "none":
             check_tensorrt("10.15")
 
         try:
@@ -1033,6 +1036,16 @@ class Exporter:
         LOGGER.info(f"\n{prefix} starting export with TensorRT {trt.__version__}...")
         assert Path(f_onnx).exists(), f"failed to export ONNX file: {f_onnx}"
         f = self.file.with_suffix(".engine")  # TensorRT engine file
+        if (
+            trt_hw_compat_level != "none"
+            and (is_jetson(jetpack=7) or (is_dgx() and ARM64))
+            and not trt.__version__.startswith("10.13.3.9")
+        ):
+            LOGGER.warning(
+                f"{prefix} disabling trt_hardware_compatibility_level='{trt_hw_compat_level}' because it is supported "
+                f"on Thor/DGX Spark (ARM64) only with TensorRT 10.13.3.9 (found {trt.__version__})."
+            )
+            trt_hw_compat_level = "none"
         onnx2engine(
             f_onnx,
             f,
@@ -1046,7 +1059,7 @@ class Exporter:
             metadata=self.metadata,
             verbose=self.args.verbose,
             prefix=prefix,
-            trt_hardware_compatibility_level=self.args.trt_hardware_compatibility_level,
+            trt_hardware_compatibility_level=trt_hw_compat_level,
         )
 
         return f

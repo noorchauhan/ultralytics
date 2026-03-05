@@ -103,24 +103,36 @@ def onnx2engine(
     builder = trt.Builder(logger)
     config = builder.create_builder_config()
 
-    # Hardware compatibility level is None by default
-    if trt_hardware_compatibility_level is None:
-        trt_hardware_compatibility_level = "none"
-
-    if trt_hardware_compatibility_level.lower() == "ampere_plus":
-        config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.AMPERE_PLUS
-        LOGGER.info(f"{prefix} setting hardware compatibility level to AMPERE_PLUS")
-    elif trt_hardware_compatibility_level.lower() == "same_compute_capability":
-        config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.SAME_COMPUTE_CAPABILITY
-        LOGGER.info(f"{prefix} setting hardware compatibility level to SAME_COMPUTE_CAPABILITY")
-    elif trt_hardware_compatibility_level.lower() == "none":
-        config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.NONE
-        LOGGER.info(f"{prefix} setting hardware compatibility level to NONE")
-    else:
+    level = (trt_hardware_compatibility_level or "none").lower()
+    level_enum_map = {
+        "ampere_plus": "AMPERE_PLUS",
+        "same_compute_capability": "SAME_COMPUTE_CAPABILITY",
+        "none": "NONE",
+    }
+    if level not in level_enum_map:
         LOGGER.warning(
             f"{prefix} invalid trt_hardware_compatibility_level '{trt_hardware_compatibility_level}'. "
             f"Valid options: 'ampere_plus', 'same_compute_capability', 'none'. Using default 'none'."
         )
+        level = "none"
+    if level != "none":
+        enum_name = level_enum_map[level]
+        enum_value = getattr(trt.HardwareCompatibilityLevel, enum_name, None)
+        if enum_value is None:
+            LOGGER.warning(
+                f"{prefix} TensorRT {trt.__version__} does not expose HardwareCompatibilityLevel.{enum_name}. "
+                f"Falling back to hardware compatibility level 'none'."
+            )
+            level = "none"
+    if level != "none":
+        try:
+            config.hardware_compatibility_level = enum_value
+            LOGGER.info(f"{prefix} setting hardware compatibility level to {level.upper()}")
+        except Exception as e:
+            LOGGER.warning(
+                f"{prefix} TensorRT {trt.__version__} rejected trt_hardware_compatibility_level='{level}' ({e}). "
+                f"Falling back to hardware compatibility level 'none'."
+            )
 
     workspace_bytes = int((workspace or 0) * (1 << 30))
     is_trt10 = int(trt.__version__.split(".", 1)[0]) >= 10  # is TensorRT >= 10
