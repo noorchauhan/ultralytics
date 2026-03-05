@@ -27,8 +27,8 @@ class MNNBackend(BaseBackend):
         import MNN
 
         config = {"precision": "low", "backend": "CPU", "numThread": (os.cpu_count() + 1) // 2}
-        self.rt = MNN.nn.create_runtime_manager((config,))
-        self.net = MNN.nn.load_module_from_file(str(weight), [], [], runtime_manager=self.rt, rearrange=True)
+        rt = MNN.nn.create_runtime_manager((config,))
+        self.net = MNN.nn.load_module_from_file(weight, [], [], runtime_manager=rt, rearrange=True)
 
         # Load metadata from bizCode
         info = self.net.get_info()
