@@ -24,13 +24,13 @@ class OpenVINOBackend(BaseBackend):
         check_requirements("openvino>=2024.0.0")
         import openvino as ov
 
-        self.ov = ov.Core()
+        core = ov.Core()
         device_name = "AUTO"
 
         if isinstance(self.device, str) and self.device.startswith("intel"):
             device_name = self.device.split(":")[1].upper()
             self.device = torch.device("cpu")
-            if device_name not in self.ov.available_devices:
+            if device_name not in core.available_devices:
                 LOGGER.warning(f"OpenVINO device '{device_name}' not available. Using 'AUTO' instead.")
                 device_name = "AUTO"
 
@@ -38,7 +38,7 @@ class OpenVINOBackend(BaseBackend):
         if not w.is_file():
             w = next(w.glob("*.xml"))
 
-        ov_model = self.ov.read_model(model=str(w), weights=w.with_suffix(".bin"))
+        ov_model = core.read_model(model=str(w), weights=w.with_suffix(".bin"))
         if ov_model.get_parameters()[0].get_layout().empty:
             ov_model.get_parameters()[0].set_layout(ov.Layout("NCHW"))
 
@@ -55,7 +55,7 @@ class OpenVINOBackend(BaseBackend):
         # Set inference mode
         self.inference_mode = "CUMULATIVE_THROUGHPUT" if self.dynamic and self.batch > 1 else "LATENCY"
 
-        self.ov_compiled_model = self.ov.compile_model(
+        self.ov_compiled_model = core.compile_model(
             ov_model,
             device_name=device_name,
             config={"PERFORMANCE_HINT": self.inference_mode},
@@ -65,6 +65,7 @@ class OpenVINOBackend(BaseBackend):
             f"{', '.join(self.ov_compiled_model.get_property('EXECUTION_DEVICES'))}..."
         )
         self.input_name = self.ov_compiled_model.input().get_any_name()
+        self.ov = ov
 
     def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Run OpenVINO inference.
