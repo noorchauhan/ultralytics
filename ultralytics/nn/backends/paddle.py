@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ultralytics.nn.backends.base import BaseBackend
+from .base import BaseBackend
 from ultralytics.utils import ARM64, LOGGER
 from ultralytics.utils.checks import check_requirements
 

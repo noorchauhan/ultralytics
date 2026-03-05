@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ultralytics.nn.backends.base import BaseBackend
+from .base import BaseBackend
 from ultralytics.utils import LOGGER
 from ultralytics.utils.checks import check_requirements
 
