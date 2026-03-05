@@ -45,7 +45,7 @@ class BaseBackend(ABC):
         self.names = {}
         self.task = None
         self.batch = 1
-        self.ch = 3
+        self.channels = 3
         self.end2end = False
         self.dynamic = False
         self.metadata = {}

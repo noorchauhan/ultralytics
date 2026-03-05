@@ -305,7 +305,11 @@ class BasePredictor:
             # Warmup model
             if not self.done_warmup:
                 self.model.warmup(
-                    imgsz=(1 if self.model.format in {"pt", "triton"} else self.dataset.bs, self.model.ch, *self.imgsz)
+                    imgsz=(
+                        1 if self.model.format in {"pt", "triton"} else self.dataset.bs,
+                        self.model.channels,
+                        *self.imgsz,
+                    )
                 )
                 self.done_warmup = True
 

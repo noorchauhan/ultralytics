@@ -58,7 +58,7 @@ class PyTorchBackend(BaseBackend):
             self.kpt_shape = model.kpt_shape
         self.stride = max(int(model.stride.max()), 32) if hasattr(model, "stride") else 32
         self.names = model.module.names if hasattr(model, "module") else getattr(model, "names", {})
-        self.ch = model.yaml.get("channels", 3) if hasattr(model, "yaml") else 3
+        self.channels = model.yaml.get("channels", 3) if hasattr(model, "yaml") else 3
         model.half() if self.fp16 else model.float()
 
         for p in model.parameters():
