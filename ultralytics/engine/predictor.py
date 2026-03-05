@@ -195,7 +195,7 @@ class BasePredictor:
             self.imgsz,
             auto=same_shapes
             and self.args.rect
-            and (self.model.pt or (getattr(self.model, "dynamic", False) and not self.model.imx)),
+            and (self.model.format == "pt" or (getattr(self.model, "dynamic", False) and self.model.format != "imx")),
             stride=self.model.stride,
         )
         return [letterbox(image=x) for x in im]
@@ -258,7 +258,7 @@ class BasePredictor:
             batch=self.args.batch,
             vid_stride=self.args.vid_stride,
             buffer=self.args.stream_buffer,
-            channels=getattr(self.model, "ch", 3),
+            channels=getattr(self.model, "channels", 3),
         )
         self.source_type = self.dataset.source_type
         if (
@@ -305,7 +305,11 @@ class BasePredictor:
             # Warmup model
             if not self.done_warmup:
                 self.model.warmup(
-                    imgsz=(1 if self.model.pt or self.model.triton else self.dataset.bs, self.model.ch, *self.imgsz)
+                    imgsz=(
+                        1 if self.model.format in {"pt", "triton"} else self.dataset.bs,
+                        self.model.channels,
+                        *self.imgsz,
+                    )
                 )
                 self.done_warmup = True
 
