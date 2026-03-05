@@ -84,7 +84,7 @@ class PyTorchBackend(BaseBackend):
         """
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()
-        return self.model(im, augment=augment, visualize=visualize, embed=embed)
+        return self.model(im, augment=augment, visualize=visualize, embed=embed, **kwargs)
 
 
 class TorchScriptBackend(BaseBackend):
