@@ -24,6 +24,7 @@ class MNNBackend(BaseBackend):
         LOGGER.info(f"Loading {weight} for MNN inference...")
         check_requirements("MNN")
         import os
+
         import MNN
 
         config = {"precision": "low", "backend": "CPU", "numThread": (os.cpu_count() + 1) // 2}
