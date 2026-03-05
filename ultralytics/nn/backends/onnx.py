@@ -98,14 +98,14 @@ class ONNXBackend(BaseBackend):
                     )
                     self.bindings.append(y_tensor)
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor] | np.ndarray:
         """Run ONNX inference.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor(s).
+            Model output as torch Tensor(s) or numpy array(s).
         """
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()
@@ -162,14 +162,14 @@ class ONNXIMXBackend(ONNXBackend):
         if metadata_map:
             self.apply_metadata(dict(metadata_map))
 
-    def forward(self, im: torch.Tensor) -> np.ndarray | list[np.ndarray] | tuple[np.ndarray]:
+    def forward(self, im: torch.Tensor) -> np.ndarray | list[np.ndarray] | tuple[np.ndarray, ...]:
         """Run IMX inference with task-specific output formatting.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor(s).
+            Model output as numpy array(s).
         """
         y = self.session.run(self.output_names, {self.session.get_inputs()[0].name: im.cpu().numpy()})
 

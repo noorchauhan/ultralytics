@@ -115,14 +115,14 @@ class TensorFlowBackend(BaseBackend):
             except (zipfile.BadZipFile, SyntaxError, ValueError, json.JSONDecodeError):
                 pass
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> list[np.ndarray]:
         """Run TensorFlow inference.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor(s).
+            Model output as list of numpy arrays.
         """
         im = im.cpu().numpy()
         if self.format == "saved_model":

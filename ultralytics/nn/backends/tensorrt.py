@@ -108,14 +108,14 @@ class TensorRTBackend(BaseBackend):
         self.binding_addrs = OrderedDict((n, d.ptr) for n, d in self.bindings.items())
         self.model = engine
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> list[torch.Tensor]:
         """Run TensorRT inference.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor(s).
+            Model output as list of torch Tensors.
         """
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()

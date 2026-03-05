@@ -47,14 +47,14 @@ class RKNNBackend(BaseBackend):
 
             self.apply_metadata(YAML.load(metadata_file))
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> list:
         """Run RKNN inference.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor(s).
+            Model output as list of RKNN inference results.
         """
         im = (im.cpu().numpy() * 255).astype("uint8")
         im = im if isinstance(im, (list, tuple)) else [im]

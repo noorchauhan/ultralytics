@@ -68,14 +68,14 @@ class OpenVINOBackend(BaseBackend):
         self.input_name = self.ov_compiled_model.input().get_any_name()
         self.ov = ov
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> list[np.ndarray]:
         """Run OpenVINO inference.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor(s).
+            Model output as list of numpy arrays.
         """
         im = im.cpu().numpy().astype(np.float32)
 

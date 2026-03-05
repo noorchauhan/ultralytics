@@ -32,14 +32,14 @@ class CoreMLBackend(BaseBackend):
         # Load metadata
         self.apply_metadata(dict(self.model.user_defined_metadata))
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> np.ndarray | list[np.ndarray]:
         """Run CoreML inference.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor(s).
+            Model output as numpy array(s).
         """
         im = im.cpu().numpy()
         h, w = im.shape[1:3]

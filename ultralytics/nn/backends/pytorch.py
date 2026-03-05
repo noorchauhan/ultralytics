@@ -117,13 +117,13 @@ class TorchScriptBackend(BaseBackend):
             self.apply_metadata(json.loads(extra_files["config.txt"], object_hook=lambda x: dict(x.items())))
 
     def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
-        """Run TorchScript inference.
+        """Run PyTorch/TorchScript inference.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor.
+            Model output as torch Tensor(s).
         """
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()

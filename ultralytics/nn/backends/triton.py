@@ -28,14 +28,14 @@ class TritonBackend(BaseBackend):
         if hasattr(self.model, "metadata"):
             self.apply_metadata(self.model.metadata)
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> list[np.ndarray]:
         """Run Triton inference.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor(s).
+            Model output as list of numpy arrays.
         """
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()

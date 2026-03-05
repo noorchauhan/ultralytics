@@ -42,13 +42,13 @@ class ExecuTorchBackend(BaseBackend):
 
             self.apply_metadata(YAML.load(metadata_file))
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> list:
         """Run ExecuTorch inference.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor(s).
+            Model output as list of ExecuTorch values.
         """
         return self.model.execute([im])

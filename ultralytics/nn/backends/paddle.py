@@ -61,14 +61,14 @@ class PaddleBackend(BaseBackend):
 
             self.apply_metadata(YAML.load(metadata_file))
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
+    def forward(self, im: torch.Tensor) -> list[np.ndarray]:
         """Run PaddlePaddle inference.
 
         Args:
             im: Input image tensor in BCHW format.
 
         Returns:
-            Model output tensor(s).
+            Model output as list of numpy arrays.
         """
         self.input_handle.copy_from_cpu(im.cpu().numpy().astype(np.float32))
         self.predictor.run()
