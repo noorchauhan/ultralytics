@@ -32,12 +32,7 @@ class MNNBackend(BaseBackend):
         self.net = MNN.nn.load_module_from_file(weight, [], [], runtime_manager=rt, rearrange=True)
 
         # Load metadata from bizCode
-        info = self.net.get_info()
-        if "bizCode" in info:
-            try:
-                self.apply_metadata(json.loads(info["bizCode"]))
-            except json.JSONDecodeError:
-                pass
+        self.apply_metadata(json.loads(self.net.get_info()["bizCode"]))
 
     def torch_to_mnn(self, x: torch.Tensor):
         """Convert PyTorch tensor to MNN tensor.
