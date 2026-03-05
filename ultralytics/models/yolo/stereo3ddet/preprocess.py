@@ -16,7 +16,10 @@ Key Functions:
 
 from __future__ import annotations
 
+import json
 import math
+import os
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -28,6 +31,37 @@ from ultralytics.data.augment import LetterBox
 from ultralytics.data.stereo.box3d import Box3D
 from ultralytics.utils import LOGGER, YAML
 from ultralytics.utils.nms import non_max_suppression
+
+
+def _stereo_debug_enabled() -> bool:
+    """Return True when stereo3ddet debug logs are enabled."""
+    return os.getenv("STEREO3DDET_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+# region agent log
+_DEBUG_LOG_PATH = "/home/rick/ultralytics/.cursor/debug-16bf2f.log"
+_DEBUG_SESSION_ID = "16bf2f"
+
+
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any], run_id: str = "baseline") -> None:
+    """Write one NDJSON debug event for runtime analysis."""
+    if not _stereo_debug_enabled():
+        return
+    event = {
+        "sessionId": _DEBUG_SESSION_ID,
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=True) + "\n")
+    except Exception:
+        pass
+# endregion agent log
 
 
 # =============================================================================
@@ -209,9 +243,26 @@ def decode_stereo3d_outputs(
 
     results_per_batch: list[list[Box3D]] = []
     eps = 1e-6
+    debug_logs = _stereo_debug_enabled()
+    if debug_logs:
+        # region agent log
+        _debug_log(
+            hypothesis_id="H2",
+            location="preprocess.py:decode_stereo3d_outputs:start",
+            message="decode_start",
+            data={
+                "bs": bs,
+                "imgsz_h": input_h,
+                "imgsz_w": input_w,
+                "conf_threshold": conf_threshold,
+                "iou_thres": iou_thres,
+            },
+        )
+        # endregion agent log
 
     for b in range(bs):
         # Calibration per sample
+        calib_source = "default"
         if calib is None or len(calib) == 0:
             fx = fy = 721.5377
             cx, cy = 609.5593, 172.8540
@@ -223,15 +274,42 @@ def decode_stereo3d_outputs(
             cx = float(cdict.get("cx", 609.5593))
             cy = float(cdict.get("cy", 172.8540))
             baseline = float(cdict.get("baseline", 0.54))
+            calib_source = "batch"
 
         ori_h, ori_w = ori_shapes[b]
         letterbox_scale, pad_left, pad_top = compute_letterbox_params(ori_h, ori_w, imgsz)
 
-        # Convert calib and measurements back to original coordinate frame
-        fx_orig = fx / letterbox_scale
-        fy_orig = fy / letterbox_scale
-        cx_orig = (cx - pad_left) / letterbox_scale
-        cy_orig = (cy - pad_top) / letterbox_scale
+        # Depth branch is predicted in letterbox-normalized space, keep depth scaling behavior unchanged.
+        fx_depth = fx / letterbox_scale
+        fy_depth = fy / letterbox_scale
+        cx_depth = (cx - pad_left) / letterbox_scale
+        cy_depth = (cy - pad_top) / letterbox_scale
+        if debug_logs:
+            # region agent log
+            _debug_log(
+                hypothesis_id="H1",
+                location="preprocess.py:decode_stereo3d_outputs:batch_calib",
+                message="batch_calibration_and_letterbox",
+                data={
+                    "batch_index": b,
+                    "calib_source": calib_source,
+                    "ori_h": ori_h,
+                    "ori_w": ori_w,
+                    "letterbox_scale": letterbox_scale,
+                    "pad_left": pad_left,
+                    "pad_top": pad_top,
+                    "fx": fx,
+                    "fy": fy,
+                    "cx": cx,
+                    "cy": cy,
+                    "baseline": baseline,
+                    "fx_depth": fx_depth,
+                    "fy_depth": fy_depth,
+                    "cx_depth": cx_depth,
+                    "cy_depth": cy_depth,
+                },
+            )
+            # endregion agent log
 
         boxes3d: list[Box3D] = []
         det_b = dets[b]
@@ -272,10 +350,12 @@ def decode_stereo3d_outputs(
 
             # Depth from disparity (lr_distance is in log-space, exp() to get normalized disparity)
             z_from_disp = None
+            disparity_letterbox = None
+            disparity_orig = None
             if lr_log is not None:
                 disparity_letterbox = math.exp(max(lr_log, -10.0)) * input_w
                 disparity_orig = disparity_letterbox / letterbox_scale
-                z_from_disp = (fx_orig * baseline) / max(disparity_orig, eps)
+                z_from_disp = (fx_depth * baseline) / max(disparity_orig, eps)
 
             z_from_direct = None
             if depth_log is not None:
@@ -297,8 +377,8 @@ def decode_stereo3d_outputs(
             u_orig = (u_letterbox - pad_left) / letterbox_scale
             v_orig = (v_letterbox - pad_top) / letterbox_scale
 
-            x_3d = (u_orig - cx_orig) * z_3d / fx_orig
-            y_3d = (v_orig - cy_orig) * z_3d / fy_orig
+            x_3d = (u_orig - cx) * z_3d / fx
+            y_3d = (v_orig - cy) * z_3d / fy
 
             # Dimensions decode: offset [ΔH, ΔW, ΔL] -> actual dims
             # mean_dims/std_dims from validator are (H, W, L) format, dim_off is [ΔH, ΔW, ΔL]
@@ -325,6 +405,64 @@ def decode_stereo3d_outputs(
                 confidence=confidence,
             )
             boxes3d.append(box3d)
+            if debug_logs and j < 5:
+                z_safe = max(z_3d, eps)
+                u_reproj = fx * x_3d / z_safe + cx
+                v_reproj = fy * y_3d / z_safe + cy
+                u_render = fx * x_3d / z_safe + cx
+                v_render = fy * y_3d / z_safe + cy
+                try:
+                    proj2d = box3d.project_to_2d(
+                        {"fx": fx, "fy": fy, "cx": cx, "cy": cy, "baseline": baseline},
+                        image_size=(ori_w, ori_h),
+                    )
+                    proj_center_u = float((proj2d[0] + proj2d[2]) * 0.5)
+                    proj_center_v = float((proj2d[1] + proj2d[3]) * 0.5)
+                except Exception:  # noqa: BLE001
+                    proj_center_u = float("nan")
+                    proj_center_v = float("nan")
+                # region agent log
+                _debug_log(
+                    hypothesis_id="H2",
+                    location="preprocess.py:decode_stereo3d_outputs:det",
+                    message="det_decode_projection",
+                    data={
+                        "batch_index": b,
+                        "det_index": j,
+                        "class_id": c,
+                        "confidence": confidence,
+                        "flat_idx": flat_idx,
+                        "box_lb_x1": float(x1_l),
+                        "box_lb_y1": float(y1_l),
+                        "box_lb_x2": float(x2_l),
+                        "box_lb_y2": float(y2_l),
+                        "center_lb_u": u_letterbox,
+                        "center_lb_v": v_letterbox,
+                        "center_orig_u": u_orig,
+                        "center_orig_v": v_orig,
+                        "disparity_lb": float("nan") if disparity_letterbox is None else disparity_letterbox,
+                        "disparity_orig": float("nan") if disparity_orig is None else disparity_orig,
+                        "depth_from_disp": float("nan") if z_from_disp is None else z_from_disp,
+                        "depth_from_direct": float("nan") if z_from_direct is None else z_from_direct,
+                        "depth_final": z_3d,
+                        "x_3d": x_3d,
+                        "y_3d": y_3d,
+                        "z_3d": z_3d,
+                        "center_reproj_u": u_reproj,
+                        "center_reproj_v": v_reproj,
+                        "delta_u": u_reproj - u_orig,
+                        "delta_v": v_reproj - v_orig,
+                        "center_render_u": u_render,
+                        "center_render_v": v_render,
+                        "delta_render_vs_orig_u": u_render - u_orig,
+                        "delta_render_vs_orig_v": v_render - v_orig,
+                        "delta_render_vs_lb_u": u_render - u_letterbox,
+                        "delta_render_vs_lb_v": v_render - v_letterbox,
+                        "bbox_proj_center_u": proj_center_u,
+                        "bbox_proj_center_v": proj_center_v,
+                    },
+                )
+                # endregion agent log
 
         results_per_batch.append(boxes3d)
 
@@ -515,10 +653,27 @@ def decode_and_refine_predictions(
         std_dims=std_dims,
         class_names=class_names,
     )
+    debug_logs = _stereo_debug_enabled()
 
     # Ensure results is list of lists
     if isinstance(results, list) and len(results) > 0 and isinstance(results[0], Box3D):
         results = [results]
+    if debug_logs:
+        first_pre = results[0][0].center_3d if results and results[0] else None
+        # region agent log
+        _debug_log(
+            hypothesis_id="H4",
+            location="preprocess.py:decode_and_refine_predictions:after_decode",
+            message="refine_stage_after_decode",
+            data={
+                "batch_size": len(results),
+                "counts_per_batch": [len(r) for r in results],
+                "first_center_3d": list(first_pre) if first_pre is not None else None,
+                "use_geometric": use_geometric,
+                "use_dense_alignment": use_dense_alignment,
+            },
+        )
+        # endregion agent log
 
     # Get batch size from results
     batch_size = len(results)
@@ -542,6 +697,19 @@ def decode_and_refine_predictions(
     )
     if should_apply_dense and batch is not None:
         results = _apply_dense_alignment(results, calibs, batch, batch_size, dense_config)
+        if debug_logs:
+            first_dense = results[0][0].center_3d if results and results[0] else None
+            # region agent log
+            _debug_log(
+                hypothesis_id="H4",
+                location="preprocess.py:decode_and_refine_predictions:after_dense",
+                message="refine_stage_after_dense",
+                data={
+                    "first_center_3d": list(first_dense) if first_dense is not None else None,
+                    "dense_enabled": True,
+                },
+            )
+            # endregion agent log
 
     return results
 

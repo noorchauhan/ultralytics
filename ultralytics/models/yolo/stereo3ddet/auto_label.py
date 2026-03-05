@@ -134,6 +134,7 @@ def auto_label_stereo3d(
     iou: float = 0.7,
     class_offset: int = 1,
     skip_coco_ids: set[int] | None = None,
+    keep_coco_ids: set[int] | None = None,
 ) -> int:
     """Generate pseudo-3D labels for COCO classes and append to label files.
 
@@ -153,6 +154,8 @@ def auto_label_stereo3d(
             For nc>1, use nc so pseudo IDs don't collide with real class IDs.
         skip_coco_ids: Set of COCO class IDs to skip (overlap with real classes).
             E.g., {0, 1, 2} skips Person/Bicycle/Car when real labels have Ped/Cyc/Car.
+        keep_coco_ids: If set, ONLY these COCO class IDs are used (allowlist).
+            Overrides skip_coco_ids. E.g., {3, 5, 7} keeps only Motorcycle/Bus/Truck.
 
     Returns:
         Number of pseudo-labels generated.
@@ -162,8 +165,12 @@ def auto_label_stereo3d(
     right_dir = Path(right_dir)
     calib_dir = Path(calib_dir)
 
-    # Skip if already processed (marker includes offset to avoid cross-config collision)
-    marker_name = MARKER_PREFIX if class_offset == 1 else f"{MARKER_PREFIX}_offset{class_offset}"
+    # Skip if already processed (marker includes config to avoid cross-config collision)
+    if keep_coco_ids:
+        keep_str = "_keep" + "_".join(str(i) for i in sorted(keep_coco_ids))
+    else:
+        keep_str = ""
+    marker_name = MARKER_PREFIX if class_offset == 1 else f"{MARKER_PREFIX}_offset{class_offset}{keep_str}"
     marker = label_dir / marker_name
     if marker.exists():
         n = marker.read_text().strip()
@@ -179,9 +186,12 @@ def auto_label_stereo3d(
     coco_to_kitti = {}
     next_id = class_offset
     for i in range(len(_COCO80)):
-        if i not in skip:
-            coco_to_kitti[i] = next_id
-            next_id += 1
+        if keep_coco_ids and i not in keep_coco_ids:
+            continue
+        if i in skip:
+            continue
+        coco_to_kitti[i] = next_id
+        next_id += 1
     n_pseudo_classes = len(coco_to_kitti)
     skipped_names = [_COCO80[i][0] for i in sorted(skip) if i < len(_COCO80)]
 

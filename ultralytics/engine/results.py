@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import lru_cache
+import json
+import os
 from pathlib import Path
+import time
 from typing import Any
 
 import numpy as np
@@ -17,7 +20,36 @@ import torch
 
 from ultralytics.data.augment import LetterBox
 from ultralytics.utils import LOGGER, DataExportMixin, SimpleClass, ops
-from ultralytics.utils.plotting import Annotator, colors, save_one_box
+from ultralytics.utils.plotting import Annotator, colors, plot_boxes3d, save_one_box
+
+
+# region agent log
+_DEBUG_LOG_PATH = "/home/rick/ultralytics/.cursor/debug-16bf2f.log"
+_DEBUG_SESSION_ID = "16bf2f"
+
+
+def _agent_debug_enabled() -> bool:
+    return os.getenv("STEREO3DDET_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _agent_debug_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any], run_id: str = "baseline") -> None:
+    if not _agent_debug_enabled():
+        return
+    event = {
+        "sessionId": _DEBUG_SESSION_ID,
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=True) + "\n")
+    except Exception:
+        pass
+# endregion agent log
 
 
 class BaseTensor(SimpleClass):
@@ -587,31 +619,47 @@ class Results(SimpleClass, DataExportMixin):
                     ),
                 )
 
-        # Plot Boxes3D results (project 3D -> 2D on demand)
+        # Plot Boxes3D results (3D wireframe on image)
         if pred_boxes3d is not None and boxes3d:
-            # Get calibration for projection if available
             _calib = getattr(self, "_calib", None)
-            img_h, img_w = self.orig_shape[:2]
-            for i, d in enumerate(reversed(pred_boxes3d)):
-                c = int(d.class_id)
-                d_conf = float(d.confidence) if conf else None
-                name = names.get(c, f"Class_{c}")
-                label = (f"{name} {d_conf:.2f}" if conf else name) if labels else None
-                if _calib is not None:
-                    box_coords = d.project_to_2d(_calib, image_size=(img_w, img_h))
-                    if box_coords[2] > box_coords[0] and box_coords[3] > box_coords[1]:
-                        annotator.box_label(
-                            box_coords.tolist(),
-                            label,
-                            color=colors(
-                                c
-                                if color_mode == "class"
-                                else i
-                                if color_mode == "instance"
-                                else None,
-                                True,
-                            ),
-                        )
+            if _calib is not None:
+                img_np = np.asarray(annotator.im)
+                if _agent_debug_enabled():
+                    proj_center_u = None
+                    proj_center_v = None
+                    if len(pred_boxes3d):
+                        try:
+                            bbox2d = pred_boxes3d[0].project_to_2d(_calib, image_size=(self.orig_shape[1], self.orig_shape[0]))
+                            proj_center_u = float((bbox2d[0] + bbox2d[2]) * 0.5)
+                            proj_center_v = float((bbox2d[1] + bbox2d[3]) * 0.5)
+                        except Exception:
+                            proj_center_u = None
+                            proj_center_v = None
+                    # region agent log
+                    _agent_debug_log(
+                        hypothesis_id="H3",
+                        location="results.py:Results.plot:boxes3d",
+                        message="render_boxes3d",
+                        data={
+                            "path": str(self.path),
+                            "orig_shape_h": int(self.orig_shape[0]),
+                            "orig_shape_w": int(self.orig_shape[1]),
+                            "annotator_h": int(img_np.shape[0]),
+                            "annotator_w": int(img_np.shape[1]),
+                            "n_boxes3d": int(len(pred_boxes3d)),
+                            "proj_center_u": proj_center_u,
+                            "proj_center_v": proj_center_v,
+                            "calib_fx": float(_calib.get("fx")) if isinstance(_calib, dict) and _calib.get("fx") is not None else None,
+                            "calib_cx": float(_calib.get("cx")) if isinstance(_calib, dict) and _calib.get("cx") is not None else None,
+                        },
+                    )
+                    # endregion agent log
+                canvas = plot_boxes3d(img_np, list(pred_boxes3d), _calib)
+                if isinstance(annotator.im, np.ndarray):
+                    annotator.im = canvas
+                else:
+                    import cv2
+                    annotator.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
 
         # Plot Classify results
         if pred_probs is not None and show_probs:

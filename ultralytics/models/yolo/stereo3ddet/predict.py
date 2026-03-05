@@ -16,8 +16,10 @@ from ultralytics.engine.results import Results
 from ultralytics.models.yolo.detect import DetectionPredictor
 
 from ultralytics.models.yolo.stereo3ddet.preprocess import (
-    preprocess_stereo_images,
+    _debug_log,
+    _stereo_debug_enabled,
     decode_and_refine_predictions,
+    preprocess_stereo_images,
 )
 from ultralytics.utils import LOGGER, YAML
 from ultralytics.utils.checks import check_imgsz
@@ -108,8 +110,21 @@ class Stereo3DDetPredictor(DetectionPredictor):
             data_cfg = YAML.load(check_yaml(str(self.data)))
         else:
             data_cfg = self.data if isinstance(self.data, dict) else {}
-        self.mean_dims = data_cfg.get("mean_dims")
-        self.std_dims = data_cfg.get("std_dims")
+        # YAML stores [L, W, H] but decode expects (H, W, L) — reorder to match validator
+        self.mean_dims = self._reorder_dims(data_cfg.get("mean_dims"))
+        self.std_dims = self._reorder_dims(data_cfg.get("std_dims"))
+
+    @staticmethod
+    def _reorder_dims(raw_dims):
+        """Convert YAML dims {key: [L,W,H]} to decode format {key: (H,W,L)}."""
+        if raw_dims is None:
+            return None
+        result = {}
+        for key, dims in raw_dims.items():
+            if isinstance(dims, (list, tuple)) and len(dims) == 3:
+                l, w, h = dims
+                result[key] = (h, w, l)
+        return result if result else None
 
     def setup_source(self, source=None):
         """Set up input source for stereo prediction.
@@ -123,6 +138,7 @@ class Stereo3DDetPredictor(DetectionPredictor):
             source: Input source(s) for prediction.
         """
         self.imgsz = check_imgsz(self.args.imgsz, stride=self.model.stride, min_dim=2)  # check image size
+        debug_logs = _stereo_debug_enabled()
         
         # Initialize letterbox transformer (same as dataset)
         # Use the same parameters: auto=False, scale_fill=False, scaleup=True, stride=32
@@ -165,6 +181,22 @@ class Stereo3DDetPredictor(DetectionPredictor):
         self.stereo_pairs = []
         for left_path, right_path in stereo_pairs:
             left_img, right_img = load_stereo_pair(left_path, right_path)
+            if debug_logs:
+                # region agent log
+                _debug_log(
+                    hypothesis_id="H5",
+                    location="predict.py:setup_source:pair_loaded",
+                    message="stereo_pair_loaded",
+                    data={
+                        "left_path": str(left_path),
+                        "right_path": str(right_path),
+                        "left_shape_h": int(left_img.shape[0]),
+                        "left_shape_w": int(left_img.shape[1]),
+                        "right_shape_h": int(right_img.shape[0]),
+                        "right_shape_w": int(right_img.shape[1]),
+                    },
+                )
+                # endregion agent log
             # Stack left and right to create 6-channel image
             stereo_img = np.concatenate([left_img, right_img], axis=2)  # [H, W, 6]
             self.stereo_pairs.append((stereo_img, str(left_path)))
@@ -180,6 +212,23 @@ class Stereo3DDetPredictor(DetectionPredictor):
                 try:
                     calib = load_kitti_calibration(calib_path)
                     self.calib_params[str(left_path)] = calib
+                    if debug_logs:
+                        # region agent log
+                        _debug_log(
+                            hypothesis_id="H1",
+                            location="predict.py:setup_source:calib_file",
+                            message="calibration_loaded_from_file",
+                            data={
+                                "image": left_path_obj.name,
+                                "calib_path": str(calib_path),
+                                "fx": calib.fx,
+                                "fy": calib.fy,
+                                "cx": calib.cx,
+                                "cy": calib.cy,
+                                "baseline": calib.baseline,
+                            },
+                        )
+                        # endregion agent log
                 except Exception as e:
                     LOGGER.warning(f"Failed to load calibration from {calib_path}: {e}")
                     # Use default calibration
@@ -187,12 +236,49 @@ class Stereo3DDetPredictor(DetectionPredictor):
                         fx=721.5377, fy=721.5377, cx=609.5593, cy=172.8540,
                         baseline=0.54, image_width=stereo_img.shape[1], image_height=stereo_img.shape[0]
                     )
+                    if debug_logs:
+                        # region agent log
+                        _debug_log(
+                            hypothesis_id="H1",
+                            location="predict.py:setup_source:calib_default_load_failed",
+                            message="calibration_fallback_default",
+                            data={
+                                "image": left_path_obj.name,
+                                "reason": "load_failed",
+                                "calib_path": str(calib_path),
+                                "fx": 721.5377,
+                                "fy": 721.5377,
+                                "cx": 609.5593,
+                                "cy": 172.8540,
+                                "baseline": 0.54,
+                            },
+                        )
+                        # endregion agent log
             else:
                 # Use default calibration
                 self.calib_params[str(left_path)] = CalibrationParameters(
                     fx=721.5377, fy=721.5377, cx=609.5593, cy=172.8540,
                     baseline=0.54, image_width=stereo_img.shape[1], image_height=stereo_img.shape[0]
                 )
+                if debug_logs:
+                    # region agent log
+                    _debug_log(
+                        hypothesis_id="H1",
+                        location="predict.py:setup_source:calib_default_not_found",
+                        message="calibration_fallback_default",
+                        data={
+                            "image": left_path_obj.name,
+                            "reason": "file_not_found",
+                            "looked_for_primary": str(left_path_obj.parent / f"{left_path_obj.stem}.txt"),
+                            "looked_for_secondary": str(left_path_obj.parent / "calib.txt"),
+                            "fx": 721.5377,
+                            "fy": 721.5377,
+                            "cx": 609.5593,
+                            "cy": 172.8540,
+                            "baseline": 0.54,
+                        },
+                    )
+                    # endregion agent log
 
         # Set up dataset-like structure for BasePredictor
         # BasePredictor expects dataset to yield (paths, im0s, s) tuples
@@ -313,11 +399,13 @@ class Stereo3DDetPredictor(DetectionPredictor):
             class_names=class_names,
         )
 
-        # Create Results objects
+        # Create Results objects (one per input image; decode may return fewer when no detections)
+        num_imgs = len(orig_imgs)
         results = []
-        for i, boxes3d in enumerate(results_boxes3d):
+        for i in range(num_imgs):
+            boxes3d = results_boxes3d[i] if i < len(results_boxes3d) else []
             img_path = self.batch[0][i] if self.batch and len(self.batch[0]) > i else f"image_{i}.jpg"
-            orig_img = orig_imgs[i][:, :, :3] if len(orig_imgs) > i else orig_imgs[0][:, :, :3]
+            orig_img = orig_imgs[i][:, :, :3] if i < len(orig_imgs) else orig_imgs[0][:, :, :3]
             result = Results(
                 orig_img=orig_img,
                 path=img_path,

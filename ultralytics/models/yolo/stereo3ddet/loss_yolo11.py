@@ -47,9 +47,10 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
 
         # Pseudo-label curriculum: set by trainer callback each epoch
         self.epoch_frac = 0.0  # 0.0 = start, 1.0 = end of training
-        # Aux loss weight multiplier for pseudo-labels (stereo-pseudo gets full, mono gets reduced)
-        self._pseudo_stereo_w = 0.5  # stereo-matched pseudo: 50% aux loss weight
-        self._pseudo_mono_w = 0.2  # mono-only pseudo: 20% aux loss weight
+        # Aux loss weight multiplier for pseudo-labels
+        # 1.0 = full aux supervision, 0.0 = cls+box only (no depth/dims/orient)
+        self._pseudo_stereo_w = 0.5  # stereo-matched pseudo: reduced aux weight
+        self._pseudo_mono_w = 0.0  # mono-only pseudo: cls+box only (no depth info)
         self._pseudo_cutoff = 0.9  # phase out all pseudo-labels after this fraction
 
     def _pseudo_aux_weights(self, is_pseudo_fg: torch.Tensor) -> torch.Tensor:

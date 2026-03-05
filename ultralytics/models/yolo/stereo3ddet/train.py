@@ -193,16 +193,18 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         elif auto_label:
             # nc>1 with auto-labeling: add COCO pseudo-classes on top of real labels
             # to provide additional visual diversity for depth feature learning.
-            # Offset must be > max existing class ID to avoid collision (KITTI has 8 classes: 0-7).
-            # Skip COCO classes that overlap with real KITTI classes:
-            #   COCO 0=Person ≈ Pedestrian, 1=Bicycle ≈ Cyclist, 2=Car ≈ Car
             from ultralytics.models.yolo.stereo3ddet.auto_label import auto_label_stereo3d
 
             class_offset = nc  # pseudo-classes start right after real classes
-            skip_coco = {0, 1, 2}
+            skip_coco = {0, 1, 2}  # overlap with real KITTI: Person≈Ped, Bicycle≈Cyc, Car≈Car
+            # Optional allowlist: only keep specific COCO classes (fewer = less TAL dilution)
+            keep_coco = None
+            if isinstance(auto_label, dict):
+                keep_coco = set(auto_label.get("keep_coco_ids", [])) or None
             auto_label_stereo3d(
                 label_dir, left_dir, right_dir, calib_dir,
                 class_offset=class_offset, skip_coco_ids=skip_coco,
+                keep_coco_ids=keep_coco,
             )
             extra_ids = _scan_label_classes(label_dir)
             max_id = max(extra_ids, default=nc - 1)

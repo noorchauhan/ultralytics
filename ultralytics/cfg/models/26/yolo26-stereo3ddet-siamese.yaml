@@ -19,7 +19,8 @@ scales:
   x: [1.00, 1.50, 512]
 
 training:
-  auto_label: true
+  auto_label:
+    keep_coco_ids: [3, 5, 7, 9, 13, 16]  # Motorcycle, Bus, Truck, TrafficLight, Bench, Dog
   loss_weights:
     lr_distance: 2.0
     depth: 3.0
