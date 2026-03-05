@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: Explore PaddleBackend for Baidu PaddlePaddle inference, supporting deployment with Paddle Inference engine on various hardware platforms.
+keywords: Ultralytics, PaddleBackend, PaddlePaddle inference, Baidu Paddle, Paddle Inference, deep learning, model deployment
 ---
 
 # Reference for `ultralytics/nn/backends/paddle.py`

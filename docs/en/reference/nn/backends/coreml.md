@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: Explore CoreMLBackend for Apple CoreML inference, enabling efficient YOLO model deployment on iOS, macOS, and Apple Silicon devices.
+keywords: Ultralytics, CoreMLBackend, CoreML inference, Apple CoreML, iOS deployment, macOS inference, Apple Silicon, mobile AI
 ---
 
 # Reference for `ultralytics/nn/backends/coreml.py`

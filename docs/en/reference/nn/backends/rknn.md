@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: Explore RKNNBackend for Rockchip RKNN inference, enabling optimized YOLO deployment on Rockchip NPU-equipped edge devices.
+keywords: Ultralytics, RKNNBackend, RKNN inference, Rockchip RKNN, NPU inference, edge AI, embedded deployment, deep learning
 ---
 
 # Reference for `ultralytics/nn/backends/rknn.py`

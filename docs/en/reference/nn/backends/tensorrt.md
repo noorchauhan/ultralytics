@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: Explore TensorRTBackend for high-performance GPU inference with NVIDIA TensorRT, optimizing YOLO models for production deployment.
+keywords: Ultralytics, TensorRTBackend, TensorRT inference, NVIDIA TensorRT, GPU inference, .engine models, production deployment, deep learning
 ---
 
 # Reference for `ultralytics/nn/backends/tensorrt.py`

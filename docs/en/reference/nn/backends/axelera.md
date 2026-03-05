@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: Explore AxeleraBackend for Axelera hardware inference, deploying YOLO models on Axelera AI accelerators with optimized performance.
+keywords: Ultralytics, AxeleraBackend, Axelera inference, AI accelerator, hardware inference, edge AI, deep learning acceleration
 ---
 
 # Reference for `ultralytics/nn/backends/axelera.py`

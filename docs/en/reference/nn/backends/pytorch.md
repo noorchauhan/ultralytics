@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: Explore PyTorchBackend and TorchScriptBackend for native PyTorch and TorchScript model inference in Ultralytics YOLO models.
+keywords: Ultralytics, PyTorchBackend, TorchScriptBackend, PyTorch inference, TorchScript inference, .pt models, deep learning, YOLO
 ---
 
 # Reference for `ultralytics/nn/backends/pytorch.py`

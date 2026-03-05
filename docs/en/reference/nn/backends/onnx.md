@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: Explore ONNXBackend and ONNXIMXBackend for ONNX Runtime inference, supporting both standard ONNX models and IMX-optimized variants for edge deployment.
+keywords: Ultralytics, ONNXBackend, ONNXIMXBackend, ONNX Runtime, ONNX inference, .onnx models, IMX, edge deployment, deep learning
 ---
 
 # Reference for `ultralytics/nn/backends/onnx.py`
