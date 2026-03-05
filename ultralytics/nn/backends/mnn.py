@@ -6,11 +6,11 @@ import json
 import os
 from pathlib import Path
 
+import MNN
 import torch
 
 from ultralytics.utils import LOGGER
 from ultralytics.utils.checks import check_requirements
-import MNN
 
 from .base import BaseBackend
 
