@@ -44,7 +44,7 @@ class MNNBackend(BaseBackend):
         Returns:
             Model output as list of MNN tensors.
         """
-        input_var = self.expr.const(int(im.data_ptr()), im.shape)
+        input_var = self.expr.const(im.data_ptr(), im.shape)
         output_var = self.net.onForward([input_var])
         y = [x.read() for x in output_var]
         print("raw:", y)
