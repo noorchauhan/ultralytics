@@ -34,17 +34,6 @@ class MNNBackend(BaseBackend):
         # Load metadata from bizCode
         self.apply_metadata(json.loads(self.net.get_info()["bizCode"]))
 
-    def torch_to_mnn(self, x: torch.Tensor):
-        """Convert PyTorch tensor to MNN tensor.
-
-        Args:
-            x: PyTorch tensor.
-
-        Returns:
-            MNN tensor.
-        """
-        return MNN.expr.const(x.data_ptr(), x.shape)
-
     def forward(self, im: torch.Tensor) -> list:
         """Run MNN inference.
 
@@ -54,6 +43,6 @@ class MNNBackend(BaseBackend):
         Returns:
             Model output as list of MNN tensors.
         """
-        input_var = self.torch_to_mnn(im)
+        input_var = MNN.expr.const(im.data_ptr(), im.shape)
         output_var = self.net.onForward([input_var])
         return [x.read() for x in output_var]
