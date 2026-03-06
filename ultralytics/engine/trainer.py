@@ -62,6 +62,7 @@ from ultralytics.utils.torch_utils import (
     unwrap_model,
 )
 from ultralytics.nn.distill_model import DistillationModel
+from ultralytics.nn.cotrain_model import CoTrainingModel
 
 
 class BaseTrainer:
@@ -127,9 +128,17 @@ class BaseTrainer:
         self.hub_session = overrides.pop("session", None)  # HUB
         self.args = get_cfg(cfg, overrides)
         self.check_resume(overrides)
-        self.device = select_device(self.args.device)
-        # Update "-1" devices so post-training val does not repeat search
-        self.args.device = os.getenv("CUDA_VISIBLE_DEVICES") if "cuda" in str(self.device) else str(self.device)
+        # Co-training: expand CUDA visibility before CUDA is initialized by select_device().
+        cotrain_select_arg = None
+        if self.args.cotrain_model is not None and self.args.teacher_device is not None:
+            cotrain_select_arg = self._expand_visible_devices_for_cotrain()
+        self.device = select_device(cotrain_select_arg or self.args.device)
+        # Keep student devices as DDP world-size source; do not overwrite with merged student+teacher visibility.
+        if cotrain_select_arg and "cuda" in str(self.device):
+            self.args.device = self._cotrain_student_device_arg
+        else:
+            # Update "-1" devices so post-training val does not repeat search.
+            self.args.device = os.getenv("CUDA_VISIBLE_DEVICES") if "cuda" in str(self.device) else str(self.device)
         self.validator = None
         self.metrics = None
         self.plots = {}
@@ -264,7 +273,12 @@ class BaseTrainer:
     def _setup_train(self):
         """Build dataloaders and optimizer on correct rank process."""
         ckpt = self.setup_model()
-        self.model = self.model.to(self.device)
+        model_ref = unwrap_model(self.model)
+        if isinstance(model_ref, CoTrainingModel):
+            # Keep split student/teacher placement for co-training, do not force whole wrapper to a single device.
+            model_ref.refresh_devices(student_device=self.device, teacher_device=self._resolve_teacher_device())
+        else:
+            self.model = self.model.to(self.device)
         self.set_model_attributes()
         model_ref = unwrap_model(self.model)
 
@@ -283,6 +297,7 @@ class BaseTrainer:
         freeze_layer_names = [f"model.{x}." for x in freeze_list] + always_freeze_names
         if isinstance(model_ref, DistillationModel):
             freeze_layer_names.append("teacher_model.")
+        # CoTrainingModel: do NOT freeze teacher (both models train)
         self.freeze_layer_names = freeze_layer_names
         for k, v in self.model.named_parameters():
             # v.register_hook(lambda x: torch.nan_to_num(x))  # NaN to 0 (commented for erratic training results)
@@ -317,7 +332,52 @@ class BaseTrainer:
             ).to(self.device)
             if "teacher_model." not in self.freeze_layer_names:
                 self.freeze_layer_names += [f"teacher_model."]  # handle BN layers
-        if self.world_size > 1:
+        elif self.args.cotrain_model is not None and not isinstance(unwrap_model(self.model), CoTrainingModel):
+            # Resolve teacher device for co-training
+            teacher_device = self._resolve_teacher_device()
+            self.model = CoTrainingModel(
+                student_model=self.model,
+                teacher_model=self.args.cotrain_model,
+                feats_idx=self.args.distill_layer,
+                teacher_device=teacher_device,
+            )
+            unwrap_model(self.model).refresh_devices(student_device=self.device, teacher_device=teacher_device)
+            # Student stays on self.device, teacher on teacher_device
+        if isinstance(unwrap_model(self.model), CoTrainingModel):
+            # DDP: wrap student and teacher separately (they may be on different devices)
+            if self.world_size > 1:
+                cotrain = unwrap_model(self.model)
+                cotrain.student_model = nn.parallel.DistributedDataParallel(
+                    cotrain.student_model, device_ids=[RANK], find_unused_parameters=True
+                )
+                teacher_trainable = any(p.requires_grad for p in cotrain.teacher_model.parameters())
+                if not teacher_trainable:
+                    restored = 0
+                    for p in cotrain.teacher_model.parameters():
+                        if p.dtype.is_floating_point:
+                            p.requires_grad = True
+                            restored += 1
+                    if restored:
+                        LOGGER.warning(
+                            "Co-training teacher model had no trainable parameters. "
+                            f"Restored requires_grad=True for {restored} floating-point parameters."
+                        )
+                    teacher_trainable = any(p.requires_grad for p in cotrain.teacher_model.parameters())
+                teacher_rank = cotrain.teacher_device
+                if teacher_rank.type == "cuda":
+                    teacher_rank = teacher_rank.index
+                if teacher_trainable:
+                    cotrain.teacher_model = nn.parallel.DistributedDataParallel(
+                        cotrain.teacher_model,
+                        device_ids=[teacher_rank] if isinstance(teacher_rank, int) else None,
+                        find_unused_parameters=True,
+                    )
+                else:
+                    LOGGER.warning(
+                        "Co-training teacher model has no trainable parameters after restore attempt. "
+                        "Skipping teacher DDP wrapper."
+                    )
+        elif self.world_size > 1:
             self.model = nn.parallel.DistributedDataParallel(self.model, device_ids=[RANK], find_unused_parameters=True)
         # Check imgsz
         model_for_stride = unwrap_model(self.model)
@@ -395,7 +455,7 @@ class BaseTrainer:
         while True:
             self.epoch = epoch
             model_ref = unwrap_model(self.model)
-            if isinstance(model_ref, DistillationModel):
+            if isinstance(model_ref, (DistillationModel, CoTrainingModel)):
                 model_ref._set_epoch_progress(self.epoch, self.epochs)
             self.run_callbacks("on_train_epoch_start")
             with warnings.catch_warnings():
@@ -479,9 +539,18 @@ class BaseTrainer:
 
                 self.run_callbacks("on_train_batch_end")
 
-            # TODO
-            if self.args.o2m != 1.0 and hasattr(unwrap_model(self.model).criterion, "update"):
-                unwrap_model(self.model).criterion.update()
+            # Update dynamic one2many/one2one weighting.
+            if self.args.o2m != 1.0:
+                model_ref = unwrap_model(self.model)
+                if isinstance(model_ref, CoTrainingModel):
+                    student_criterion = model_ref.criterion
+                    if hasattr(student_criterion, "update"):
+                        student_criterion.update()
+                    teacher_criterion = model_ref.teacher_criterion
+                    if teacher_criterion is not student_criterion and hasattr(teacher_criterion, "update"):
+                        teacher_criterion.update()
+                elif hasattr(model_ref.criterion, "update"):
+                    model_ref.criterion.update()
 
             # if self.epoch >= (self.epochs - self.args.detach_epoch) and hasattr(
             #     unwrap_model(self.model), "update_detach"
@@ -605,14 +674,164 @@ class BaseTrainer:
             for p in model_ref.teacher_model.parameters():
                 if p.requires_grad:
                     p.requires_grad = False
+        # CoTrainingModel: both models stay in train mode (no freeze)
         # Freeze BN stat
         for n, m in self.model.named_modules():
             if any(filter(lambda f: f in n, self.freeze_layer_names)) and isinstance(m, nn.BatchNorm2d):
                 m.eval()
 
+    @staticmethod
+    def _parse_cuda_device_ids(device, arg_name="device"):
+        """Parse device arg into explicit non-negative CUDA physical IDs."""
+        if device is None:
+            return []
+        if isinstance(device, torch.device):
+            if device.type != "cuda":
+                return []
+            return [0 if device.index is None else int(device.index)]
+        if isinstance(device, int):
+            if device < 0:
+                raise ValueError(
+                    f"Invalid {arg_name}={device}. Co-training requires explicit non-negative CUDA GPU IDs."
+                )
+            return [device]
+        if isinstance(device, (list, tuple)):
+            ids = []
+            for item in device:
+                ids.extend(BaseTrainer._parse_cuda_device_ids(item, arg_name=arg_name))
+            return ids
+        if isinstance(device, str):
+            value = device.strip().lower()
+            if value in {"", "none"}:
+                return []
+            if value in {"cpu", "mps", "mps:0"}:
+                return []
+            for remove in ("(", ")", "[", "]", "'", " "):
+                value = value.replace(remove, "")
+            if value == "cuda":
+                return [0]
+            if value.startswith("cuda:"):
+                value = value[5:]
+            parts = [x for x in value.split(",") if x]
+            ids = []
+            for part in parts:
+                if part.startswith("cuda:"):
+                    part = part[5:]
+                if not part.lstrip("-").isdigit():
+                    raise ValueError(
+                        f"Invalid {arg_name}={device}. Use explicit CUDA IDs, e.g. {arg_name}=4,5 or {arg_name}='cuda:4'."
+                    )
+                idx = int(part)
+                if idx < 0:
+                    raise ValueError(
+                        f"Invalid {arg_name}={device}. Co-training requires explicit non-negative CUDA GPU IDs."
+                    )
+                ids.append(idx)
+            return ids
+        raise TypeError(
+            f"Unsupported {arg_name} type: {type(device).__name__}. Use int, str, list/tuple, or torch.device."
+        )
+
+    def _expand_visible_devices_for_cotrain(self):
+        """Expand CUDA_VISIBLE_DEVICES to include teacher GPUs for co-training.
+
+        When cotrain_model is used with teacher_device, the teacher GPUs must be included
+        in CUDA_VISIBLE_DEVICES so DDP subprocesses can access them. This method:
+        1. Merges student + teacher physical GPU IDs into CUDA_VISIBLE_DEVICES
+        2. Computes the virtual device index for each teacher GPU
+        3. Stores the mapping in self._teacher_virtual_devices (list of ints)
+
+        Example: device=4,5 teacher_device=6,7
+          -> CUDA_VISIBLE_DEVICES=4,5,6,7
+          -> student virtual: 0,1  teacher virtual: 2,3
+        """
+        import os as _os
+
+        student_ids = self._parse_cuda_device_ids(self.args.device, arg_name="device")
+        teacher_ids = self._parse_cuda_device_ids(self.args.teacher_device, arg_name="teacher_device")
+        if not student_ids or not teacher_ids:
+            return None
+
+        # Build merged list preserving order: student GPUs first, then teacher GPUs
+        all_ids = list(student_ids)
+        for tid in teacher_ids:
+            if tid not in all_ids:
+                all_ids.append(tid)
+
+        # Compute virtual indices for teacher GPUs
+        self._teacher_virtual_devices = [all_ids.index(tid) for tid in teacher_ids]
+        self._cotrain_student_device_arg = ",".join(str(x) for x in student_ids)
+        student_virtual = [all_ids.index(sid) for sid in student_ids]
+
+        # Update CUDA_VISIBLE_DEVICES
+        new_visible = ",".join(str(x) for x in all_ids)
+        _os.environ["CUDA_VISIBLE_DEVICES"] = new_visible
+        LOGGER.info(
+            f"Co-training: expanded CUDA_VISIBLE_DEVICES to '{new_visible}' "
+            f"(student physical: {student_ids}, student virtual: {student_virtual}, "
+            f"teacher physical: {teacher_ids}, teacher virtual: {self._teacher_virtual_devices})"
+        )
+        return new_visible
+
+    def _resolve_teacher_device(self):
+        """Resolve the teacher device for CoTrainingModel.
+
+        Uses the virtual device indices computed by _expand_visible_devices_for_cotrain
+        when available. In DDP mode, selects the device for the current RANK.
+        """
+        # If we pre-computed virtual teacher device indices, use them
+        if hasattr(self, "_teacher_virtual_devices"):
+            virtual_ids = self._teacher_virtual_devices
+            rank = max(RANK, 0)
+            idx = virtual_ids[rank] if rank < len(virtual_ids) else virtual_ids[0]
+            return torch.device(f"cuda:{idx}")
+
+        td = self.args.teacher_device
+        if td is None:
+            return self.device
+        teacher_ids = self._parse_cuda_device_ids(td, arg_name="teacher_device")
+        if teacher_ids:
+            rank = max(RANK, 0)
+            idx = teacher_ids[rank] if rank < len(teacher_ids) else teacher_ids[0]
+            return torch.device(f"cuda:{idx}")
+        return td if isinstance(td, torch.device) else torch.device(td)
+
+    @staticmethod
+    def _checkpoint_ready_model(model):
+        """Create checkpoint-ready model copy with CoTraining sub-DDP wrappers removed."""
+        model_ref = unwrap_model(model)
+        restored = []
+        if isinstance(model_ref, CoTrainingModel):
+            if isinstance(model_ref.student_model, nn.parallel.DistributedDataParallel):
+                restored.append(("student_model", model_ref.student_model))
+                model_ref.student_model = model_ref.student_model.module
+            if isinstance(model_ref.teacher_model, nn.parallel.DistributedDataParallel):
+                restored.append(("teacher_model", model_ref.teacher_model))
+                model_ref.teacher_model = model_ref.teacher_model.module
+        try:
+            model_copy = deepcopy(model_ref)
+        finally:
+            for name, module in restored:
+                setattr(model_ref, name, module)
+        if isinstance(model_copy, CoTrainingModel):
+            if isinstance(model_copy.student_model, nn.parallel.DistributedDataParallel):
+                model_copy.student_model = model_copy.student_model.module
+            if isinstance(model_copy.teacher_model, nn.parallel.DistributedDataParallel):
+                model_copy.teacher_model = model_copy.teacher_model.module
+            try:
+                student_device = next(model_copy.student_model.parameters()).device
+                teacher_device = next(model_copy.teacher_model.parameters()).device
+                model_copy.refresh_devices(student_device=student_device, teacher_device=teacher_device)
+            except StopIteration:
+                pass
+        return model_copy
+
     def save_model(self):
         """Save model training checkpoints with additional metadata."""
         import io
+
+        model_to_save = self._checkpoint_ready_model(self.model).half()
+        ema_to_save = self._checkpoint_ready_model(self.ema.ema).half()
 
         # Serialize ckpt to a byte buffer once (faster than repeated torch.save() calls)
         buffer = io.BytesIO()
@@ -620,8 +839,8 @@ class BaseTrainer:
             {
                 "epoch": self.epoch,
                 "best_fitness": self.best_fitness,
-                "model": deepcopy(unwrap_model(self.model)).half(),  # resume and final checkpoints derive from EMA
-                "ema": deepcopy(unwrap_model(self.ema.ema)).half(),
+                "model": model_to_save,  # resume and final checkpoints derive from EMA
+                "ema": ema_to_save,
                 "updates": self.ema.updates,
                 "optimizer": convert_optimizer_state_dict_to_fp16(deepcopy(self.optimizer.state_dict())),
                 "scaler": self.scaler.state_dict(),
@@ -710,6 +929,7 @@ class BaseTrainer:
     def optimizer_step(self):
         """Perform a single step of the training optimizer with gradient clipping and EMA update."""
         self.scaler.unscale_(self.optimizer)  # unscale gradients
+        self._sync_cotrain_local_gradients()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
         self.scaler.step(self.optimizer)
         self.scaler.update()
@@ -717,9 +937,66 @@ class BaseTrainer:
         if self.ema:
             self.ema.update(self.model)
 
+    def _sync_cotrain_local_gradients(self):
+        """All-reduce local distillation-module gradients in CoTrainingModel under DDP."""
+        if self.world_size <= 1:
+            return
+        model_ref = unwrap_model(self.model)
+        if not isinstance(model_ref, CoTrainingModel):
+            return
+        for p in model_ref.local_distill_parameters():
+            if p.grad is None:
+                continue
+            dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+            p.grad /= self.world_size
+
     def preprocess_batch(self, batch):
         """Allow custom preprocessing model inputs and ground truths depending on task type."""
         return batch
+
+    def _validate_cotrain_teacher(self):
+        """Run an extra validation pass for CoTrainingModel teacher and return mapped `t_` metrics."""
+        model_ref = unwrap_model(self.model)
+        if not isinstance(model_ref, CoTrainingModel):
+            return {}
+
+        switched = []
+        seen = set()
+        for holder in (self.model, self.ema.ema if self.ema else None):
+            if holder is None:
+                continue
+            ref = unwrap_model(holder)
+            if not isinstance(ref, CoTrainingModel):
+                continue
+            if id(ref) in seen:
+                continue
+            seen.add(id(ref))
+            previous = getattr(ref, "inference_target", "student")
+            ref.set_inference_target("teacher")
+            switched.append((ref, previous))
+
+        teacher_validator = self.get_validator()
+        teacher_validator.args.plots = False
+        teacher_validator.args.save_json = False
+        teacher_validator.args.save_txt = False
+
+        try:
+            teacher_results = teacher_validator(self)
+        finally:
+            for ref, previous in switched:
+                ref.set_inference_target(previous)
+
+        if teacher_results is None:
+            return {}
+
+        key_map = {
+            "metrics/precision(B)": "t_precision",
+            "metrics/recall(B)": "t_recall",
+            "metrics/mAP50(B)": "t_mAP50",
+            "metrics/mAP50-95(B)": "t_mAP50-95",
+            "fitness": "t_fitness",
+        }
+        return {dst: teacher_results[src] for src, dst in key_map.items() if src in teacher_results}
 
     def validate(self):
         """
@@ -734,8 +1011,10 @@ class BaseTrainer:
             for buffer in self.ema.ema.buffers():
                 dist.broadcast(buffer, src=0)
         metrics = self.validator(self)
+        teacher_metrics = self._validate_cotrain_teacher()
         if metrics is None:
             return None, None
+        metrics.update(teacher_metrics)
         fitness = metrics.pop("fitness", -self.loss.detach().cpu().numpy())  # use loss as fitness measure if not found
         if not self.best_fitness or self.best_fitness < fitness:
             self.best_fitness = fitness

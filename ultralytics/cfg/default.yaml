@@ -115,6 +115,8 @@ distill_cls: 5
 distill_feature_loss: "l2"  # distill feature loss, could be cos(cosine loss) or l1(l1 loss) or l2(l2 loss)
 distill_feature: 7.5
 distill_model: # (str, optional) path to teacher model for knowledge distillation
+cotrain_model: # (str, optional) path to peer model for co-training (both models train simultaneously)
+teacher_device: # (int | str | list, optional) device(s) for teacher/peer model in co-training
 distill_layer: # (int) the layer index to distill features from
 distill_area: # (str) the area to distill head from, could be "main", "all"
 distill_projector: "linear"  # student projector, could be "linear", "mlp"

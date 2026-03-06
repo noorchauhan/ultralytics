@@ -638,6 +638,24 @@ class ModelEMA:
         - https://www.tensorflow.org/api_docs/python/tf/train/ExponentialMovingAverage
     """
 
+    @staticmethod
+    def _temporarily_unwrap_sub_ddp(model):
+        """Temporarily unwrap nested student/teacher DDP modules before deepcopy."""
+        restored = []
+        ddp = nn.parallel.DistributedDataParallel
+        for name in ("student_model", "teacher_model"):
+            module = getattr(model, name, None)
+            if isinstance(module, ddp):
+                setattr(model, name, module.module)
+                restored.append((name, module))
+        return restored
+
+    @staticmethod
+    def _restore_sub_ddp(model, restored):
+        """Restore nested student/teacher DDP modules after deepcopy."""
+        for name, module in restored:
+            setattr(model, name, module)
+
     def __init__(self, model, decay=0.9999, tau=2000, updates=0):
         """
         Initialize EMA for 'model' with given arguments.
@@ -648,7 +666,12 @@ class ModelEMA:
             tau (int, optional): EMA decay time constant.
             updates (int, optional): Initial number of updates.
         """
-        self.ema = deepcopy(unwrap_model(model)).eval()  # FP32 EMA
+        model_ref = unwrap_model(model)
+        restored = self._temporarily_unwrap_sub_ddp(model_ref)
+        try:
+            self.ema = deepcopy(model_ref).eval()  # FP32 EMA
+        finally:
+            self._restore_sub_ddp(model_ref, restored)
         self.updates = updates  # number of EMA updates
         self.decay = lambda x: decay * (1 - math.exp(-x / tau))  # decay exponential ramp (to help early epochs)
         for p in self.ema.parameters():
@@ -666,11 +689,26 @@ class ModelEMA:
             self.updates += 1
             d = self.decay(self.updates)
 
-            msd = unwrap_model(model).state_dict()  # model state_dict
+            model_ref = unwrap_model(model)
+            model_name = model_ref.__class__.__name__
+            update_teacher_ema = model_name == "CoTrainingModel"
+
+            msd = model_ref.state_dict()  # model state_dict
+            if any(k.startswith(("student_model.module.", "teacher_model.module.")) for k in msd):
+                # Co-training DDP wraps submodels, while EMA snapshot stores unwrapped submodels.
+                msd = {
+                    k.replace("student_model.module.", "student_model.").replace(
+                        "teacher_model.module.", "teacher_model."
+                    ): v
+                    for k, v in msd.items()
+                }
             for k, v in self.ema.state_dict().items():
-                if "teacher" in k:  # skip teacher parameters
+                if "teacher" in k and not update_teacher_ema:
+                    # DistillationModel teacher is frozen and should not update EMA.
                     continue
                 if v.dtype.is_floating_point:  # true for FP16 and FP32
+                    if k not in msd:
+                        continue
                     v *= d
                     v += (1 - d) * msd[k].detach()
                     # assert v.dtype == msd[k].dtype == torch.float32, f'{k}: EMA {v.dtype},  model {msd[k].dtype}'

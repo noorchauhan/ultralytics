@@ -163,6 +163,7 @@ class DetectionTrainer(BaseTrainer):
             (DetectionModel): YOLO detection model.
         """
         from ultralytics.nn.distill_model import DistillationModel
+        from ultralytics.nn.cotrain_model import CoTrainingModel
 
         # Rebuild distillation model on resume to avoid inheriting checkpoint module states (e.g., requires_grad flags).
         if isinstance(weights, DistillationModel):
@@ -185,6 +186,29 @@ class DetectionTrainer(BaseTrainer):
             model.criterion = None
             return model
 
+        # Rebuild CoTrainingModel on resume
+        if isinstance(weights, CoTrainingModel):
+            if verbose and RANK == -1:
+                LOGGER.info("Resuming CoTrainingModel with rebuild-and-load from checkpoint weights")
+            student_model = DetectionModel(cfg, nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1)
+            student_model.args = self.args
+            # Resolve teacher device
+            teacher_device = self._resolve_teacher_device()
+            model = CoTrainingModel(
+                student_model=student_model,
+                teacher_model=weights.teacher_model,
+                feats_idx=self.args.distill_layer,
+                teacher_device=teacher_device,
+            )
+            incompatible = model.load_from_module(weights, strict=False)
+            if verbose and RANK == -1:
+                if incompatible.missing_keys:
+                    LOGGER.warning(f"Missing keys when loading co-training checkpoint: {incompatible.missing_keys}")
+                if incompatible.unexpected_keys:
+                    LOGGER.warning(f"Unexpected keys when loading co-training checkpoint: {incompatible.unexpected_keys}")
+            model.criterion = None
+            return model
+
         # Otherwise, create a new DetectionModel and load weights if provided
         model = DetectionModel(cfg, nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1)
         if weights:
@@ -196,6 +220,8 @@ class DetectionTrainer(BaseTrainer):
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
         if self.args.distill_model is not None:
             self.loss_names += ("dis_loss",)
+        elif self.args.cotrain_model is not None:
+            self.loss_names += ("t_box", "t_cls", "t_dfl", "dis_loss")
         return yolo.detect.DetectionValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
