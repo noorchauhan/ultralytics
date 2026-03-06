@@ -164,7 +164,7 @@ def export_formats():
             ".engine",
             False,
             True,
-            ["batch", "dynamic", "half", "int8", "simplify", "nms", "fraction", "trt_hardware_compatibility_level"],
+            ["batch", "dynamic", "half", "int8", "simplify", "nms", "fraction", "hw_compat"],
         ],
         ["CoreML", "coreml", ".mlpackage", True, False, ["batch", "dynamic", "half", "int8", "nms"]],
         ["TensorFlow SavedModel", "saved_model", "_saved_model", True, True, ["batch", "int8", "keras", "nms"]],
@@ -224,7 +224,7 @@ def validate_args(format, passed_args, valid_args):
     Raises:
         AssertionError: If an unsupported argument is used, or if the format lacks supported argument listings.
     """
-    export_args = ["half", "int8", "dynamic", "keras", "nms", "batch", "fraction", "trt_hardware_compatibility_level"]
+    export_args = ["half", "int8", "dynamic", "keras", "nms", "batch", "fraction", "hw_compat"]
 
     assert valid_args is not None, f"ERROR ❌️ valid arguments for '{format}' not listed."
     custom = {"batch": 1, "data": None, "device": None}  # exporter defaults
@@ -1020,7 +1020,7 @@ class Exporter:
         # On this platform, do not force TensorRT >=10.15 when compatibility mode is requested.
         # Force TensorRT >=10.15 on CUDA 13 ARM devices for RT-DETR exports when compatibility mode is off.
         # https://github.com/ultralytics/ultralytics/issues/22873
-        trt_hw_compat_level = (self.args.trt_hardware_compatibility_level or "none").lower()
+        trt_hw_compat_level = (self.args.hw_compat or "none").lower()
         is_rtdetr = isinstance(self.model.model[-1], RTDETRDecoder)
         if (is_jetson(jetpack=7) or (is_dgx() and ARM64)) and is_rtdetr and trt_hw_compat_level == "none":
             check_tensorrt("10.15")
@@ -1043,7 +1043,7 @@ class Exporter:
             and not trt.__version__.startswith("10.13.3.9")
         ):
             LOGGER.warning(
-                f"{prefix} disabling trt_hardware_compatibility_level='{trt_hw_compat_level}' because it is supported "
+                f"{prefix} disabling hw_compat='{trt_hw_compat_level}' because it is supported "
                 f"on Jetson Thor and DGX Spark (ARM64) only with TensorRT 10.13.3.9 (found {trt.__version__})."
             )
             trt_hw_compat_level = "none"
@@ -1060,7 +1060,7 @@ class Exporter:
             metadata=self.metadata,
             verbose=self.args.verbose,
             prefix=prefix,
-            trt_hardware_compatibility_level=trt_hw_compat_level,
+            hw_compat=trt_hw_compat_level,
         )
 
         return f
