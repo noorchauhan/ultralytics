@@ -1018,10 +1018,11 @@ class Exporter:
 
         # Thor/Spark-specific behavior (ARM64): TensorRT hardware compatibility interop is validated only with 10.13.3.9.
         # On this platform, do not force TensorRT >=10.15 when compatibility mode is requested.
-        # Force TensorRT >=10.15 on CUDA 13 ARM devices to address RT-DETR export issues when compatibility mode is off.
+        # Force TensorRT >=10.15 on CUDA 13 ARM devices for RT-DETR exports when compatibility mode is off.
         # https://github.com/ultralytics/ultralytics/issues/22873
         trt_hw_compat_level = (self.args.trt_hardware_compatibility_level or "none").lower()
-        if (is_jetson(jetpack=7) or (is_dgx() and ARM64)) and trt_hw_compat_level == "none":
+        is_rtdetr = isinstance(self.model.model[-1], RTDETRDecoder)
+        if (is_jetson(jetpack=7) or (is_dgx() and ARM64)) and is_rtdetr and trt_hw_compat_level == "none":
             check_tensorrt("10.15")
 
         try:
