@@ -60,8 +60,7 @@ TASK2DATA = {
     "classify": "imagenet10",
     "pose": "coco8-pose.yaml",
     "obb": "dota8.yaml",
-    # Default example dataset for stereo 3D detection (user should override path)
-    "stereo3ddet": "kitti-stereo.yaml",
+    "stereo3ddet": "kitti-stereo8.yaml",
 }
 TASK2MODEL = {
     "detect": "yolo26n.pt",
@@ -69,7 +68,7 @@ TASK2MODEL = {
     "classify": "yolo26n-cls.pt",
     "pose": "yolo26n-pose.pt",
     "obb": "yolo26n-obb.pt",
-    "stereo3ddet": "yolo11n-stereo3ddet.pt",
+    "stereo3ddet": "yolo26n-stereo3ddet-siamese.pt",
 }
 TASK2METRIC = {
     "detect": "metrics/mAP50-95(B)",
