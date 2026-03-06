@@ -182,8 +182,7 @@ class AutoBackend(nn.Module):
         format = "pt" if isinstance(model, nn.Module) else self._model_type(model, dnn)
 
         # Check if format supports FP16
-        fp16_supported = format in {"pt", "torchscript", "onnx", "openvino", "engine", "triton"}
-        fp16 &= fp16_supported
+        fp16 &= format in {"pt", "torchscript", "onnx", "openvino", "engine", "triton"}
 
         # Set device
         if (

@@ -49,9 +49,6 @@ class OpenVINOBackend(BaseBackend):
             from ultralytics.utils import YAML
 
             self.apply_metadata(YAML.load(metadata_file))
-            # OpenVINO-specific: use batch and dynamic for inference mode selection
-            self.batch = self.metadata.get("batch", 1)
-            self.dynamic = self.metadata.get("args", {}).get("dynamic", self.dynamic)
 
         # Set inference mode
         self.inference_mode = "CUMULATIVE_THROUGHPUT" if self.dynamic and self.batch > 1 else "LATENCY"
