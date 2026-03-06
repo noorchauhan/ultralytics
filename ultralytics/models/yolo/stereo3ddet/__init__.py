@@ -45,7 +45,6 @@ from .preprocess import (
     decode_and_refine_predictions,
     get_geometric_config,
     get_dense_alignment_config,
-    clear_config_cache,
 )
 
 from .utils import (
@@ -88,7 +87,6 @@ __all__ = [
     "decode_and_refine_predictions",
     "get_geometric_config",
     "get_dense_alignment_config",
-    "clear_config_cache",
     "get_paper_class_mapping",
     "filter_and_remap_class_id",
     "is_paper_class",

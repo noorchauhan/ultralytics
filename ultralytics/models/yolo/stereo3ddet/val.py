@@ -15,7 +15,6 @@ from ultralytics.models.yolo.stereo3ddet.preprocess import (
     preprocess_stereo_batch,
     compute_letterbox_params,
     decode_and_refine_predictions,
-    clear_config_cache,
 )
 from ultralytics.models.yolo.stereo3ddet.metrics import (
     DIFFICULTY_EASY,
@@ -27,7 +26,7 @@ from ultralytics.models.yolo.stereo3ddet.metrics import (
 from ultralytics.utils import LOGGER, RANK, YAML
 from ultralytics.utils.metrics import DetMetrics, box_iou, compute_3d_iou
 from ultralytics.utils.plotting import plot_stereo3d_boxes
-from ultralytics.utils.profiling import profile_function, profile_section
+
 from ultralytics.engine.validator import BaseValidator
 
 
@@ -77,7 +76,6 @@ def _reverse_letterbox_calib(
     return calib
 
 
-@profile_function(name="compute_3d_iou_batch")
 def compute_3d_iou_batch(
     pred_boxes: list[Box3D],
     gt_boxes: list[Box3D],
@@ -298,9 +296,6 @@ class Stereo3DDetValidator(BaseValidator):
         Args:
             model: Model being validated.
         """
-        # Clear config cache at start of validation to reload fresh configs
-        clear_config_cache()
-
         # Use model's class names — they define the class IDs the model predicts.
         # The dataset YAML may have more classes (e.g., 8 KITTI classes) than the model (e.g., 3).
         # Using model names ensures class IDs match between predictions and GT filtering.
@@ -382,257 +377,256 @@ class Stereo3DDetValidator(BaseValidator):
             preds: List of predicted Box3D lists (one per image).
             batch: Batch containing ground truth labels.
         """
-        with profile_section("update_metrics"):
-            self._current_batch = batch  # Store for calibration access
+        self._current_batch = batch  # Store for calibration access
 
-            labels_list = batch.get("labels", [])
-            calibs = batch.get("calib", [])
-            ori_shapes = batch.get("ori_shape", [])
+        labels_list = batch.get("labels", [])
+        calibs = batch.get("calib", [])
+        ori_shapes = batch.get("ori_shape", [])
 
-            for si, (pred_boxes, labels) in enumerate(zip(preds, labels_list)):
-                self.seen += 1
+        for si, (pred_boxes, labels) in enumerate(zip(preds, labels_list)):
+            self.seen += 1
 
-                # Get calibration for this sample
-                calib = (
-                    calibs[si]
-                    if si < len(calibs) and isinstance(calibs[si], dict)
-                    else None
-                )
+            # Get calibration for this sample
+            calib = (
+                calibs[si]
+                if si < len(calibs) and isinstance(calibs[si], dict)
+                else None
+            )
 
-                # Convert labels to Box3D - need to reverse letterbox transformation on calibration
-                # Labels use original image normalized coordinates, but calib is letterboxed
-                if calib is not None and si < len(ori_shapes):
-                    ori_shape = ori_shapes[si]
-                    if isinstance(ori_shape, (list, tuple)) and len(ori_shape) >= 2:
-                        actual_h, actual_w = ori_shape[0], ori_shape[1]
-                        imgsz = getattr(self.args, "imgsz", 384)
+            # Convert labels to Box3D - need to reverse letterbox transformation on calibration
+            # Labels use original image normalized coordinates, but calib is letterboxed
+            if calib is not None and si < len(ori_shapes):
+                ori_shape = ori_shapes[si]
+                if isinstance(ori_shape, (list, tuple)) and len(ori_shape) >= 2:
+                    actual_h, actual_w = ori_shape[0], ori_shape[1]
+                    imgsz = getattr(self.args, "imgsz", 384)
 
-                        letterbox_scale, pad_left, pad_top = compute_letterbox_params(
-                            actual_h, actual_w, imgsz
-                        )
-                        calib = _reverse_letterbox_calib(
-                            calib, letterbox_scale, pad_left, pad_top, actual_w, actual_h
-                        )
-                        in_h, in_w = (imgsz, imgsz) if isinstance(imgsz, int) else (int(imgsz[0]), int(imgsz[1]))
-
-                # Convert labels to Box3D. Use data_names (all classes) for from_label since
-                # label dicts carry dataset class IDs, then remap to model class IDs.
-                data_names = self.data.get("names") if hasattr(self, "data") and self.data else self.names
-                gt_boxes = _labels_to_box3d_list(
-                    labels,
-                    calib,
-                    names=data_names,
-                    letterbox_scale=letterbox_scale,
-                    pad_left=pad_left,
-                    pad_top=pad_top,
-                    in_h=in_h,
-                    in_w=in_w,
-                )
-
-                # Remap GT class IDs from dataset space to model space and drop unmapped classes
-                if self._dataset_to_model_cls:
-                    remapped = []
-                    for box in gt_boxes:
-                        new_id = self._dataset_to_model_cls.get(box.class_id)
-                        if new_id is not None:
-                            box.class_id = new_id
-                            box.class_label = self.names.get(new_id, str(new_id)) if isinstance(self.names, dict) else str(new_id)
-                            remapped.append(box)
-                    gt_boxes = remapped
-
-                # ------------------------------------------------------------
-                # 2D bbox metrics (original-image xyxy)
-                # ------------------------------------------------------------
-                # Pred boxes2d from 3D projection (original coords)
-                pred_bboxes2d = []
-                pred_conf2d = []
-                pred_cls2d = []
-                for pb in pred_boxes:
-                    bbox_2d = pb.project_to_2d(calib) if calib else None
-                    if bbox_2d is None or bbox_2d[2] <= bbox_2d[0] or bbox_2d[3] <= bbox_2d[1]:
-                        continue
-                    pred_bboxes2d.append([float(bbox_2d[0]), float(bbox_2d[1]), float(bbox_2d[2]), float(bbox_2d[3])])
-                    pred_conf2d.append(float(pb.confidence))
-                    pred_cls2d.append(int(pb.class_id))
-
-                # GT boxes2d from labels (labels are normalized to *letterboxed* input space).
-                gt_bboxes2d = []
-                gt_cls2d = []
-
-                # Use ori_shapes for inverse-letterbox.
-                imgsz = getattr(self.args, "imgsz", 384)
-                if (
-                    si < len(ori_shapes)
-                    and isinstance(ori_shapes[si], (list, tuple))
-                    and len(ori_shapes[si]) >= 2
-                ):
-                    ori_h, ori_w = int(ori_shapes[si][0]), int(ori_shapes[si][1])
-                else:
-                    ori_h, ori_w = 375, 1242
-                letterbox_scale, pad_left, pad_top = compute_letterbox_params(
-                    ori_h, ori_w, imgsz
-                )
-                if isinstance(imgsz, int):
-                    in_h, in_w = imgsz, imgsz
-                else:
-                    in_h, in_w = int(imgsz[0]), int(imgsz[1])
-
-                for lab in labels:
-                    lb = lab.get("left_box", None)
-                    if lb is None:
-                        continue
-                    cls_i = int(lab.get("class_id", 0))
-                    # Remap dataset class ID to model class ID
-                    if self._dataset_to_model_cls:
-                        mapped = self._dataset_to_model_cls.get(cls_i)
-                        if mapped is None:
-                            continue  # Skip classes not in model
-                        cls_i = mapped
-                    cx = float(lb.get("center_x", 0.0)) * in_w
-                    cy = float(lb.get("center_y", 0.0)) * in_h
-                    bw = float(lb.get("width", 0.0)) * in_w
-                    bh = float(lb.get("height", 0.0)) * in_h
-                    x1_l = cx - bw / 2
-                    y1_l = cy - bh / 2
-                    x2_l = cx + bw / 2
-                    y2_l = cy + bh / 2
-                    # letterbox -> original
-                    x1 = (x1_l - pad_left) / letterbox_scale
-                    y1 = (y1_l - pad_top) / letterbox_scale
-                    x2 = (x2_l - pad_left) / letterbox_scale
-                    y2 = (y2_l - pad_top) / letterbox_scale
-                    if x1 > x2:
-                        x1, x2 = x2, x1
-                    if y1 > y2:
-                        y1, y2 = y2, y1
-                    gt_bboxes2d.append([x1, y1, x2, y2])
-                    gt_cls2d.append(cls_i)
-
-                # Compute tp matrix (N,10) for bbox metrics
-                n_pred = len(pred_bboxes2d)
-                if n_pred == 0:
-                    tp2d = np.zeros((0, self.det_iouv.numel()), dtype=bool)
-                    conf2d = np.zeros((0,), dtype=np.float32)
-                    pred_cls_np = np.zeros((0,), dtype=np.int64)
-                else:
-                    pred_boxes_t = torch.tensor(pred_bboxes2d, dtype=torch.float32)
-                    pred_cls_t = torch.tensor(pred_cls2d, dtype=torch.int64)
-                    gt_boxes_t = (
-                        torch.tensor(gt_bboxes2d, dtype=torch.float32)
-                        if gt_bboxes2d
-                        else torch.zeros((0, 4), dtype=torch.float32)
+                    letterbox_scale, pad_left, pad_top = compute_letterbox_params(
+                        actual_h, actual_w, imgsz
                     )
-                    gt_cls_t = (
-                        torch.tensor(gt_cls2d, dtype=torch.int64)
-                        if gt_cls2d
-                        else torch.zeros((0,), dtype=torch.int64)
+                    calib = _reverse_letterbox_calib(
+                        calib, letterbox_scale, pad_left, pad_top, actual_w, actual_h
                     )
+                    in_h, in_w = (imgsz, imgsz) if isinstance(imgsz, int) else (int(imgsz[0]), int(imgsz[1]))
 
-                    if gt_boxes_t.shape[0] == 0:
-                        tp2d = np.zeros((n_pred, self.det_iouv.numel()), dtype=bool)
-                    else:
-                        iou2d = box_iou(gt_boxes_t, pred_boxes_t)  # MxN (gt x pred)
-                        # Use BaseValidator matching but with det_iouv.
-                        # IMPORTANT: guard with try/finally so self.iouv is always restored (prevents leaking 10 IoUs
-                        # into the 3D metrics path where tp/fp are shape (N, 2)).
-                        old_iouv = self.iouv
-                        try:
-                            self.iouv = self.det_iouv
-                            correct = (
-                                self.match_predictions(pred_cls_t, gt_cls_t, iou2d)
-                                .cpu()
-                                .numpy()
-                            )
-                        finally:
-                            self.iouv = old_iouv
-                        tp2d = correct
+            # Convert labels to Box3D. Use data_names (all classes) for from_label since
+            # label dicts carry dataset class IDs, then remap to model class IDs.
+            data_names = self.data.get("names") if hasattr(self, "data") and self.data else self.names
+            gt_boxes = _labels_to_box3d_list(
+                labels,
+                calib,
+                names=data_names,
+                letterbox_scale=letterbox_scale,
+                pad_left=pad_left,
+                pad_top=pad_top,
+                in_h=in_h,
+                in_w=in_w,
+            )
 
-                    conf2d = np.asarray(pred_conf2d, dtype=np.float32)
-                    pred_cls_np = np.asarray(pred_cls2d, dtype=np.int64)
+            # Remap GT class IDs from dataset space to model space and drop unmapped classes
+            if self._dataset_to_model_cls:
+                remapped = []
+                for box in gt_boxes:
+                    new_id = self._dataset_to_model_cls.get(box.class_id)
+                    if new_id is not None:
+                        box.class_id = new_id
+                        box.class_label = self.names.get(new_id, str(new_id)) if isinstance(self.names, dict) else str(new_id)
+                        remapped.append(box)
+                gt_boxes = remapped
 
-                target_cls_np = np.asarray(gt_cls2d, dtype=np.int64)
-                self.det_metrics.update_stats(
-                    {
-                        "tp": tp2d,
-                        "conf": conf2d,
-                        "pred_cls": pred_cls_np,
-                        "target_cls": target_cls_np,
-                        "target_img": np.unique(target_cls_np),
-                    }
-                )
-
-                # Handle empty predictions or ground truth
-                if len(pred_boxes) == 0 and len(gt_boxes) == 0:
+            # ------------------------------------------------------------
+            # 2D bbox metrics (original-image xyxy)
+            # ------------------------------------------------------------
+            # Pred boxes2d from 3D projection (original coords)
+            pred_bboxes2d = []
+            pred_conf2d = []
+            pred_cls2d = []
+            for pb in pred_boxes:
+                bbox_2d = pb.project_to_2d(calib) if calib else None
+                if bbox_2d is None or bbox_2d[2] <= bbox_2d[0] or bbox_2d[3] <= bbox_2d[1]:
                     continue
+                pred_bboxes2d.append([float(bbox_2d[0]), float(bbox_2d[1]), float(bbox_2d[2]), float(bbox_2d[3])])
+                pred_conf2d.append(float(pb.confidence))
+                pred_cls2d.append(int(pb.class_id))
 
-                # Classify GT difficulty (KITTI standard)
-                gt_difficulties = np.full(len(gt_boxes), -1, dtype=int)
-                for gi, gt_box in enumerate(gt_boxes):
-                    trunc = gt_box.truncated if gt_box.truncated is not None else 0.0
-                    occ = gt_box.occluded if gt_box.occluded is not None else 0
-                    # Get 2D bbox height in original image pixels
-                    bbox_2d = gt_box.project_to_2d(calib) if calib else None
-                    h_2d = float(bbox_2d[3] - bbox_2d[1]) if bbox_2d is not None else 0.0
-                    gt_difficulties[gi] = classify_difficulty(trunc, occ, h_2d)
+            # GT boxes2d from labels (labels are normalized to *letterboxed* input space).
+            gt_bboxes2d = []
+            gt_cls2d = []
 
-                # Compute pred 2D bbox heights for min-height filtering
-                pred_heights_2d = np.zeros(len(pred_boxes), dtype=np.float32)
-                for pi, pb in enumerate(pred_boxes):
-                    bbox_2d = pb.project_to_2d(calib) if calib else None
-                    pred_heights_2d[pi] = float(bbox_2d[3] - bbox_2d[1]) if bbox_2d is not None else 0.0
+            # Use ori_shapes for inverse-letterbox.
+            imgsz = getattr(self.args, "imgsz", 384)
+            if (
+                si < len(ori_shapes)
+                and isinstance(ori_shapes[si], (list, tuple))
+                and len(ori_shapes[si]) >= 2
+            ):
+                ori_h, ori_w = int(ori_shapes[si][0]), int(ori_shapes[si][1])
+            else:
+                ori_h, ori_w = 375, 1242
+            letterbox_scale, pad_left, pad_top = compute_letterbox_params(
+                ori_h, ori_w, imgsz
+            )
+            if isinstance(imgsz, int):
+                in_h, in_w = imgsz, imgsz
+            else:
+                in_h, in_w = int(imgsz[0]), int(imgsz[1])
 
-                # Compute 3D IoU matrix
-                if len(pred_boxes) > 0 and len(gt_boxes) > 0:
-                    iou_matrix = compute_3d_iou_batch(pred_boxes, gt_boxes)
-                else:
-                    iou_matrix = np.zeros((len(pred_boxes), len(gt_boxes)))
+            for lab in labels:
+                lb = lab.get("left_box", None)
+                if lb is None:
+                    continue
+                cls_i = int(lab.get("class_id", 0))
+                # Remap dataset class ID to model class ID
+                if self._dataset_to_model_cls:
+                    mapped = self._dataset_to_model_cls.get(cls_i)
+                    if mapped is None:
+                        continue  # Skip classes not in model
+                    cls_i = mapped
+                cx = float(lb.get("center_x", 0.0)) * in_w
+                cy = float(lb.get("center_y", 0.0)) * in_h
+                bw = float(lb.get("width", 0.0)) * in_w
+                bh = float(lb.get("height", 0.0)) * in_h
+                x1_l = cx - bw / 2
+                y1_l = cy - bh / 2
+                x2_l = cx + bw / 2
+                y2_l = cy + bh / 2
+                # letterbox -> original
+                x1 = (x1_l - pad_left) / letterbox_scale
+                y1 = (y1_l - pad_top) / letterbox_scale
+                x2 = (x2_l - pad_left) / letterbox_scale
+                y2 = (y2_l - pad_top) / letterbox_scale
+                if x1 > x2:
+                    x1, x2 = x2, x1
+                if y1 > y2:
+                    y1, y2 = y2, y1
+                gt_bboxes2d.append([x1, y1, x2, y2])
+                gt_cls2d.append(cls_i)
 
-                # Store raw data for per-difficulty matching in metrics.process()
-                self.metrics.update_stats(
-                    {
-                        "pred_boxes": pred_boxes,
-                        "gt_boxes": gt_boxes,
-                        "iou_matrix": iou_matrix,
-                        "gt_difficulties": gt_difficulties,
-                        "pred_heights_2d": pred_heights_2d,
-                    }
+            # Compute tp matrix (N,10) for bbox metrics
+            n_pred = len(pred_bboxes2d)
+            if n_pred == 0:
+                tp2d = np.zeros((0, self.det_iouv.numel()), dtype=bool)
+                conf2d = np.zeros((0,), dtype=np.float32)
+                pred_cls_np = np.zeros((0,), dtype=np.int64)
+            else:
+                pred_boxes_t = torch.tensor(pred_bboxes2d, dtype=torch.float32)
+                pred_cls_t = torch.tensor(pred_cls2d, dtype=torch.int64)
+                gt_boxes_t = (
+                    torch.tensor(gt_bboxes2d, dtype=torch.float32)
+                    if gt_bboxes2d
+                    else torch.zeros((0, 4), dtype=torch.float32)
+                )
+                gt_cls_t = (
+                    torch.tensor(gt_cls2d, dtype=torch.int64)
+                    if gt_cls2d
+                    else torch.zeros((0,), dtype=torch.int64)
                 )
 
-                # Update progress bar with intermediate metrics (every batch for real-time feedback)
-            if (
-                hasattr(self, "_progress_bar")
-                and self._progress_bar is not None
-                and RANK in {-1, 0}
-            ):
-                # Update progress bar periodically to avoid performance impact
-                if hasattr(self, "_batch_count"):
-                    self._batch_count += 1
+                if gt_boxes_t.shape[0] == 0:
+                    tp2d = np.zeros((n_pred, self.det_iouv.numel()), dtype=bool)
                 else:
-                    self._batch_count = 1
+                    iou2d = box_iou(gt_boxes_t, pred_boxes_t)  # MxN (gt x pred)
+                    # Use BaseValidator matching but with det_iouv.
+                    # IMPORTANT: guard with try/finally so self.iouv is always restored (prevents leaking 10 IoUs
+                    # into the 3D metrics path where tp/fp are shape (N, 2)).
+                    old_iouv = self.iouv
+                    try:
+                        self.iouv = self.det_iouv
+                        correct = (
+                            self.match_predictions(pred_cls_t, gt_cls_t, iou2d)
+                            .cpu()
+                            .numpy()
+                        )
+                    finally:
+                        self.iouv = old_iouv
+                    tp2d = correct
 
-                # Update every 5 batches or if we're near the end (more frequent than before)
-                if self._batch_count % 5 == 0 or (
-                    hasattr(self, "_total_batches")
-                    and self._batch_count >= self._total_batches - 1
-                ):
-                    metrics_str = self._format_progress_metrics()
-                    if metrics_str:
-                        self._progress_bar.set_description(metrics_str)
+                conf2d = np.asarray(pred_conf2d, dtype=np.float32)
+                pred_cls_np = np.asarray(pred_cls2d, dtype=np.int64)
 
-            # Generate visualization images if plots enabled.
-            # NOTE: This stereo validator saves 1 file per sample, so keep defaults conservative to avoid generating
-            # thousands of images when using large validation batch sizes.
-            #
-            # Default to 3 batches (matching Detect task style), but can be overridden via `max_plot_batches`.
-            # Additionally cap samples per batch (default=1) via `max_plot_samples`.
-            max_plot_batches = getattr(self.args, "max_plot_batches", 3)
-            if (
-                self.args.plots
-                and hasattr(self, "batch_i")
-                and self.batch_i < max_plot_batches
-                and RANK in {-1, 0}
+            target_cls_np = np.asarray(gt_cls2d, dtype=np.int64)
+            self.det_metrics.update_stats(
+                {
+                    "tp": tp2d,
+                    "conf": conf2d,
+                    "pred_cls": pred_cls_np,
+                    "target_cls": target_cls_np,
+                    "target_img": np.unique(target_cls_np),
+                }
+            )
+
+            # Handle empty predictions or ground truth
+            if len(pred_boxes) == 0 and len(gt_boxes) == 0:
+                continue
+
+            # Classify GT difficulty (KITTI standard)
+            gt_difficulties = np.full(len(gt_boxes), -1, dtype=int)
+            for gi, gt_box in enumerate(gt_boxes):
+                trunc = gt_box.truncated if gt_box.truncated is not None else 0.0
+                occ = gt_box.occluded if gt_box.occluded is not None else 0
+                # Get 2D bbox height in original image pixels
+                bbox_2d = gt_box.project_to_2d(calib) if calib else None
+                h_2d = float(bbox_2d[3] - bbox_2d[1]) if bbox_2d is not None else 0.0
+                gt_difficulties[gi] = classify_difficulty(trunc, occ, h_2d)
+
+            # Compute pred 2D bbox heights for min-height filtering
+            pred_heights_2d = np.zeros(len(pred_boxes), dtype=np.float32)
+            for pi, pb in enumerate(pred_boxes):
+                bbox_2d = pb.project_to_2d(calib) if calib else None
+                pred_heights_2d[pi] = float(bbox_2d[3] - bbox_2d[1]) if bbox_2d is not None else 0.0
+
+            # Compute 3D IoU matrix
+            if len(pred_boxes) > 0 and len(gt_boxes) > 0:
+                iou_matrix = compute_3d_iou_batch(pred_boxes, gt_boxes)
+            else:
+                iou_matrix = np.zeros((len(pred_boxes), len(gt_boxes)))
+
+            # Store raw data for per-difficulty matching in metrics.process()
+            self.metrics.update_stats(
+                {
+                    "pred_boxes": pred_boxes,
+                    "gt_boxes": gt_boxes,
+                    "iou_matrix": iou_matrix,
+                    "gt_difficulties": gt_difficulties,
+                    "pred_heights_2d": pred_heights_2d,
+                }
+            )
+
+            # Update progress bar with intermediate metrics (every batch for real-time feedback)
+        if (
+            hasattr(self, "_progress_bar")
+            and self._progress_bar is not None
+            and RANK in {-1, 0}
+        ):
+            # Update progress bar periodically to avoid performance impact
+            if hasattr(self, "_batch_count"):
+                self._batch_count += 1
+            else:
+                self._batch_count = 1
+
+            # Update every 5 batches or if we're near the end (more frequent than before)
+            if self._batch_count % 5 == 0 or (
+                hasattr(self, "_total_batches")
+                and self._batch_count >= self._total_batches - 1
             ):
-                self.plot_validation_samples(batch, preds, self.batch_i)
+                metrics_str = self._format_progress_metrics()
+                if metrics_str:
+                    self._progress_bar.set_description(metrics_str)
+
+        # Generate visualization images if plots enabled.
+        # NOTE: This stereo validator saves 1 file per sample, so keep defaults conservative to avoid generating
+        # thousands of images when using large validation batch sizes.
+        #
+        # Default to 3 batches (matching Detect task style), but can be overridden via `max_plot_batches`.
+        # Additionally cap samples per batch (default=1) via `max_plot_samples`.
+        max_plot_batches = getattr(self.args, "max_plot_batches", 3)
+        if (
+            self.args.plots
+            and hasattr(self, "batch_i")
+            and self.batch_i < max_plot_batches
+            and RANK in {-1, 0}
+        ):
+            self.plot_validation_samples(batch, preds, self.batch_i)
 
     def get_desc(self) -> str:
         """Return a formatted string summarizing validation metrics header for progress bar."""
@@ -1021,9 +1015,6 @@ class Stereo3DDetValidator(BaseValidator):
             else:
                 imgsz = (int(imgsz), int(imgsz))  # Int to square
 
-            # Get max_samples from args if available (for profiling/testing)
-            max_samples = getattr(self.args, "max_samples", None)
-
             # Compute output_size from imgsz with default stride (8x for P3)
             # This can be overridden if model is available later, but default works for most cases
             output_size = None  # Will use dataset default (imgsz // 8)
@@ -1037,7 +1028,6 @@ class Stereo3DDetValidator(BaseValidator):
                 split=str(desc.get("split", mode)),
                 imgsz=imgsz,
                 names=self.data.get("names") if hasattr(self, "data") else None,
-                max_samples=max_samples,
                 output_size=output_size,
                 mean_dims=mean_dims,
                 std_dims=std_dims,

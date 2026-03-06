@@ -17,8 +17,6 @@ Key Functions:
 from __future__ import annotations
 
 import math
-from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -26,67 +24,28 @@ import torch
 
 from ultralytics.data.augment import LetterBox
 from ultralytics.data.stereo.box3d import Box3D
-from ultralytics.utils import LOGGER, YAML
+from ultralytics.utils import LOGGER
 from ultralytics.utils.nms import non_max_suppression
 
 
 # =============================================================================
-# Configuration Loading (simplified with lru_cache)
+# Configuration Defaults
 # =============================================================================
 
-@lru_cache(maxsize=1)
-def _load_stereo3ddet_config() -> dict:
-    """Load stereo3ddet config from YAML file.
-
-    Returns:
-        Full config dict from stereo3ddet_full.yaml, or empty dict if not found.
-    """
-    config_path = (
-        Path(__file__).parent.parent.parent.parent
-        / "cfg"
-        / "models"
-        / "stereo3ddet_full.yaml"
-    )
-    if config_path.exists():
-        return YAML.load(str(config_path))
-    return {}
-
-
 def get_geometric_config() -> dict:
-    """Get geometric construction configuration.
-
-    Returns:
-        Dict with geometric_construction settings:
-        - enabled: bool (default True)
-        - max_iterations: int (default 10)
-        - tolerance: float (default 1e-6)
-        - damping: float (default 1e-3)
-        - fallback_on_failure: bool (default True)
-    """
-    defaults = {
+    """Get geometric construction configuration."""
+    return {
         "enabled": True,
         "max_iterations": 10,
         "tolerance": 1e-6,
         "damping": 1e-3,
         "fallback_on_failure": True,
     }
-    full_config = _load_stereo3ddet_config()
-    return {**defaults, **full_config.get("geometric_construction", {})}
 
 
 def get_dense_alignment_config() -> dict:
-    """Get dense alignment configuration.
-
-    Returns:
-        Dict with dense_alignment settings:
-        - enabled: bool (default True)
-        - method: "ncc" or "sad" (default "ncc")
-        - depth_search_range: float in meters (default 2.0)
-        - depth_steps: int (default 32)
-        - patch_size: int in pixels (default 7)
-        - skip_dense_for_occluded: bool (default True)
-    """
-    defaults = {
+    """Get dense alignment configuration."""
+    return {
         "enabled": True,
         "method": "ncc",
         "depth_search_range": 2.0,
@@ -94,13 +53,6 @@ def get_dense_alignment_config() -> dict:
         "patch_size": 7,
         "skip_dense_for_occluded": True,
     }
-    full_config = _load_stereo3ddet_config()
-    return {**defaults, **full_config.get("dense_alignment", {})}
-
-
-def clear_config_cache() -> None:
-    """Clear the config cache. Call this to reload config from disk."""
-    _load_stereo3ddet_config.cache_clear()
 
 
 # =============================================================================

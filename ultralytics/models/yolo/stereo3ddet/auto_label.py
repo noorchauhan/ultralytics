@@ -480,4 +480,4 @@ if __name__ == "__main__":
         keep_coco_ids=set(args.keep_coco_ids) if args.keep_coco_ids else None,
         skip_coco_ids=set(args.skip_coco_ids) if args.skip_coco_ids else None,
     )
-    print(f"Generated {n} pseudo-labels")
+    LOGGER.info(f"Generated {n} pseudo-labels")

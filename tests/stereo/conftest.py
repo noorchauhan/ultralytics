@@ -2,13 +2,14 @@
 
 """Pytest configuration and fixtures for Stereo 3D Object Detection tests."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import torch
 
 from ultralytics.data.stereo.calib import CalibrationParameters
 from ultralytics.data.stereo.box3d import Box3D
-from ultralytics.data.stereo.pair import StereoImagePair
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def sample_stereo_pair(sample_calibration):
     """Create a sample stereo image pair for testing."""
     left_img = np.random.randint(0, 255, (375, 1242, 3), dtype=np.uint8)
     right_img = np.random.randint(0, 255, (375, 1242, 3), dtype=np.uint8)
-    return StereoImagePair(
+    return SimpleNamespace(
         left_image=left_img,
         right_image=right_img,
         image_id="000000",

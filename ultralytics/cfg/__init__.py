@@ -76,7 +76,6 @@ TASK2METRIC = {
     "classify": "metrics/accuracy_top1",
     "pose": "metrics/mAP50-95(P)",
     "obb": "metrics/mAP50-95(B)",
-    # Placeholder metric; to be customized for stereo 3D later
     "stereo3ddet": "metrics/mAP3D",
 }
 

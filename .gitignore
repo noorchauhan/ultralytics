@@ -199,9 +199,6 @@ calibration_*.npy
 *.heic
 *.ico
 *.raw
-.cursor/
-.specify/
-specs/
 
 # Training logs
 args.yaml
