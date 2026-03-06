@@ -186,8 +186,12 @@ class AutoBackend(nn.Module):
         fp16 &= fp16_supported
 
         # Set device
-        cuda = isinstance(device, torch.device) and torch.cuda.is_available() and device.type != "cpu"
-        if cuda and format not in {"pt", "torchscript", "engine", "onnx", "paddle"}:
+        if (
+            isinstance(device, torch.device)
+            and torch.cuda.is_available()
+            and device.type != "cpu"
+            and format not in {"pt", "torchscript", "engine", "onnx", "paddle"}
+        ):
             device = torch.device("cpu")
 
         # Select and initialize the appropriate backend
