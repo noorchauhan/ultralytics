@@ -47,6 +47,14 @@ class DistillationModel(nn.Module):
                 teacher_dim = self.decouple_outputs(teacher_out, shape_check=True).shape[1]
                 if self.student_model.args.distill_projector == "linear":
                     projectors.append(nn.Conv2d(student_dim, teacher_dim, kernel_size=1, stride=1, padding=0))
+                if self.student_model.args.distill_projector == "mlp_silu":
+                    projectors.append(
+                        nn.Sequential(
+                            nn.Conv2d(student_dim, teacher_dim, kernel_size=1, stride=1, padding=0),
+                            nn.SiLU(),
+                            nn.Conv2d(teacher_dim, teacher_dim, kernel_size=1, stride=1, padding=0),
+                        )
+                    )
                 else:
                     projectors.append(
                         nn.Sequential(
