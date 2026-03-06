@@ -128,6 +128,7 @@ Before diving into the usage instructions, be sure to check out the range of [YO
 !!! note
 
     `trt_hardware_compatibility_level` helps across compatible NVIDIA GPU families, but platform/runtime constraints still apply:
+
     - Thor <-> Spark (ARM64): supported only when both systems use TensorRT `10.13.3.9`.
     - Blackwell x86_64: this option works across TensorRT versions, but inference remains x86_64 runtime.
     - Cross-architecture portability is not supported: x86_64-exported engines do not deserialize on ARM64 Thor/Spark, and ARM64 Thor/Spark-exported engines do not deserialize on x86_64.
