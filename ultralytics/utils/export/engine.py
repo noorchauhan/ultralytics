@@ -79,8 +79,8 @@ def onnx2engine(
         metadata (dict | None): Metadata to include in the engine file.
         verbose (bool, optional): Enable verbose logging.
         prefix (str, optional): Prefix for log messages.
-        hw_compat (str, optional): Engine (TensorRT) only; hardware compatibility level:
-            'ampere_plus', 'same_compute_capability', or 'none' (default).
+        hw_compat (str, optional): Engine (TensorRT) only; hardware compatibility level: 'ampere_plus',
+            'same_compute_capability', or 'none' (default).
 
     Raises:
         ValueError: If DLA is enabled on non-Jetson devices or required precision is not set.
