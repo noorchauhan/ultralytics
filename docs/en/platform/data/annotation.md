@@ -1,7 +1,7 @@
 ---
 comments: true
-description: Learn to annotate images in Ultralytics Platform with manual tools, SAM smart annotation, and YOLO auto-labeling for all 5 task types.
-keywords: Ultralytics Platform, annotation, labeling, SAM, auto-annotation, bounding box, polygon, keypoints, segmentation, YOLO
+description: Learn to annotate images in Ultralytics Platform with manual tools, skeleton templates for pose estimation, SAM smart annotation, and YOLO auto-labeling for all 5 task types.
+keywords: Ultralytics Platform, annotation, labeling, SAM, auto-annotation, bounding box, polygon, keypoints, skeleton templates, pose estimation, segmentation, YOLO
 ---
 
 # Annotation Editor
@@ -26,13 +26,13 @@ graph TB
 
 The annotation editor supports all 5 YOLO task types:
 
-| Task                                             | Tool           | Annotation Format                      |
-| ------------------------------------------------ | -------------- | -------------------------------------- |
-| **[Detect](../../datasets/detect/index.md)**     | Rectangle      | Bounding boxes (x, y, width, height)   |
-| **[Segment](../../datasets/segment/index.md)**   | Polygon        | Pixel-precise masks (polygon vertices) |
-| **[Pose](../../datasets/pose/index.md)**         | Keypoint       | 17-point COCO skeleton                 |
-| **[OBB](../../datasets/obb/index.md)**           | Oriented Box   | Rotated bounding boxes (4 corners)     |
-| **[Classify](../../datasets/classify/index.md)** | Class Selector | Image-level labels                     |
+| Task                                             | Tool           | Annotation Format                                         |
+| ------------------------------------------------ | -------------- | --------------------------------------------------------- |
+| **[Detect](../../datasets/detect/index.md)**     | Rectangle      | Bounding boxes (x, y, width, height)                      |
+| **[Segment](../../datasets/segment/index.md)**   | Polygon        | Pixel-precise masks (polygon vertices)                    |
+| **[Pose](../../datasets/pose/index.md)**         | Keypoint       | Skeleton templates (Person, Hand, Face, Dog, Box, custom) |
+| **[OBB](../../datasets/obb/index.md)**           | Oriented Box   | Rotated bounding boxes (4 corners)                        |
+| **[Classify](../../datasets/classify/index.md)** | Class Selector | Image-level labels                                        |
 
 ### Task Details
 
@@ -160,27 +160,43 @@ Draw precise polygon masks:
 
 ### Keypoint (Pose)
 
-Place [17 COCO keypoints](../../datasets/pose/index.md#ultralytics-yolo-format) for human pose:
+Annotate poses using skeleton templates. Select a template from the toolbar, click once to place all keypoints, then drag individual keypoints to adjust positions.
 
 1. Enter edit mode and select `Draw`
-2. Click to place keypoints in sequence
-3. Follow the [COCO skeleton order](../../datasets/pose/index.md)
+2. Choose a skeleton template from the template picker in the toolbar
+3. Click on the image to place all keypoints at once
+4. Drag individual keypoints to adjust their positions
+5. Press `Enter` to confirm or `Escape` to cancel
 
-The 17 COCO keypoints are:
+#### Built-in Skeleton Templates
 
-| #   | Keypoint       | #   | Keypoint    |
-| --- | -------------- | --- | ----------- |
-| 1   | Nose           | 10  | Right wrist |
-| 2   | Left eye       | 11  | Left hip    |
-| 3   | Right eye      | 12  | Right hip   |
-| 4   | Left ear       | 13  | Left knee   |
-| 5   | Right ear      | 14  | Right knee  |
-| 6   | Left shoulder  | 15  | Left ankle  |
-| 7   | Right shoulder | 16  | Right ankle |
-| 8   | Left elbow     | 17  | (reserved)  |
-| 9   | Right elbow    |     |             |
+The editor includes 5 built-in templates:
+
+| Template   | Keypoints | Description                                                                                                        |
+| ---------- | --------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Person** | 17        | [COCO human pose](../../datasets/pose/index.md) — nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles |
+| **Hand**   | 21        | MediaPipe hand landmarks — wrist, thumb, index, middle, ring, pinky joints                                         |
+| **Face**   | 68        | [iBUG 300W](https://ibug.doc.ic.ac.uk/resources/300-W/) facial landmarks — jaw, eyebrows, nose, eyes, mouth        |
+| **Dog**    | 18        | Animal pose — nose, head, neck, shoulders, legs, paws, tail                                                        |
+| **Box**    | 4         | Corner keypoints — top-left, top-right, bottom-right, bottom-left                                                  |
 
 ![Ultralytics Platform Annotate Pose Keypoints Skeleton](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/platform/platform-annotate-pose-keypoints-skeleton.avif)
+
+#### Custom Skeleton Templates
+
+Create custom templates for any pose structure:
+
+1. Click the **+** button next to the template picker
+2. Place keypoints on the canvas by clicking
+3. Name each keypoint and customize colors
+4. Connect keypoints by selecting two points (connections are drawn automatically as you place sequential keypoints)
+5. Save the template for reuse across your dataset
+
+Custom templates are saved to your account and available in all pose datasets.
+
+!!! tip "Template Workflow"
+
+    The template system replaces manual sequential keypoint placement. Instead of clicking 17 times for a COCO skeleton, select the Person template and click once — all keypoints are placed in the correct skeleton layout. Then drag to adjust positions for the specific pose.
 
 !!! info "Keypoint Visibility"
 
@@ -238,6 +254,7 @@ graph LR
 
     - Start with a positive click on the object center
     - Add negative clicks to exclude background
+    - Hold `Alt`/`Option` to invert click behavior (left-click becomes negative, right-click becomes positive)
     - Works best for distinct objects with clear edges
     - Use 2-3 positive points for elongated objects
 
@@ -250,6 +267,61 @@ SAM smart annotation can generate:
 !!! warning "SAM Task Support"
 
     SAM smart annotation is only available for **detect**, **segment**, and **OBB** tasks. Classification and pose tasks require manual annotation.
+
+## Class Sidebar
+
+The annotation editor includes a collapsible class sidebar on the right side of the canvas. The sidebar provides:
+
+- **Search classes**: Filter the class list by typing in the search field. Press `Enter` on an exact match to select it, or create a new class if no match exists.
+- **Create new class inline**: Click `Add class` at the bottom of the list, type a name, and optionally pick a custom color. Press `Enter` to create.
+- **Edit class name inline**: Hover over a class name and click the pencil icon to rename it.
+- **Color picker**: Click the color swatch next to any class to change its color.
+- **Per-class annotation count**: Each class row shows a superscript count of annotations.
+- **Expand/collapse**: Click the chevron to expand a class and see individual annotations listed below it.
+- **Bidirectional hover highlighting**: Hovering an annotation on the canvas highlights it in the sidebar, and vice versa. The sidebar auto-scrolls and auto-expands to the relevant class.
+- **Hide/show individual annotations**: Click the eye icon on any annotation row to toggle its visibility on the canvas.
+- **Delete annotations**: Click the trash icon on any annotation row to delete it.
+- **Keyboard shortcuts**: Press `1-9` to quickly select the first 9 classes.
+
+## Context Menu
+
+Right-click on selected annotations to open a context menu with:
+
+| Action               | Shortcut               |
+| -------------------- | ---------------------- |
+| Delete Annotation(s) | `Delete` / `Backspace` |
+| Bring to Front       | `Cmd/Ctrl+Shift+]`     |
+| Send to Back         | `Cmd/Ctrl+Shift+[`     |
+| Bring Forward        | `Cmd/Ctrl+]`           |
+| Send Backward        | `Cmd/Ctrl+[`           |
+
+## Visibility Controls
+
+The visibility dropdown (eye icon) lets you toggle display of individual elements:
+
+| Toggle             | Description                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| **Annotations**    | Show or hide all annotation overlays                                                       |
+| **Class labels**   | Show or hide class name labels on annotations                                              |
+| **Show pixels**    | Toggle pixelated rendering for zoom inspection (fullscreen)                                |
+| **Crosshairs**     | Show crosshair cursor with pixel coordinates (edit mode)                                   |
+| **Nav thumbnails** | Show navigation thumbnail strip (fullscreen)                                               |
+| **Show all**       | Toggle annotations, labels, crosshairs, and thumbnails at once (does not affect pixelated) |
+
+## Crosshair Cursor
+
+In edit mode, a crosshair overlay tracks the cursor position and displays pixel coordinates on the canvas. This helps place annotations with precision. Toggle it via the visibility dropdown.
+
+## SAM Hover Preview
+
+In Smart mode for **segment** tasks, SAM provides a real-time mask preview as you hover over the image — before clicking any points. This lets you see the predicted segmentation boundary and decide where to click. Once you add positive or negative points, the preview updates to reflect your refinements.
+
+## Polygon Vertex Editing
+
+For segment annotations, you can edit polygon vertices after drawing:
+
+- **Move vertices**: Drag any vertex handle to reposition it
+- **Delete vertices**: Select a vertex and press `Delete` to remove it
 
 ## Class Management
 
@@ -288,7 +360,7 @@ This allows for a seamless workflow where you can define classes as you encounte
 
 ### Class Colors
 
-Each class is assigned a color from the Ultralytics palette. You can customize colors using the color picker on the `Classes` tab. Colors are consistent across the Platform for easy recognition.
+Each class is assigned a color from the Ultralytics palette. You can customize colors using the color picker on the `Classes` tab. Colors are consistent across the platform for easy recognition.
 
 ## Keyboard Shortcuts
 
@@ -321,9 +393,10 @@ Efficient annotation with keyboard shortcuts:
     | Shortcut      | Action                                              |
     | ------------- | --------------------------------------------------- |
     | `Click+Drag`  | Draw bounding box (detect/OBB)                      |
-    | `Click`       | Add polygon point (segment) / Place keypoint (pose) |
-    | `Right-click` | Complete polygon / Add SAM negative point           |
-    | `Enter`       | Complete polygon / Save SAM annotation              |
+    | `Click`       | Add polygon point (segment) / Place skeleton (pose) |
+    | `Right-click` | Complete polygon / Add SAM negative point            |
+    | `Enter`       | Complete polygon / Confirm pose / Save SAM annotation |
+    | `Escape`      | Cancel pose / Save SAM annotation / Deselect / Exit   |
 
 === "Arrange (Z-Order)"
 
@@ -404,9 +477,17 @@ The keyboard shortcut `1-9` quickly selects classes.
 Yes, but for best results:
 
 - Label all objects of your target classes in each image
-- Use the label filter to identify unlabeled images
-- Exclude unlabeled images from training configuration
+- Use the label filter set to `Unannotated` to identify unlabeled images
+- Exclude unannotated images from training configuration
 
 ### Which tasks support SAM smart annotation?
 
 SAM smart annotation is available for **detect**, **segment**, and **OBB** tasks. Classification and pose tasks use manual annotation only.
+
+### Can I create custom skeleton templates for pose annotation?
+
+Yes. Click the **+** button next to the skeleton template picker to open the template editor. Place keypoints, name them, draw connections, and save. Custom templates are stored in your account and available across all pose datasets.
+
+### How do I switch between skeleton templates?
+
+Click the template picker dropdown in the annotation toolbar. Select any built-in template (Person, Hand, Face, Dog, Box) or your saved custom templates. The selected template determines which keypoints are placed when you click on the image.

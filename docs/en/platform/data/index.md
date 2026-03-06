@@ -74,7 +74,7 @@ Reference datasets using the `ul://` URI format (see [Using Platform Datasets](.
 yolo train data=ul://username/datasets/my-dataset
 ```
 
-This allows training on Platform datasets from any machine with your [API key](../account/api-keys.md) configured.
+This allows training on the platform's datasets from any machine with your [API key](../account/api-keys.md) configured.
 
 !!! example "Use Platform Data from Python"
 
@@ -87,15 +87,22 @@ This allows training on Platform datasets from any machine with your [API key](.
 
 ### Dataset Tabs
 
-Every dataset page provides five tabs:
+### Dataset Versioning
 
-| Tab         | Description                                                                  |
-| ----------- | ---------------------------------------------------------------------------- |
-| **Images**  | Browse images in grid, compact, or table view with annotation overlays       |
-| **Classes** | View and edit class names, colors, and label counts per class                |
-| **Charts**  | Automatic statistics: split distribution, class counts, heatmaps             |
-| **Models**  | [Models](../train/models.md) trained on this dataset with metrics and status |
-| **Errors**  | Images that failed processing with error details and fix guidance            |
+Create immutable NDJSON snapshots of your dataset for reproducible training. Each version captures image counts, class counts, and annotation counts at the time of creation. See [Versions Tab](datasets.md#versions-tab) for details.
+
+### Dataset Tabs
+
+Every dataset page provides six tabs:
+
+| Tab          | Description                                                                  |
+| ------------ | ---------------------------------------------------------------------------- |
+| **Images**   | Browse images in grid, compact, or table view with annotation overlays       |
+| **Classes**  | View and edit class names, colors, and label counts per class                |
+| **Charts**   | Automatic statistics: split distribution, class counts, heatmaps             |
+| **Models**   | [Models](../train/models.md) trained on this dataset with metrics and status |
+| **Versions** | Create and download immutable NDJSON snapshots for reproducible training     |
+| **Errors**   | Images that failed processing with error details and fix guidance            |
 
 ### Statistics and Visualization
 
