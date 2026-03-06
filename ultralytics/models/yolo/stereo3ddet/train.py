@@ -145,42 +145,19 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         mean_dims = data_cfg.get("mean_dims")
         std_dims = data_cfg.get("std_dims")
 
-        # Check if auto_label is enabled in model YAML
-        auto_label = False
-        model_yaml = self.args.model
-        if isinstance(model_yaml, (str, Path)):
-            from ultralytics.nn.tasks import yaml_model_load
-            model_cfg = yaml_model_load(model_yaml)
-            auto_label = model_cfg.get("training", {}).get("auto_label", False)
-
         # Auto-expand nc=1 to all available label classes to prevent depth collapse.
         # With only 1 class, the backbone learns spatial shortcuts (position→depth)
         # that don't generalize. Including all available classes from the labels provides
         # visual diversity that forces the backbone to learn richer features.
         label_dir = root / "labels" / train_split
-        left_dir = root / "images" / train_split / "left"
-        right_dir = root / "images" / train_split / "right"
-        calib_dir = root / "calib" / train_split
 
         if nc == 1:
             extra_ids = _scan_label_classes(label_dir)
-
-            # If labels truly have only 1 class, auto-generate pseudo-labels for
-            # auxiliary classes (Pedestrians, Cyclists) using a pretrained 2D detector.
-            if len(extra_ids) <= 1:
-                from ultralytics.models.yolo.stereo3ddet.auto_label import auto_label_stereo3d
-
-                auto_label_stereo3d(label_dir, left_dir, right_dir, calib_dir)
-                extra_ids = _scan_label_classes(label_dir)
-
             if len(extra_ids) > 1:
                 base_name = names[0] if isinstance(names, dict) else names[0] if isinstance(names, list) else "Object"
-                # Use contiguous range 0..max_id to avoid CUDA assert from gap IDs
                 max_id = max(extra_ids)
                 names = {i: base_name if i == 0 else f"Aux_{i}" for i in range(max_id + 1)}
                 nc = max_id + 1
-                # Share target class dims for aux classes (dims accuracy for aux classes
-                # doesn't matter — they only provide feature diversity for the backbone)
                 if mean_dims and 0 in mean_dims:
                     mean_dims = {cid: mean_dims[0] for cid in names}
                 if std_dims and 0 in std_dims:
@@ -189,23 +166,13 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                     "stereo3ddet: auto-expanded nc=1 → nc=%d using label classes %s",
                     nc, list(names.values()),
                 )
-
-        elif auto_label:
-            # nc>1 with auto-labeling: add COCO pseudo-classes on top of real labels
-            # to provide additional visual diversity for depth feature learning.
-            from ultralytics.models.yolo.stereo3ddet.auto_label import auto_label_stereo3d
-
-            class_offset = nc  # pseudo-classes start right after real classes
-            skip_coco = {0, 1, 2}  # overlap with real KITTI: Person≈Ped, Bicycle≈Cyc, Car≈Car
-            # Optional allowlist: only keep specific COCO classes (fewer = less TAL dilution)
-            keep_coco = None
-            if isinstance(auto_label, dict):
-                keep_coco = set(auto_label.get("keep_coco_ids", [])) or None
-            auto_label_stereo3d(
-                label_dir, left_dir, right_dir, calib_dir,
-                class_offset=class_offset, skip_coco_ids=skip_coco,
-                keep_coco_ids=keep_coco,
-            )
+            else:
+                LOGGER.warning(
+                    "stereo3ddet: nc=1 with truly single-class labels. Run auto-labeling first:\n"
+                    "  python -m ultralytics.models.yolo.stereo3ddet.auto_label --data kitti-stereo.yaml"
+                )
+        else:
+            # nc>1: scan for pseudo-classes from prior auto-labeling
             extra_ids = _scan_label_classes(label_dir)
             max_id = max(extra_ids, default=nc - 1)
             if max_id >= nc:
@@ -215,13 +182,11 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                     new_names[i] = f"Aux_{i}"
                 names = new_names
                 nc = max_id + 1
-                # Convert string-keyed dims → int-keyed so compute_dimension_offset works.
-                # Real classes get their correct dims; pseudo-classes get Car dims (fallback).
                 mean_dims = _rekey_dims(mean_dims, names)
                 std_dims = _rekey_dims(std_dims, names)
                 LOGGER.info(
-                    "stereo3ddet: auto-label expanded nc=%d → nc=%d (offset=%d, skip COCO %s)",
-                    n_real, nc, class_offset, sorted(skip_coco),
+                    "stereo3ddet: auto-expanded nc=%d → nc=%d from label classes",
+                    n_real, nc,
                 )
 
         # Return a dict compatible with BaseTrainer expectations, plus stereo descriptors
@@ -239,6 +204,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             "baseline": data_cfg.get("baseline"),
             "mean_dims": mean_dims,
             "std_dims": std_dims,
+            "pseudo_labels": data_cfg.get("pseudo_labels", {}),
         }
 
     def build_dataset(self, img_path, mode: str = "train", batch: int | None = None):
@@ -340,6 +306,8 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         """Set model attributes based on dataset information."""
         super().set_model_attributes()
         self._determine_loss_names()
+        # Pass pseudo-label config from dataset YAML to model for loss initialization
+        self.model.pseudo_labels = self.data.get("pseudo_labels", {})
 
     def preprocess_batch(self, batch):
         """Normalize 6-channel images to float [0,1] and move targets to device.

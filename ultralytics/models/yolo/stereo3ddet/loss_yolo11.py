@@ -32,6 +32,7 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         loss_weights: dict[str, float] | None = None,
         use_bbox_loss: bool = True,
         cls_label_smoothing: float = 0.0,
+        pseudo_labels: dict | None = None,
     ):
         super().__init__(model, tal_topk=tal_topk)
         self.aux_w = loss_weights or {}
@@ -45,13 +46,12 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         self.depth_log_min = math.log(DEPTH_MIN)
         self.depth_log_range = math.log(DEPTH_MAX) - math.log(DEPTH_MIN)
 
-        # Pseudo-label curriculum: set by trainer callback each epoch
+        # Pseudo-label curriculum from dataset YAML
         self.epoch_frac = 0.0  # 0.0 = start, 1.0 = end of training
-        # Aux loss weight multiplier for pseudo-labels
-        # 1.0 = full aux supervision, 0.0 = cls+box only (no depth/dims/orient)
-        self._pseudo_stereo_w = 0.5  # stereo-matched pseudo: reduced aux weight
-        self._pseudo_mono_w = 0.0  # mono-only pseudo: cls+box only (no depth info)
-        self._pseudo_cutoff = 0.9  # phase out all pseudo-labels after this fraction
+        pl = pseudo_labels or {}
+        self._pseudo_stereo_w = float(pl.get("weight", 0.0))
+        self._pseudo_mono_w = float(pl.get("mono_weight", 0.0))
+        self._pseudo_cutoff = float(pl.get("cutoff", 0.9))
 
     def _pseudo_aux_weights(self, is_pseudo_fg: torch.Tensor) -> torch.Tensor:
         """Compute per-anchor aux loss weight based on pseudo-label flag and epoch.

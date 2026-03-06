@@ -17,7 +17,8 @@ Supports two modes:
 - **nc>1** (auto_label): class_offset=nc, skip COCO classes overlapping real classes.
   Pseudo class IDs are assigned contiguously starting at nc.
 
-Usage: Called automatically by Stereo3DDetTrainer based on nc and model YAML config.
+Usage:
+  python -m ultralytics.models.yolo.stereo3ddet.auto_label --data kitti-stereo.yaml
 """
 
 from __future__ import annotations
@@ -449,3 +450,34 @@ def _invalidate_cache(label_dir: Path):
     for cache_file in label_dir.parent.glob("stereo3d_*.cache"):
         cache_file.unlink()
         LOGGER.info(f"Auto-label: deleted stale cache {cache_file}")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate pseudo-labels for stereo 3D detection")
+    parser.add_argument("--data", required=True, help="Dataset YAML path (e.g., kitti-stereo.yaml)")
+    parser.add_argument("--detector", default="yolo11m.pt", help="2D detector weights")
+    parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--class-offset", type=int, default=1, help="Starting class ID for pseudo-labels")
+    parser.add_argument("--keep-coco-ids", type=int, nargs="*", default=None, help="Only keep these COCO IDs")
+    parser.add_argument("--skip-coco-ids", type=int, nargs="*", default=None, help="Skip these COCO IDs")
+    args = parser.parse_args()
+
+    from ultralytics.data.utils import check_det_dataset
+
+    data_cfg = check_det_dataset(args.data, autodownload=False)
+    root = Path(data_cfg["path"])
+
+    n = auto_label_stereo3d(
+        label_dir=root / "labels" / "train",
+        left_dir=root / "images" / "train" / "left",
+        right_dir=root / "images" / "train" / "right",
+        calib_dir=root / "calib" / "train",
+        detector=args.detector,
+        conf=args.conf,
+        class_offset=args.class_offset,
+        keep_coco_ids=set(args.keep_coco_ids) if args.keep_coco_ids else None,
+        skip_coco_ids=set(args.skip_coco_ids) if args.skip_coco_ids else None,
+    )
+    print(f"Generated {n} pseudo-labels")

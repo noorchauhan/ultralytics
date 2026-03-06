@@ -120,4 +120,7 @@ class Stereo3DDetModel(DetectionModel):
                 if "use_bbox_loss" in training_config:
                     use_bbox_loss = bool(training_config["use_bbox_loss"])
 
-        return Stereo3DDetLossYOLO11(self, loss_weights=aux_w, use_bbox_loss=use_bbox_loss)
+        pseudo_cfg = getattr(self, "pseudo_labels", {})
+        return Stereo3DDetLossYOLO11(
+            self, loss_weights=aux_w, use_bbox_loss=use_bbox_loss, pseudo_labels=pseudo_cfg,
+        )
