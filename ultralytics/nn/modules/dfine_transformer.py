@@ -483,8 +483,9 @@ class DEIMRMSNorm(nn.Module):
         self.scale = nn.Parameter(torch.ones(dim))
 
     def forward(self, x):
-        normed = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-        return normed * self.scale
+        x_float = x.float()
+        normed = x_float * torch.rsqrt(x_float.pow(2).mean(-1, keepdim=True) + self.eps)
+        return normed.type_as(x) * self.scale
 
 
 class DEIMSwiGLUFFN(nn.Module):
