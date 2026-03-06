@@ -1021,8 +1021,11 @@ class Exporter:
         # Force TensorRT >=10.15 on CUDA 13 ARM devices for RT-DETR exports when compatibility mode is off.
         # https://github.com/ultralytics/ultralytics/issues/22873
         trt_hw_compat_level = (self.args.hw_compat or "none").lower()
-        is_rtdetr = isinstance(self.model.model[-1], RTDETRDecoder)
-        if (is_jetson(jetpack=7) or (is_dgx() and ARM64)) and is_rtdetr and trt_hw_compat_level == "none":
+        if (
+            (is_jetson(jetpack=7) or (is_dgx() and ARM64))
+            and isinstance(self.model.model[-1], RTDETRDecoder)
+            and trt_hw_compat_level == "none"
+        ):
             check_tensorrt("10.15")
 
         try:
