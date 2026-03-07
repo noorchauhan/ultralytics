@@ -271,9 +271,16 @@ class Stereo3DDetValidator(BaseValidator):
         # Get batch for calibration and images
         batch = self._current_batch if hasattr(self, "_current_batch") else None
 
-        # Get use_geometric and use_dense_alignment from args
+        # Get use_geometric and use_dense_alignment from args.
+        # Disable dense alignment during training validation to prevent DDP hangs:
+        # dense alignment is CPU-intensive and takes variable time per batch, causing
+        # rank divergence when different ranks finish at different times and deadlock
+        # at dist.reduce().
         use_geometric = getattr(self.args, "use_geometric", None)
         use_dense_alignment = getattr(self.args, "use_dense_alignment", None)
+        if self.training:
+            use_dense_alignment = False
+            use_geometric = False
 
         return decode_and_refine_predictions(
             preds=preds_dict,
