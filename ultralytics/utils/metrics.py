@@ -1564,3 +1564,100 @@ class OBBMetrics(DetMetrics):
         DetMetrics.__init__(self, names)
         # TODO: probably remove task as well
         self.task = "obb"
+
+
+class SemanticMetrics(SimpleClass, DataExportMixin):
+    """Metrics for semantic segmentation: mIoU, pixel accuracy, per-class IoU.
+
+    Attributes:
+        names (dict): Class names mapping.
+        nc (int): Number of classes.
+        confusion_matrix (np.ndarray): Accumulated confusion matrix of shape (nc, nc).
+        speed (dict): Processing speed statistics.
+        task (str): Task type identifier.
+    """
+
+    def __init__(self, names=None):
+        """Initialize SemanticMetrics.
+
+        Args:
+            names (dict, optional): Dictionary mapping class indices to names.
+        """
+        self.names = names or {}
+        self.nc = len(self.names)
+        self.confusion_matrix = None
+        self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
+        self.task = "semantic"
+
+    def process(self, preds, targets):
+        """Accumulate confusion matrix from predictions and targets.
+
+        Args:
+            preds (np.ndarray): Predicted class IDs [B, H, W].
+            targets (np.ndarray): Ground truth class IDs [B, H, W].
+        """
+        if self.confusion_matrix is None:
+            self.confusion_matrix = np.zeros((self.nc, self.nc), dtype=np.int64)
+        valid = targets != 255
+        preds_valid = preds[valid].astype(np.int64)
+        targets_valid = targets[valid].astype(np.int64)
+        # Clamp to valid range
+        mask = (preds_valid >= 0) & (preds_valid < self.nc) & (targets_valid >= 0) & (targets_valid < self.nc)
+        self.confusion_matrix += np.bincount(
+            self.nc * targets_valid[mask] + preds_valid[mask], minlength=self.nc**2
+        ).reshape(self.nc, self.nc)
+
+    @property
+    def miou(self):
+        """Compute mean Intersection over Union across all classes."""
+        if self.confusion_matrix is None:
+            return 0.0
+        intersection = np.diag(self.confusion_matrix)
+        union = self.confusion_matrix.sum(1) + self.confusion_matrix.sum(0) - intersection
+        iou = intersection / (union + 1e-10)
+        return float(np.nanmean(iou))
+
+    @property
+    def pixel_accuracy(self):
+        """Compute overall pixel accuracy."""
+        if self.confusion_matrix is None:
+            return 0.0
+        return float(np.diag(self.confusion_matrix).sum() / (self.confusion_matrix.sum() + 1e-10))
+
+    @property
+    def per_class_iou(self):
+        """Compute per-class IoU values."""
+        if self.confusion_matrix is None:
+            return np.zeros(self.nc)
+        intersection = np.diag(self.confusion_matrix)
+        union = self.confusion_matrix.sum(1) + self.confusion_matrix.sum(0) - intersection
+        return intersection / (union + 1e-10)
+
+    @property
+    def fitness(self):
+        """Return model fitness as mean IoU."""
+        return self.miou
+
+    @property
+    def keys(self):
+        """Return metric keys for logging."""
+        return ["metrics/mIoU", "metrics/pixel_acc"]
+
+    def mean_results(self):
+        """Return mean results for logging."""
+        return [self.miou, self.pixel_accuracy]
+
+    @property
+    def results_dict(self):
+        """Return results dictionary."""
+        return dict(zip([*self.keys, "fitness"], [*self.mean_results(), self.fitness]))
+
+    @property
+    def curves(self):
+        """Return empty list (no PR curves for semantic seg)."""
+        return []
+
+    @property
+    def curves_results(self):
+        """Return empty list (no PR curve results)."""
+        return []

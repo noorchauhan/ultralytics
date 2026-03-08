@@ -1242,3 +1242,59 @@ class TVPSegmentLoss(TVPDetectLoss):
         vp_loss = self.vp_criterion(preds, batch)
         cls_loss = vp_loss[0][2]
         return cls_loss, vp_loss[1]
+
+
+class SemanticSegLoss(nn.Module):
+    """Loss function for semantic segmentation: CrossEntropy + Dice.
+
+    Attributes:
+        nc (int): Number of semantic classes.
+        ce (nn.CrossEntropyLoss): Cross-entropy loss with ignore_index=255.
+        dice_weight (float): Weight for the Dice loss component.
+    """
+
+    def __init__(self, model):
+        """Initialize semantic segmentation loss.
+
+        Args:
+            model: Model containing the SemanticSegment head.
+        """
+        super().__init__()
+        m = model.model[-1]
+        self.nc = m.nc
+        self.ce = nn.CrossEntropyLoss(ignore_index=255)
+        self.dice_weight = 1.0
+
+    def forward(self, preds, batch):
+        """Compute semantic segmentation loss.
+
+        Args:
+            preds (torch.Tensor): Logits [B, nc, H', W'] from SemanticSegment head.
+            batch (dict): Batch dict with 'semantic_mask' [B, H, W] containing class IDs (255=ignore).
+
+        Returns:
+            (tuple[torch.Tensor, torch.Tensor]): (total_loss * batch_size, detached loss items [ce, dice]).
+        """
+        masks = batch["semantic_mask"].to(preds.device).long()
+
+        # Downsample GT masks to match prediction resolution (nearest to preserve class IDs)
+        if masks.shape[1:] != preds.shape[2:]:
+            masks = F.interpolate(masks.float().unsqueeze(1), size=preds.shape[2:], mode="nearest").squeeze(1).long()
+
+        # Cross-entropy loss
+        ce_loss = self.ce(preds, masks)
+
+        # Dice loss per class (excluding ignore pixels)
+        valid = masks != 255
+        pred_soft = F.softmax(preds, dim=1)
+        target_onehot = F.one_hot(masks.clamp(0, self.nc - 1), self.nc).permute(0, 3, 1, 2).float()
+        # Zero out ignore regions in both pred and target
+        valid_mask = valid.unsqueeze(1).expand_as(target_onehot).float()
+        intersection = (pred_soft * target_onehot * valid_mask).sum(dim=(0, 2, 3))
+        cardinality = ((pred_soft + target_onehot) * valid_mask).sum(dim=(0, 2, 3))
+        dice_loss = 1.0 - (2.0 * intersection + 1.0) / (cardinality + 1.0)
+        dice_loss = dice_loss.mean()
+
+        total = ce_loss + self.dice_weight * dice_loss
+        loss_items = torch.stack([ce_loss, dice_loss]).detach()
+        return total * preds.shape[0], loss_items

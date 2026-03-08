@@ -1,0 +1,210 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+from __future__ import annotations
+
+from copy import copy
+from pathlib import Path
+
+import cv2
+import numpy as np
+import torch
+
+from ultralytics.data import build_dataloader
+from ultralytics.data.dataset import SemanticDataset
+from ultralytics.engine.trainer import BaseTrainer
+from ultralytics.models import yolo
+from ultralytics.nn.tasks import SemanticModel
+from ultralytics.utils import DEFAULT_CFG, RANK
+from ultralytics.utils.plotting import colors
+from ultralytics.utils.torch_utils import torch_distributed_zero_first
+
+
+class SemanticTrainer(BaseTrainer):
+    """Trainer for YOLO semantic segmentation models.
+
+    This trainer handles semantic segmentation specific training including dataset building,
+    model initialization, and validation setup.
+
+    Examples:
+        >>> from ultralytics.models.yolo.semantic import SemanticTrainer
+        >>> args = dict(model="yolo26n-semseg.yaml", data="cityscapes8.yaml", epochs=3)
+        >>> trainer = SemanticTrainer(overrides=args)
+        >>> trainer.train()
+    """
+
+    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
+        """Initialize SemanticTrainer.
+
+        Args:
+            cfg (dict): Configuration dictionary with default training settings.
+            overrides (dict, optional): Dictionary of parameter overrides.
+            _callbacks (list, optional): List of callback functions.
+        """
+        if overrides is None:
+            overrides = {}
+        overrides["task"] = "semantic"
+        super().__init__(cfg, overrides, _callbacks)
+
+    def build_dataset(self, img_path, mode="train", batch=None):
+        """Build semantic segmentation dataset.
+
+        Args:
+            img_path (str): Path to the folder containing images.
+            mode (str): 'train' or 'val' mode.
+            batch (int, optional): Batch size for rect mode.
+
+        Returns:
+            (SemanticDataset): Semantic segmentation dataset.
+        """
+        return SemanticDataset(
+            img_path=img_path,
+            imgsz=self.args.imgsz,
+            augment=mode == "train",
+            hyp=self.args,
+            data=self.data,
+            rect=mode == "val",
+            batch_size=batch,
+            stride=max(int(self.model.stride.max() if hasattr(self.model, "stride") else 32), 32),
+            prefix=f"{mode}: ",
+        )
+
+    def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
+        """Construct and return dataloader.
+
+        Args:
+            dataset_path (str): Path to the dataset.
+            batch_size (int): Number of images per batch.
+            rank (int): Process rank for distributed training.
+            mode (str): 'train' or 'val'.
+
+        Returns:
+            (DataLoader): PyTorch dataloader.
+        """
+        assert mode in {"train", "val"}, f"Mode must be 'train' or 'val', not {mode}."
+        with torch_distributed_zero_first(rank):
+            dataset = self.build_dataset(dataset_path, mode, batch_size)
+        shuffle = mode == "train"
+        return build_dataloader(
+            dataset,
+            batch=batch_size,
+            workers=self.args.workers if mode == "train" else self.args.workers * 2,
+            shuffle=shuffle,
+            rank=rank,
+        )
+
+    def get_model(self, cfg=None, weights=None, verbose=True):
+        """Return a SemanticModel.
+
+        Args:
+            cfg (str, optional): Path to model configuration file.
+            weights (str | Path, optional): Path to model weights.
+            verbose (bool): Whether to display model information.
+
+        Returns:
+            (SemanticModel): Semantic segmentation model.
+        """
+        model = SemanticModel(cfg, nc=self.data["nc"], ch=self.data.get("channels", 3), verbose=verbose and RANK == -1)
+        if weights:
+            model.load(weights)
+        return model
+
+    def get_validator(self):
+        """Return a SemanticValidator for model evaluation."""
+        self.loss_names = "ce_loss", "dice_loss"
+        return yolo.semantic.SemanticValidator(
+            self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
+        )
+
+    def set_model_attributes(self):
+        """Set model attributes based on dataset information."""
+        self.model.nc = self.data["nc"]
+        self.model.names = self.data["names"]
+        self.model.args = self.args
+
+    def preprocess_batch(self, batch):
+        """Preprocess a batch of images and masks.
+
+        Args:
+            batch (dict): Dictionary containing batch data.
+
+        Returns:
+            (dict): Preprocessed batch.
+        """
+        import torch
+
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
+        batch["img"] = batch["img"].float() / 255
+        return batch
+
+    def label_loss_items(self, loss_items=None, prefix="train"):
+        """Return a loss dict with labeled training loss items.
+
+        Args:
+            loss_items (list, optional): List of loss values.
+            prefix (str): Prefix for keys.
+
+        Returns:
+            (dict | list): Dictionary of labeled loss items or list of keys.
+        """
+        keys = [f"{prefix}/{x}" for x in self.loss_names]
+        if loss_items is not None:
+            loss_items = [round(float(x), 5) for x in loss_items]
+            return dict(zip(keys, loss_items))
+        return keys
+
+    def progress_string(self):
+        """Return a formatted string of training progress."""
+        return ("\n" + "%11s" * (4 + len(self.loss_names))) % (
+            "Epoch",
+            "GPU_mem",
+            *self.loss_names,
+            "Instances",
+            "Size",
+        )
+
+    def plot_training_samples(self, batch, ni):
+        """Plot training samples with semantic mask overlay.
+
+        Args:
+            batch (dict): Batch data containing 'img' and 'semantic_mask'.
+            ni (int): Batch index for naming output file.
+        """
+        images = batch["img"]  # [B, 3, H, W] float 0-1
+        masks = batch["semantic_mask"]  # [B, H, W] long
+        max_subplots = min(16, len(images))
+        images = images[:max_subplots]
+        masks = masks[:max_subplots]
+
+        bs, _, h, w = images.shape
+        # Create grid
+        ns = int(np.ceil(bs**0.5))  # grid size
+        mosaic = np.zeros((ns * h, ns * w, 3), dtype=np.uint8)
+
+        for i in range(bs):
+            # Image
+            img = (images[i].permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+            # Mask overlay
+            mask = masks[i].cpu().numpy()
+            overlay = np.zeros_like(img)
+            for cls_id in np.unique(mask):
+                if cls_id == 255:
+                    continue
+                overlay[mask == cls_id] = colors(int(cls_id), True)
+            img = cv2.addWeighted(img, 0.6, overlay, 0.4, 0)
+
+            # Place in grid
+            row, col = i // ns, i % ns
+            mosaic[row * h : (row + 1) * h, col * w : (col + 1) * w] = img
+
+        fname = self.save_dir / f"train_batch{ni}.jpg"
+        cv2.imwrite(str(fname), mosaic)
+        if self.on_plot:
+            self.on_plot(fname)
+
+    def plot_training_labels(self):
+        """Plot training labels (not applicable for semantic segmentation)."""
+        pass

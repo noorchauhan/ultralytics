@@ -16,6 +16,7 @@ from ultralytics.nn.tasks import (
     OBBModel,
     PoseModel,
     SegmentationModel,
+    SemanticModel,
     WorldModel,
     YOLOEModel,
     YOLOESegModel,
@@ -114,6 +115,12 @@ class YOLO(Model):
                 "trainer": yolo.obb.OBBTrainer,
                 "validator": yolo.obb.OBBValidator,
                 "predictor": yolo.obb.OBBPredictor,
+            },
+            "semantic": {
+                "model": SemanticModel,
+                "trainer": yolo.semantic.SemanticTrainer,
+                "validator": yolo.semantic.SemanticValidator,
+                "predictor": yolo.semantic.SemanticPredictor,
             },
         }
 

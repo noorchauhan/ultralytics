@@ -24,6 +24,8 @@ from .augment import (
     Compose,
     Format,
     LetterBox,
+    RandomFlip,
+    RandomHSV,
     RandomLoadText,
     classify_augmentations,
     classify_transforms,
@@ -678,13 +680,203 @@ class YOLOConcatDataset(ConcatDataset):
             dataset.close_mosaic(hyp)
 
 
-# TODO: support semantic segmentation
 class SemanticDataset(BaseDataset):
-    """Semantic Segmentation Dataset."""
+    """Dataset for semantic segmentation with PNG mask labels.
 
-    def __init__(self):
-        """Initialize a SemanticDataset object."""
-        super().__init__()
+    Expects a directory structure where each image has a corresponding PNG mask file with the same stem.
+    Pixel values in masks represent class IDs, with 255 as the ignore label.
+
+    The mask directory is specified in the dataset YAML via 'masks_dir' key, and mirrors the
+    images/ directory structure (e.g., images/train/ -> masks/train/).
+
+    Attributes:
+        data (dict): Dataset configuration from YAML.
+        mask_files (list[str]): List of mask file paths corresponding to images.
+    """
+
+    def __init__(self, *args, data=None, **kwargs):
+        """Initialize SemanticDataset.
+
+        Args:
+            *args: Arguments passed to BaseDataset.
+            data (dict): Dataset configuration dictionary.
+            **kwargs: Keyword arguments passed to BaseDataset.
+        """
+        self.data = data or {}
+        super().__init__(*args, **kwargs)
+
+    def get_labels(self):
+        """Load mask paths and create label entries for each image.
+
+        Returns:
+            (list[dict]): List of label dictionaries with mask file paths and image shapes.
+        """
+        masks_dir_name = self.data.get("masks_dir", "masks")
+        img_path = Path(self.img_path)
+
+        # Build mask directory: replace 'images' with masks_dir_name in the path
+        # e.g., /data/cityscapes/images/train -> /data/cityscapes/masks/train
+        parts = list(img_path.parts)
+        for i, p in enumerate(parts):
+            if p == "images":
+                parts[i] = masks_dir_name
+                break
+        mask_dir = Path(*parts)
+
+        labels = []
+        self.mask_files = []
+        for im_file in self.im_files:
+            stem = Path(im_file).stem
+            # Try common mask extensions
+            mask_path = None
+            for ext in (".png", ".PNG", ".bmp", ".tif"):
+                candidate = mask_dir / f"{stem}{ext}"
+                if candidate.exists():
+                    mask_path = str(candidate)
+                    break
+            if mask_path is None:
+                mask_path = str(mask_dir / f"{stem}.png")  # default
+
+            self.mask_files.append(mask_path)
+            labels.append({
+                "im_file": im_file,
+                "shape": Image.open(im_file).size[::-1],  # (h, w)
+                "cls": np.array([], dtype=np.float32),
+                "bboxes": np.zeros((0, 4), dtype=np.float32),
+                "segments": [],
+                "normalized": True,
+                "bbox_format": "xywh",
+            })
+        return labels
+
+    def update_labels_info(self, label):
+        """Update label info — minimal for semantic segmentation.
+
+        Args:
+            label (dict): Label dictionary.
+
+        Returns:
+            (dict): Updated label with Instances object.
+        """
+        from ultralytics.utils.instance import Instances
+
+        bboxes = label.pop("bboxes", np.zeros((0, 4), dtype=np.float32))
+        label.pop("segments", None)
+        label["instances"] = Instances(
+            bboxes, segments=np.zeros((0, 0, 2), dtype=np.float32), bbox_format="xywh", normalized=True
+        )
+        return label
+
+    def build_transforms(self, hyp=None):
+        """Build transforms for semantic segmentation.
+
+        Args:
+            hyp (dict): Hyperparameters.
+
+        Returns:
+            (Compose): Composed transforms.
+        """
+        transforms = [LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=self.augment)]
+        if self.augment:
+            transforms.insert(0, RandomFlip(p=0.5, direction="horizontal"))
+            if hyp:
+                hsv_h = getattr(hyp, "hsv_h", 0.015)
+                hsv_s = getattr(hyp, "hsv_s", 0.7)
+                hsv_v = getattr(hyp, "hsv_v", 0.4)
+                transforms.insert(0, RandomHSV(hgain=hsv_h, sgain=hsv_s, vgain=hsv_v))
+        transforms.append(SemanticFormat())
+        return Compose(transforms)
+
+    def __getitem__(self, index):
+        """Return transformed image and semantic mask for the given index.
+
+        Args:
+            index (int): Dataset index.
+
+        Returns:
+            (dict): Dictionary with 'img' tensor and 'semantic_mask' tensor.
+        """
+        label = self.get_image_and_label(index)
+
+        # Load semantic mask
+        mask_path = self.mask_files[index]
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            # If mask not found, create an ignore mask
+            h, w = label["img"].shape[:2]
+            mask = np.full((h, w), 255, dtype=np.uint8)
+
+        label["semantic_mask"] = mask
+        label = self.transforms(label)
+        return label
+
+    @staticmethod
+    def collate_fn(batch):
+        """Collate semantic segmentation batch into tensors.
+
+        Args:
+            batch (list[dict]): List of sample dictionaries.
+
+        Returns:
+            (dict): Collated batch with stacked tensors.
+        """
+        new_batch = {}
+        keys = batch[0].keys()
+        for k in keys:
+            values = [b[k] for b in batch]
+            if k in {"img", "semantic_mask"}:
+                new_batch[k] = torch.stack(values, 0)
+            elif k == "im_file":
+                new_batch[k] = values
+            else:
+                new_batch[k] = values
+        # Add empty cls tensor for compatibility with BaseTrainer progress logging
+        new_batch["cls"] = torch.zeros(len(batch))
+        return new_batch
+
+
+class SemanticFormat:
+    """Format transform for semantic segmentation that converts images and masks to tensors.
+
+    This transform handles the letterboxed semantic mask by resizing it to match the image dimensions
+    and converts both to the appropriate tensor formats.
+    """
+
+    def __call__(self, labels):
+        """Apply formatting to semantic segmentation labels.
+
+        Args:
+            labels (dict): Dictionary with 'img' (np.ndarray) and 'semantic_mask' (np.ndarray).
+
+        Returns:
+            (dict): Dictionary with 'img' as CHW float32 tensor and 'semantic_mask' as int64 tensor.
+        """
+        img = labels.get("img")
+        mask = labels.get("semantic_mask")
+
+        if img is not None:
+            h, w = img.shape[:2]
+
+            # Resize mask to match letterboxed image dimensions
+            if mask is not None and (mask.shape[0] != h or mask.shape[1] != w):
+                mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+
+            # Convert image: HWC -> CHW, BGR -> RGB, uint8 -> float32
+            img = np.ascontiguousarray(img.transpose(2, 0, 1)[::-1])  # BGR to RGB, HWC to CHW
+            labels["img"] = torch.from_numpy(img).float()
+        else:
+            labels["img"] = torch.zeros(3, 640, 640)
+
+        if mask is not None:
+            labels["semantic_mask"] = torch.from_numpy(mask.copy()).long()
+        else:
+            labels["semantic_mask"] = torch.full((640, 640), 255, dtype=torch.long)
+
+        # Remove keys not needed downstream
+        for k in ("instances", "cls", "resized_shape", "ori_shape", "ratio_pad"):
+            labels.pop(k, None)
+
+        return labels
 
 
 class ClassificationDataset:

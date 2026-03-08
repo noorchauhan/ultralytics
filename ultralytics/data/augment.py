@@ -1499,11 +1499,15 @@ class RandomFlip:
             instances.flipud(h)
             if self.flip_idx is not None and instances.keypoints is not None:
                 instances.keypoints = np.ascontiguousarray(instances.keypoints[:, self.flip_idx, :])
+            if "semantic_mask" in labels:
+                labels["semantic_mask"] = np.ascontiguousarray(np.flipud(labels["semantic_mask"]))
         if self.direction == "horizontal" and random.random() < self.p:
             img = np.fliplr(img)
             instances.fliplr(w)
             if self.flip_idx is not None and instances.keypoints is not None:
                 instances.keypoints = np.ascontiguousarray(instances.keypoints[:, self.flip_idx, :])
+            if "semantic_mask" in labels:
+                labels["semantic_mask"] = np.ascontiguousarray(np.fliplr(labels["semantic_mask"]))
         labels["img"] = np.ascontiguousarray(img)
         labels["instances"] = instances
         return labels
@@ -1634,6 +1638,14 @@ class LetterBox:
             pad_img = np.full((h + top + bottom, w + left + right, c), fill_value=self.padding_value, dtype=img.dtype)
             pad_img[top : top + h, left : left + w] = img
             img = pad_img
+
+        # Apply same spatial transform to semantic mask (nearest interp to preserve class IDs)
+        if "semantic_mask" in labels:
+            sem_mask = labels["semantic_mask"]
+            if shape[::-1] != new_unpad:
+                sem_mask = cv2.resize(sem_mask, new_unpad, interpolation=cv2.INTER_NEAREST)
+            sem_mask = cv2.copyMakeBorder(sem_mask, top, bottom, left, right, cv2.BORDER_CONSTANT, value=255)
+            labels["semantic_mask"] = sem_mask
 
         if labels.get("ratio_pad"):
             labels["ratio_pad"] = (labels["ratio_pad"], (left, top))  # for evaluation
