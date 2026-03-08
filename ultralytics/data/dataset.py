@@ -798,9 +798,14 @@ class SemanticDataset(BaseDataset):
         """
         label = self.get_image_and_label(index)
 
-        # Load semantic mask
+        # Load semantic mask (use PIL to correctly read palette PNG indices)
         mask_path = self.mask_files[index]
-        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        try:
+            from PIL import Image
+
+            mask = np.array(Image.open(mask_path), dtype=np.uint8)
+        except Exception:
+            mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         if mask is None:
             # If mask not found, create an ignore mask
             h, w = label["img"].shape[:2]

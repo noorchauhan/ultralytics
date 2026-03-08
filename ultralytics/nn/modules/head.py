@@ -1865,5 +1865,8 @@ class SemanticSegment(nn.Module):
 
         if self.training:
             return logits
-        # At inference: upsample to input resolution
-        return F.interpolate(logits, scale_factor=4, mode="bilinear", align_corners=False)
+        if self.export:
+            # At export: upsample to input resolution for end-to-end inference
+            return F.interpolate(logits, scale_factor=4, mode="bilinear", align_corners=False)
+        # Validation/predict: return stride-4 logits, let downstream handle upsampling
+        return logits
