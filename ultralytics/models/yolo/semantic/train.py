@@ -13,8 +13,8 @@ from ultralytics.data import build_dataloader
 from ultralytics.data.dataset import SemanticDataset
 from ultralytics.engine.trainer import BaseTrainer
 from ultralytics.models import yolo
-from ultralytics.nn.tasks import SemanticModel
-from ultralytics.utils import DEFAULT_CFG, RANK
+from ultralytics.nn.tasks import SemanticModel, load_checkpoint
+from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
 from ultralytics.utils.plotting import colors
 from ultralytics.utils.torch_utils import torch_distributed_zero_first
 
@@ -62,7 +62,7 @@ class SemanticTrainer(BaseTrainer):
             augment=mode == "train",
             hyp=self.args,
             data=self.data,
-            rect=mode == "val",
+            rect=False,  # semantic seg requires fixed square input
             batch_size=batch,
             stride=max(int(self.model.stride.max() if hasattr(self.model, "stride") else 32), 32),
             prefix=f"{mode}: ",
@@ -93,7 +93,7 @@ class SemanticTrainer(BaseTrainer):
         )
 
     def get_model(self, cfg=None, weights=None, verbose=True):
-        """Return a SemanticModel.
+        """Return a SemanticModel with optional pretrained backbone.
 
         Args:
             cfg (str, optional): Path to model configuration file.
@@ -106,11 +106,24 @@ class SemanticTrainer(BaseTrainer):
         model = SemanticModel(cfg, nc=self.data["nc"], ch=self.data.get("channels", 3), verbose=verbose and RANK == -1)
         if weights:
             model.load(weights)
+        elif self.args.pretrained is True:
+            # Auto-resolve pretrained detection checkpoint for backbone init
+            # e.g., yolo26n-semseg (scale=n) -> "yolo26n.pt"
+            import re
+
+            model_str = self.args.model if isinstance(self.args.model, str) else str(cfg)
+            scale = model.yaml.get("scale", "")
+            # Strip scale and task suffix: "yolo26n-semseg.yaml" -> "yolo26" then add scale back
+            base = re.sub(r"[nslmx]?-semseg", "", Path(model_str).stem)
+            det_name = f"{base}{scale}.pt"
+            LOGGER.info(f"Loading pretrained backbone from {det_name}")
+            det_weights, _ = load_checkpoint(det_name)
+            model.load(det_weights)
         return model
 
     def get_validator(self):
         """Return a SemanticValidator for model evaluation."""
-        self.loss_names = "ce_loss", "dice_loss"
+        self.loss_names = "ce_loss", "dice_loss", "aux_loss"
         return yolo.semantic.SemanticValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )

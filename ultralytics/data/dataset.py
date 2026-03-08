@@ -776,14 +776,19 @@ class SemanticDataset(BaseDataset):
         Returns:
             (Compose): Composed transforms.
         """
-        transforms = [LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=self.augment)]
         if self.augment:
-            transforms.insert(0, RandomFlip(p=0.5, direction="horizontal"))
+            from ultralytics.data.augment import SemanticRandomScaleCrop
+
+            transforms = []
             if hyp:
                 hsv_h = getattr(hyp, "hsv_h", 0.015)
                 hsv_s = getattr(hyp, "hsv_s", 0.7)
                 hsv_v = getattr(hyp, "hsv_v", 0.4)
-                transforms.insert(0, RandomHSV(hgain=hsv_h, sgain=hsv_s, vgain=hsv_v))
+                transforms.append(RandomHSV(hgain=hsv_h, sgain=hsv_s, vgain=hsv_v))
+            transforms.append(SemanticRandomScaleCrop(crop_size=self.imgsz, scale_min=0.5, scale_max=2.0))
+            transforms.append(RandomFlip(p=0.5, direction="horizontal"))
+        else:
+            transforms = [LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)]
         transforms.append(SemanticFormat())
         return Compose(transforms)
 

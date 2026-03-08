@@ -1422,6 +1422,59 @@ class RandomHSV:
         return labels
 
 
+class SemanticRandomScaleCrop:
+    """Random scale + random crop augmentation for semantic segmentation.
+
+    Randomly scales the image by a factor in [scale_min, scale_max], then takes a random crop of fixed size.
+    If the scaled image is smaller than crop_size, it is padded.
+
+    Attributes:
+        crop_size (tuple): Target (h, w) after cropping.
+        scale_min (float): Minimum scale factor.
+        scale_max (float): Maximum scale factor.
+    """
+
+    def __init__(self, crop_size=512, scale_min=0.5, scale_max=2.0):
+        """Initialize SemanticRandomScaleCrop."""
+        self.crop_size = (crop_size, crop_size) if isinstance(crop_size, int) else tuple(crop_size)
+        self.scale_min = scale_min
+        self.scale_max = scale_max
+
+    def __call__(self, labels):
+        """Apply random scale and crop to image and semantic mask."""
+        img = labels["img"]
+        h, w = img.shape[:2]
+
+        # Random scale
+        scale = random.uniform(self.scale_min, self.scale_max)
+        new_h, new_w = int(h * scale), int(w * scale)
+        img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+        if "semantic_mask" in labels and labels["semantic_mask"] is not None:
+            labels["semantic_mask"] = cv2.resize(labels["semantic_mask"], (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+
+        # Pad if smaller than crop size
+        crop_h, crop_w = self.crop_size
+        pad_h = max(crop_h - new_h, 0)
+        pad_w = max(crop_w - new_w, 0)
+        if pad_h > 0 or pad_w > 0:
+            img = cv2.copyMakeBorder(img, 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=(114, 114, 114))
+            if "semantic_mask" in labels and labels["semantic_mask"] is not None:
+                labels["semantic_mask"] = cv2.copyMakeBorder(
+                    labels["semantic_mask"], 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=255
+                )
+            new_h, new_w = img.shape[:2]
+
+        # Random crop
+        y0 = random.randint(0, new_h - crop_h)
+        x0 = random.randint(0, new_w - crop_w)
+        labels["img"] = img[y0 : y0 + crop_h, x0 : x0 + crop_w]
+        if "semantic_mask" in labels and labels["semantic_mask"] is not None:
+            labels["semantic_mask"] = labels["semantic_mask"][y0 : y0 + crop_h, x0 : x0 + crop_w]
+
+        return labels
+
+
 class RandomFlip:
     """Apply a random horizontal or vertical flip to an image with a given probability.
 

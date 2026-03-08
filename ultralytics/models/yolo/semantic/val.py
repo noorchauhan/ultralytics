@@ -137,7 +137,7 @@ class SemanticValidator(BaseValidator):
             augment=False,
             hyp=self.args,
             data=self.data,
-            rect=True,
+            rect=False,  # semantic seg requires fixed square input for consistent results
             batch_size=batch,
             stride=self.stride,
             prefix=f"{mode}: ",

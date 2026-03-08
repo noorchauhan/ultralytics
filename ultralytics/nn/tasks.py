@@ -623,6 +623,8 @@ class SemanticModel(BaseModel):
             self.model.eval()
             m.training = True  # get training output (stride-4)
             out = self.forward(torch.zeros(1, ch, s, s))
+            if isinstance(out, tuple):
+                out = out[0]  # main logits (aux head returns tuple during training)
             m.stride = torch.tensor([s / out.shape[-1]])  # e.g., 256/64 = 4
             self.stride = m.stride
             self.model.train()

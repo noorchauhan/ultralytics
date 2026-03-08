@@ -1840,6 +1840,12 @@ class SemanticSegment(nn.Module):
             nn.Conv2d(c_mid, nc, 1),
         )
 
+        # Auxiliary head on P4 (index 1) for training
+        if len(ch) > 1:
+            self.aux_head = nn.Sequential(Conv(ch[1], c_mid, 3), nn.Conv2d(c_mid, nc, 1))
+        else:
+            self.aux_head = None
+
     def forward(self, x):
         """Forward pass: fuse multi-scale features and predict per-pixel classes.
 
@@ -1864,9 +1870,9 @@ class SemanticSegment(nn.Module):
         logits = self.classifier(feat)  # [B, nc, H/4, W/4]
 
         if self.training:
+            if self.aux_head is not None:
+                return logits, self.aux_head(x[1])  # main + aux (P4)
             return logits
         if self.export:
-            # At export: upsample to input resolution for end-to-end inference
             return F.interpolate(logits, scale_factor=4, mode="bilinear", align_corners=False)
-        # Validation/predict: return stride-4 logits, let downstream handle upsampling
         return logits

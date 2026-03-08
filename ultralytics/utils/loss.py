@@ -1264,37 +1264,53 @@ class SemanticSegLoss(nn.Module):
         self.nc = m.nc
         self.ce = nn.CrossEntropyLoss(ignore_index=255)
         self.dice_weight = 1.0
+        self.aux_weight = 0.4
 
-    def forward(self, preds, batch):
-        """Compute semantic segmentation loss.
+    def _resize_masks(self, masks, target_shape):
+        """Resize masks to match prediction spatial dims."""
+        if masks.shape[1:] != target_shape:
+            return F.interpolate(masks.float().unsqueeze(1), size=target_shape, mode="nearest").squeeze(1).long()
+        return masks
 
-        Args:
-            preds (torch.Tensor): Logits [B, nc, H', W'] from SemanticSegment head.
-            batch (dict): Batch dict with 'semantic_mask' [B, H, W] containing class IDs (255=ignore).
-
-        Returns:
-            (tuple[torch.Tensor, torch.Tensor]): (total_loss * batch_size, detached loss items [ce, dice]).
-        """
-        masks = batch["semantic_mask"].to(preds.device).long()
-
-        # Downsample GT masks to match prediction resolution (nearest to preserve class IDs)
-        if masks.shape[1:] != preds.shape[2:]:
-            masks = F.interpolate(masks.float().unsqueeze(1), size=preds.shape[2:], mode="nearest").squeeze(1).long()
-
-        # Cross-entropy loss
-        ce_loss = self.ce(preds, masks)
-
-        # Dice loss per class (excluding ignore pixels)
+    def _dice_loss(self, preds, masks):
+        """Compute Dice loss excluding ignore pixels."""
         valid = masks != 255
         pred_soft = F.softmax(preds, dim=1)
         target_onehot = F.one_hot(masks.clamp(0, self.nc - 1), self.nc).permute(0, 3, 1, 2).float()
-        # Zero out ignore regions in both pred and target
         valid_mask = valid.unsqueeze(1).expand_as(target_onehot).float()
         intersection = (pred_soft * target_onehot * valid_mask).sum(dim=(0, 2, 3))
         cardinality = ((pred_soft + target_onehot) * valid_mask).sum(dim=(0, 2, 3))
-        dice_loss = 1.0 - (2.0 * intersection + 1.0) / (cardinality + 1.0)
-        dice_loss = dice_loss.mean()
+        return (1.0 - (2.0 * intersection + 1.0) / (cardinality + 1.0)).mean()
 
+    def forward(self, preds, batch):
+        """Compute semantic segmentation loss with optional auxiliary loss.
+
+        Args:
+            preds (torch.Tensor | tuple): Main logits [B, nc, H', W'], or (main, aux) tuple.
+            batch (dict): Batch dict with 'semantic_mask' [B, H, W] containing class IDs (255=ignore).
+
+        Returns:
+            (tuple[torch.Tensor, torch.Tensor]): (total_loss * batch_size, detached loss items [ce, dice, aux]).
+        """
+        # Unpack aux logits if present
+        aux_logits = None
+        if isinstance(preds, tuple):
+            preds, aux_logits = preds
+
+        masks = batch["semantic_mask"].to(preds.device).long()
+        main_masks = self._resize_masks(masks, preds.shape[2:])
+
+        # Main CE + Dice
+        ce_loss = self.ce(preds, main_masks)
+        dice_loss = self._dice_loss(preds, main_masks)
         total = ce_loss + self.dice_weight * dice_loss
-        loss_items = torch.stack([ce_loss, dice_loss]).detach()
+
+        # Auxiliary CE loss
+        aux_loss = torch.tensor(0.0, device=preds.device)
+        if aux_logits is not None:
+            aux_masks = self._resize_masks(masks, aux_logits.shape[2:])
+            aux_loss = self.ce(aux_logits, aux_masks)
+            total = total + self.aux_weight * aux_loss
+
+        loss_items = torch.stack([ce_loss, dice_loss, aux_loss]).detach()
         return total * preds.shape[0], loss_items
