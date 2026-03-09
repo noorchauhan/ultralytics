@@ -69,12 +69,12 @@ For turnkey solutions, Axelera partners with manufacturers to provide systems pr
 
 The following tasks are supported across YOLOv8, YOLO11, and YOLO26 models. Note that YOLO26 segmentation is not currently supported.
 
-| Task                                                               | YOLOv8       | YOLO11       | YOLO26       |
-| :----------------------------------------------------------------- | :----------- | :----------- | :----------- |
-| [Object Detection](https://docs.ultralytics.com/tasks/detect/)     | ✅ Supported | ✅ Supported | ✅ Supported |
-| [Pose Estimation](https://docs.ultralytics.com/tasks/pose/)        | ✅ Supported | ✅ Supported | ✅ Supported |
+| Task                                                               | YOLOv8       | YOLO11       | YOLO26           |
+| :----------------------------------------------------------------- | :----------- | :----------- | :--------------- |
+| [Object Detection](https://docs.ultralytics.com/tasks/detect/)     | ✅ Supported | ✅ Supported | ✅ Supported     |
+| [Pose Estimation](https://docs.ultralytics.com/tasks/pose/)        | ✅ Supported | ✅ Supported | ✅ Supported     |
 | [Segmentation](https://docs.ultralytics.com/tasks/segment/)        | ✅ Supported | ✅ Supported | ❌ Not supported |
-| [Oriented Bounding Boxes](https://docs.ultralytics.com/tasks/obb/) | ✅ Supported | ✅ Supported | ✅ Supported |
+| [Oriented Bounding Boxes](https://docs.ultralytics.com/tasks/obb/) | ✅ Supported | ✅ Supported | ✅ Supported     |
 
 ## Installation
 
