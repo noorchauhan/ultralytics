@@ -106,7 +106,6 @@ from ultralytics.utils import (
     is_jetson,
 )
 from ultralytics.utils.checks import (
-    IS_PYTHON_3_10,
     IS_PYTHON_MINIMUM_3_9,
     check_apt_requirements,
     check_executorch_requirements,
@@ -119,11 +118,11 @@ from ultralytics.utils.checks import (
 )
 from ultralytics.utils.export import (
     keras2pb,
-    onnx2axelera,
     onnx2engine,
     onnx2saved_model,
     pb2tfjs,
     tflite2edgetpu,
+    torch2axelera,
     torch2executorch,
     torch2imx,
     torch2onnx,
@@ -391,15 +390,15 @@ class Exporter:
         fmt_keys = fmts_dict["Arguments"][flags.index(True) + 1]
         validate_args(fmt, self.args, fmt_keys)
         if axelera:
-            if not IS_PYTHON_3_10:
-                raise SystemError("Axelera export only supported on Python 3.10.")
             if not self.args.int8:
                 LOGGER.warning("Setting int8=True for Axelera mixed-precision export.")
                 self.args.int8 = True
-            if model.task not in {"detect"}:
-                raise ValueError("Axelera export only supported for detection models.")
             if not self.args.data:
-                self.args.data = "coco128.yaml"  # Axelera default to coco128.yaml
+                # Axelera default to coco128 yaml variants
+                if model.task in {"segment"}:
+                    self.args.data = "coco128-seg.yaml"
+                else:
+                    self.args.data = "coco128.yaml"
         if imx:
             if not self.args.int8:
                 LOGGER.warning("IMX export requires int8=True, setting int8=True.")
@@ -1149,26 +1148,22 @@ class Exporter:
         try:
             from axelera import compiler
         except ImportError:
-            check_apt_requirements(
-                ["libllvm14", "libgirepository1.0-dev", "pkg-config", "libcairo2-dev", "build-essential", "cmake"]
-            )
-
             check_requirements(
-                "axelera-voyager-sdk==1.5.2",
-                cmds="--extra-index-url https://software.axelera.ai/artifactory/axelera-runtime-pypi "
-                "--extra-index-url https://software.axelera.ai/artifactory/axelera-dev-pypi",
+                "axelera-devkit==1.6.0rc1",
+                cmds="--no-cache-dir --extra-index-url "
+                "https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
             )
 
         from axelera import compiler
         from axelera.compiler import CompilerConfig
+        from axelera.compiler.config.model_specific import extract_ultralytics_metadata
 
-        self.args.opset = 17  # hardcode opset for Axelera
-        onnx_path = self.export_onnx()
-        return onnx2axelera(
+        return torch2axelera(
             compiler=compiler,
             compiler_config=CompilerConfig,
+            extract_ultralytics_metadata=extract_ultralytics_metadata,
             model=self.model,
-            onnx_path=onnx_path,
+            file=self.file,
             calibration_dataset=self.get_int8_calibration_dataloader(prefix),
             transform_fn=self._transform_fn,
             metadata=self.metadata,
