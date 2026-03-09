@@ -24,7 +24,12 @@ from .dfine_transformer import (
     DeimTransformerDecoderLayer,
     Integral,
 )
-from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
+from .transformer import (
+    MLP,
+    DeformableTransformerDecoder,
+    DeformableTransformerDecoderLayer,
+    DeformableTransformerDecoderLayerv2,
+)
 from .utils import bias_init_with_prob, linear_init
 
 __all__ = (
@@ -35,6 +40,7 @@ __all__ = (
     "DFineDecoder",
     "Pose",
     "RTDETRDecoder",
+    "RTDETRDecoderv2",
     "Segment",
     "YOLOEDetect",
     "YOLOESegment",
@@ -1471,6 +1477,48 @@ class RTDETRDecoder(nn.Module):
     dynamic = False
     disable_topk = False
 
+    @staticmethod
+    def _build_input_proj(ch: tuple, hd: int) -> nn.ModuleList:
+        """Build backbone feature projection layers for decoder inputs."""
+        return nn.ModuleList(nn.Sequential(nn.Conv2d(x, hd, 1, bias=False), nn.BatchNorm2d(hd)) for x in ch)
+
+    @staticmethod
+    def _build_decoder_layer(
+        hd: int,
+        nh: int,
+        d_ffn: int,
+        dropout: float,
+        act: nn.Module,
+        n_levels: int,
+        ndp: int,
+        enable_cuda_acceleration: bool,
+        ) -> nn.Module:
+        """Build the transformer decoder layer implementation."""
+        return DeformableTransformerDecoderLayer(
+            hd,
+            nh,
+            d_ffn,
+            dropout,
+            act,
+            n_levels,
+            ndp,
+            enable_cuda_acceleration=enable_cuda_acceleration,
+        )
+
+    @staticmethod
+    def _build_query_pos_heads(
+        hd: int,
+        dab_sine_embedding: bool,
+        act_mlp: nn.Module,
+    ) -> tuple[nn.Module, nn.Module | None]:
+        """Build query-position MLPs for decoder layers."""
+        if dab_sine_embedding:
+            return (
+                MLP(2 * hd, 2 * hd, hd, num_layers=2, act=act_mlp),
+                MLP(hd, hd, hd, num_layers=2, act=act_mlp),
+            )
+        return MLP(4, 2 * hd, hd, num_layers=2, act=act_mlp), None
+
     def __init__(
         self,
         nc: int = 80,
@@ -1495,6 +1543,7 @@ class RTDETRDecoder(nn.Module):
         dab_sine_embedding: bool = False,
         efficient_msdeformable_attn: bool = False,
         o2m_topk_mode: str = "unshared",
+        mlp_act: str = "relu",
     ):
         """Initialize the RTDETRDecoder module with the given parameters.
 
@@ -1529,15 +1578,17 @@ class RTDETRDecoder(nn.Module):
         self.efficient_msdeformable_attn = efficient_msdeformable_attn
 
         act = self._select_activation(act)
+        act_mlp = self._select_activation(mlp_act)
 
         # Backbone feature projection
-        self.input_proj = nn.ModuleList(nn.Sequential(nn.Conv2d(x, hd, 1, bias=False), nn.BatchNorm2d(hd)) for x in ch)
+        self.input_proj = self._build_input_proj(ch, hd)
         # NOTE: simplified version but it's not consistent with .pt weights.
         # self.input_proj = nn.ModuleList(Conv(x, hd, act=False) for x in ch)
 
         # Transformer module
-        decoder_layer = DeformableTransformerDecoderLayer(
-            hd, nh, d_ffn, dropout, act, self.nl, ndp, enable_cuda_acceleration=enable_cuda_acceleration)
+        decoder_layer = self._build_decoder_layer(
+            hd, nh, d_ffn, dropout, act, self.nl, ndp, enable_cuda_acceleration
+        )
         self.decoder = DeformableTransformerDecoder(
             hd, decoder_layer, ndl, eval_idx, dab_sine_embedding, efficient_msdeformable_attn)
 
@@ -1555,30 +1606,25 @@ class RTDETRDecoder(nn.Module):
         self.learnt_init_query = learnt_init_query
         if learnt_init_query:
             self.tgt_embed = nn.Embedding(nq, hd)
-            self.learnt_bbox_head = MLP(hd, hd, 4, num_layers=3)
+            self.learnt_bbox_head = MLP(hd, hd, 4, num_layers=3, act=act_mlp)
             self.learnt_score_head = nn.Linear(hd, nc)
             # Separate embeddings for one-to-many (reuse the same prediction heads)
             if one_to_many_groups > 0:
                 self.tgt_embed_o2m = nn.Embedding(nq * one_to_many_groups, hd)
 
-        if dab_sine_embedding:
-            self.query_pos_head = MLP(2 * hd, 2 * hd, hd, num_layers=2)
-            self.query_pos_scale_head = MLP(hd, hd, hd, num_layers=2)
-        else:
-            self.query_pos_head = MLP(4, 2 * hd, hd, num_layers=2)
-            self.query_pos_scale_head = None
+        self.query_pos_head, self.query_pos_scale_head = self._build_query_pos_heads(hd, dab_sine_embedding, act_mlp)
 
         # Encoder head (only needed when not using learnable queries)
         if not learnt_init_query:
             self.enc_output = nn.Sequential(nn.Linear(hd, hd), nn.LayerNorm(hd))
             self.enc_score_head = nn.Linear(hd, nc)
-            self.enc_bbox_head = MLP(hd, hd, 4, num_layers=3)
+            self.enc_bbox_head = MLP(hd, hd, 4, num_layers=3, act=act_mlp)
             # Note: H-DETR style - no separate o2m encoder heads needed
             # O2M queries come from lower-ranked proposals using same encoder
 
         # Decoder head
         self.dec_score_head = nn.ModuleList([nn.Linear(hd, nc) for _ in range(ndl)])
-        self.dec_bbox_head = nn.ModuleList([MLP(hd, hd, 4, num_layers=3) for _ in range(ndl)])
+        self.dec_bbox_head = nn.ModuleList([MLP(hd, hd, 4, num_layers=3, act=act_mlp) for _ in range(ndl)])
 
         self._reset_parameters()
 
@@ -1960,6 +2006,52 @@ class RTDETRDecoder(nn.Module):
         for layer in self.input_proj:
             if isinstance(layer, nn.Sequential) and len(layer) and hasattr(layer[0], "weight"):
                 xavier_uniform_(layer[0].weight)
+
+
+class RTDETRDecoderv2(RTDETRDecoder):
+    """RT-DETR decoder variant with DEIM-style input projection and v2 deformable attention."""
+
+    @staticmethod
+    def _build_input_proj(ch: tuple, hd: int) -> nn.ModuleList:
+        """Keep matching backbone channels as identity and project only mismatched ones."""
+        return nn.ModuleList(
+            nn.Identity() if x == hd else nn.Sequential(nn.Conv2d(x, hd, 1, bias=False), nn.BatchNorm2d(hd))
+            for x in ch
+        )
+
+    @staticmethod
+    def _build_decoder_layer(
+        hd: int,
+        nh: int,
+        d_ffn: int,
+        dropout: float,
+        act: nn.Module,
+        n_levels: int,
+        ndp: int | list[int],
+        enable_cuda_acceleration: bool,
+    ) -> nn.Module:
+        """Build the RT-DETR v2 decoder layer implementation."""
+        return DeformableTransformerDecoderLayerv2(
+            hd,
+            nh,
+            d_ffn,
+            dropout,
+            act,
+            n_levels,
+            ndp,
+            enable_cuda_acceleration=enable_cuda_acceleration,
+        )
+
+    @staticmethod
+    def _build_query_pos_heads(
+        hd: int,
+        dab_sine_embedding: bool,
+        act_mlp: nn.Module,
+    ) -> tuple[nn.Module, nn.Module | None]:
+        """Build DEIM-style query-position MLPs for RT-DETR v2."""
+        if dab_sine_embedding:
+            return RTDETRDecoder._build_query_pos_heads(hd, dab_sine_embedding, act_mlp)
+        return MLP(4, hd, hd, num_layers=3, act=act_mlp), None
 
 
 class DFineDecoder(RTDETRDecoder):

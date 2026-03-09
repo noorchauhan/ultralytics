@@ -16,7 +16,12 @@ try:
 except ImportError:
     MSDA = None
 
-__all__ = "inverse_sigmoid", "multi_scale_deformable_attn_pytorch", "MSDeformAttnFunction"
+__all__ = (
+    "inverse_sigmoid",
+    "multi_scale_deformable_attn_pytorch",
+    "deformable_attention_core_func_v2",
+    "MSDeformAttnFunction",
+)
 
 
 def _get_clones(module, n):
@@ -198,6 +203,85 @@ def multi_scale_deformable_attn_pytorch(
         .view(bs, num_heads * embed_dims, num_queries)
     )
     return output.transpose(1, 2).contiguous()
+
+
+def deformable_attention_core_func_v2(
+    value: torch.Tensor | tuple[torch.Tensor, ...],
+    value_spatial_shapes: torch.Tensor | list,
+    sampling_locations: torch.Tensor,
+    attention_weights: torch.Tensor,
+    num_points_list: list[int],
+    method: str = "default",
+    value_shape: str = "default",
+) -> torch.Tensor:
+    """Alternative deformable attention core used by D-FINE/DEIM-style attention.
+
+    Args:
+        value (torch.Tensor | tuple[torch.Tensor, ...]): Either per-level tensors or a flattened RT-DETR tensor.
+        value_spatial_shapes (torch.Tensor | list): Spatial shapes per feature level.
+        sampling_locations (torch.Tensor): Shape [bs, query_length, n_head, n_levels * n_points, 2].
+        attention_weights (torch.Tensor): Shape [bs, query_length, n_head, n_levels * n_points].
+        num_points_list (list[int]): Number of sampling points per level.
+        method (str): Sampling method. Only "default" is used here.
+        value_shape (str): "default" for per-level tensors, "reshape" for flattened RT-DETR value tensors.
+
+    Returns:
+        (torch.Tensor): Output tensor with shape [bs, query_length, n_head * head_dim].
+    """
+    if value_shape == "default":
+        bs, n_head, c, _ = value[0].shape
+    elif value_shape == "reshape":
+        bs, _, n_head, c = value.shape
+        split_shape = [h * w for h, w in value_spatial_shapes]
+        value = value.permute(0, 2, 3, 1).flatten(0, 1).split(split_shape, dim=-1)
+    else:
+        raise ValueError(f"Unsupported value_shape: {value_shape}")
+
+    _, len_q, _, _, _ = sampling_locations.shape
+
+    if method == "default":
+        sampling_grids = 2 * sampling_locations - 1
+    elif method == "discrete":
+        sampling_grids = sampling_locations
+    else:
+        raise ValueError(f"Unsupported deformable attention method: {method}")
+
+    sampling_grids = sampling_grids.permute(0, 2, 1, 3, 4).flatten(0, 1)
+    sampling_locations_list = sampling_grids.split(num_points_list, dim=-2)
+
+    sampling_value_list = []
+    for level, (h, w) in enumerate(value_spatial_shapes):
+        value_l = value[level].reshape(bs * n_head, c, h, w)
+        sampling_grid_l = sampling_locations_list[level]
+
+        if method == "default":
+            sampling_value_l = F.grid_sample(
+                value_l,
+                sampling_grid_l,
+                mode="bilinear",
+                padding_mode="zeros",
+                align_corners=False,
+            )
+        else:
+            sampling_coord = (sampling_grid_l * torch.tensor([[w, h]], device=value_l.device) + 0.5).to(torch.int64)
+            sampling_coord = sampling_coord.clamp(0, h - 1)
+            sampling_coord = sampling_coord.reshape(bs * n_head, len_q * num_points_list[level], 2)
+            s_idx = (
+                torch.arange(sampling_coord.shape[0], device=value_l.device)
+                .unsqueeze(-1)
+                .repeat(1, sampling_coord.shape[1])
+            )
+            sampling_value_l = value_l[s_idx, :, sampling_coord[..., 1], sampling_coord[..., 0]]
+            sampling_value_l = sampling_value_l.permute(0, 2, 1).reshape(
+                bs * n_head, c, len_q, num_points_list[level]
+            )
+
+        sampling_value_list.append(sampling_value_l)
+
+    attn_weights = attention_weights.permute(0, 2, 1, 3).reshape(bs * n_head, 1, len_q, sum(num_points_list))
+    weighted_sample_locs = torch.concat(sampling_value_list, dim=-1) * attn_weights
+    output = weighted_sample_locs.sum(-1).reshape(bs, n_head * c, len_q)
+    return output.permute(0, 2, 1)
 
 
 class MSDeformAttnFunction(Function):

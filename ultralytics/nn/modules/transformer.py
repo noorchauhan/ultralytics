@@ -13,7 +13,7 @@ from torch.nn.init import constant_, xavier_uniform_
 from ultralytics.utils.torch_utils import TORCH_1_11
 
 from .conv import Conv
-from .utils import _get_clones, inverse_sigmoid, multi_scale_deformable_attn_pytorch
+from .utils import _get_clones, deformable_attention_core_func_v2, inverse_sigmoid, multi_scale_deformable_attn_pytorch
 from .utils import MSDeformAttnFunction, gen_sineembed_for_position
 
 __all__ = (
@@ -21,9 +21,11 @@ __all__ = (
     "MLP",
     "DeformableTransformerDecoder",
     "DeformableTransformerDecoderLayer",
+    "DeformableTransformerDecoderLayerv2",
     "LayerNorm2d",
     "MLPBlock",
     "MSDeformAttn",
+    "MSDeformAttnv2",
     "TransformerBlock",
     "TransformerEncoderLayer",
     "TransformerLayer",
@@ -601,6 +603,115 @@ class MSDeformAttn(nn.Module):
         return self.output_proj(output)
 
 
+class MSDeformAttnv2(nn.Module):
+    """RT-DETR-v2-style multiscale deformable attention using the shared v2 core."""
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        n_levels: int = 4,
+        n_heads: int = 8,
+        n_points: int | list[int] = 4,
+        enable_cuda_acceleration: bool = False,
+        method: str = "default",
+        offset_scale: float = 0.5,
+    ):
+        """Initialize the v2 attention block following DeimV2's RT-DETR decoder path."""
+        super().__init__()
+        if d_model % n_heads != 0:
+            raise ValueError(f"d_model must be divisible by n_heads, but got {d_model} and {n_heads}")
+        if enable_cuda_acceleration:
+            raise ValueError("MSDeformAttnv2 currently supports only the PyTorch v2 attention path.")
+
+        self.d_model = d_model
+        self.n_levels = n_levels
+        self.n_heads = n_heads
+        self.offset_scale = offset_scale
+        self.enable_cuda_acceleration = enable_cuda_acceleration
+        self.method = method
+        self.head_dim = d_model // n_heads
+
+        if isinstance(n_points, list):
+            if len(n_points) != n_levels:
+                raise ValueError(f"Expected {n_levels} decoder point values, but got {len(n_points)}")
+            self.num_points_list = n_points
+        else:
+            self.num_points_list = [n_points for _ in range(n_levels)]
+
+        num_points_scale = [1 / n for n in self.num_points_list for _ in range(n)]
+        self.register_buffer("num_points_scale", torch.tensor(num_points_scale, dtype=torch.float32))
+
+        total_points = sum(self.num_points_list)
+        self.sampling_offsets = nn.Linear(d_model, n_heads * total_points * 2)
+        self.attention_weights = nn.Linear(d_model, n_heads * total_points)
+        self.value_proj = nn.Linear(d_model, d_model)
+        self.output_proj = nn.Linear(d_model, d_model)
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        """Reset v2 attention parameters."""
+        constant_(self.sampling_offsets.weight.data, 0.0)
+        thetas = torch.arange(self.n_heads, dtype=torch.float32) * (2.0 * math.pi / self.n_heads)
+        grid_init = torch.stack([thetas.cos(), thetas.sin()], -1)
+        grid_init = grid_init / grid_init.abs().max(-1, keepdim=True)[0]
+        grid_init = grid_init.reshape(self.n_heads, 1, 2).tile([1, sum(self.num_points_list), 1])
+        scaling = torch.concat([torch.arange(1, n + 1) for n in self.num_points_list]).reshape(1, -1, 1)
+        grid_init *= scaling
+        with torch.no_grad():
+            self.sampling_offsets.bias = nn.Parameter(grid_init.view(-1))
+        constant_(self.attention_weights.weight.data, 0.0)
+        constant_(self.attention_weights.bias.data, 0.0)
+        xavier_uniform_(self.value_proj.weight.data)
+        constant_(self.value_proj.bias.data, 0.0)
+        xavier_uniform_(self.output_proj.weight.data)
+        constant_(self.output_proj.bias.data, 0.0)
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        refer_bbox: torch.Tensor,
+        value: torch.Tensor,
+        value_shapes: list,
+        value_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Perform RT-DETR-v2 deformable attention over flattened encoder memory."""
+        bs, len_q = query.shape[:2]
+        len_v = value.shape[1]
+        assert sum(s[0] * s[1] for s in value_shapes) == len_v
+
+        value = self.value_proj(value)
+        if value_mask is not None:
+            value = value.masked_fill(value_mask[..., None], float(0))
+        value = value.reshape(bs, len_v, self.n_heads, self.head_dim)
+
+        total_points = sum(self.num_points_list)
+        sampling_offsets = self.sampling_offsets(query).reshape(bs, len_q, self.n_heads, total_points, 2)
+        attention_weights = self.attention_weights(query).reshape(bs, len_q, self.n_heads, total_points)
+        attention_weights = F.softmax(attention_weights, dim=-1).reshape(bs, len_q, self.n_heads, total_points)
+
+        if refer_bbox.shape[-1] == 2:
+            offset_normalizer = torch.tensor(value_shapes, device=query.device, dtype=query.dtype)
+            offset_normalizer = offset_normalizer.flip([1]).reshape(1, 1, 1, self.n_levels, 1, 2)
+            sampling_locations = refer_bbox.reshape(bs, len_q, 1, self.n_levels, 1, 2) + sampling_offsets / offset_normalizer
+        elif refer_bbox.shape[-1] == 4:
+            num_points_scale = self.num_points_scale.to(dtype=query.dtype).unsqueeze(-1)
+            offset = sampling_offsets * num_points_scale * refer_bbox[:, :, None, :, 2:] * self.offset_scale
+            sampling_locations = refer_bbox[:, :, None, :, :2] + offset
+        else:
+            raise ValueError(f"Last dim of reference_points must be 2 or 4, but got {refer_bbox.shape[-1]}.")
+
+        output = deformable_attention_core_func_v2(
+            value=value,
+            value_spatial_shapes=value_shapes,
+            sampling_locations=sampling_locations,
+            attention_weights=attention_weights,
+            num_points_list=self.num_points_list,
+            method=self.method,
+            value_shape="reshape",
+        )
+        return self.output_proj(output)
+
+
 class DeformableTransformerDecoderLayer(nn.Module):
     """Deformable Transformer Decoder Layer inspired by PaddleDetection and Deformable-DETR implementations.
 
@@ -729,6 +840,40 @@ class DeformableTransformerDecoderLayer(nn.Module):
 
         # FFN
         return self.forward_ffn(embed)
+
+
+class DeformableTransformerDecoderLayerv2(DeformableTransformerDecoderLayer):
+    """RT-DETR decoder layer variant that swaps only the deformable attention backend."""
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        n_heads: int = 8,
+        d_ffn: int = 1024,
+        dropout: float = 0.0,
+        act: nn.Module = nn.ReLU(),
+        n_levels: int = 4,
+        n_points: int | list[int] = 4,
+        enable_cuda_acceleration: bool = False,
+    ):
+        base_points = n_points if isinstance(n_points, int) else 1
+        super().__init__(
+            d_model=d_model,
+            n_heads=n_heads,
+            d_ffn=d_ffn,
+            dropout=dropout,
+            act=act,
+            n_levels=n_levels,
+            n_points=base_points,
+            enable_cuda_acceleration=enable_cuda_acceleration,
+        )
+        self.cross_attn = MSDeformAttnv2(
+            d_model,
+            n_levels,
+            n_heads,
+            n_points,
+            enable_cuda_acceleration=enable_cuda_acceleration,
+        )
 
 
 class DeformableTransformerDecoder(nn.Module):

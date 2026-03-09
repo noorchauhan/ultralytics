@@ -43,8 +43,11 @@ head:
   - [[-1, 6], 1, Add, []]
   - [-1, 1, RepNCSPELAN5, [224, 448, 112, 3]] # 21 F5, pan_blocks.1
 
-  # RTDETRDecoder - [nc, ch, hd, nq, ndp, nh, ndl, d_ffn, dropout, act, eval_idx, nd, label_noise_ratio, box_noise_scale, learnt_init_query]
-  - [[15, 18, 21], 1, RTDETRDecoder, [nc, 224, 300, 4, 8, 4, 1792, 0.0, "silu", -1, 100, 0.5, 1.0, False, True]]
+  # RTDETRDecoderv2 aligned with the v3 decoder settings through the RT-DETR-v2 attention path.
+  # Args: [nc, hd, nq, ndp, nh, ndl, d_ffn, dropout, act, eval_idx, nd, label_noise_ratio, box_noise_scale,
+  #        learnt_init_query, enable_cuda_acceleration, one_to_many_groups, dab_sine_embedding,
+  #        efficient_msdeformable_attn, o2m_topk_mode, mlp_act]
+  - [[15, 18, 21], 1, RTDETRDecoderv2, [nc, 224, 300, [3, 6, 3], 8, 4, 1792, 0.0, "silu", -1, 100, 0.5, 1.0, False, False, 0, False, False, "unshared", "silu"]]
 
 loss:
   gamma: 2.0
