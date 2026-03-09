@@ -34,7 +34,6 @@ def torch2axelera(
     Returns:
         (Path): Path to exported Axelera model directory.
     """
-
     file = Path(file)
     model_name = file.stem
     export_path = Path(f"{model_name}_axelera_model")

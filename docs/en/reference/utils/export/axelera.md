@@ -11,10 +11,6 @@ keywords: TODO ADD KEYWORDS
 
 <br>
 
-## ::: ultralytics.utils.export.axelera._axelera_compiler_config
-
-<br><br><hr><br>
-
-## ::: ultralytics.utils.export.axelera.onnx2axelera
+## ::: ultralytics.utils.export.axelera.torch2axelera
 
 <br><br>
