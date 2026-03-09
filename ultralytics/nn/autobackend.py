@@ -612,11 +612,11 @@ class AutoBackend(nn.Module):
             except ImportError:
                 check_requirements(
                     "axelera-rt==1.6.0rc1",
-                    cmds="--no-cache-dir --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
+                    cmds="--extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
                 )
                 check_requirements(
                     "axelera-runtime2==0.1.4",
-                    cmds="--no-cache-dir --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
+                    cmds="--extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
                 )
 
             from axelera.runtime import op

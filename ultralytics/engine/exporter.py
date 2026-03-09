@@ -1150,7 +1150,7 @@ class Exporter:
         except ImportError:
             check_requirements(
                 "axelera-devkit==1.6.0rc1",
-                cmds="--no-cache-dir --extra-index-url "
+                cmds="--extra-index-url "
                 "https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
             )
 
