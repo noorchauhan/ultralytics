@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 from ultralytics.engine.predictor import BasePredictor
 from ultralytics.engine.results import Results
 from ultralytics.utils import DEFAULT_CFG
+from ultralytics.utils import ops
 
 
 class SemanticPredictor(BasePredictor):
@@ -54,9 +54,9 @@ class SemanticPredictor(BasePredictor):
         results = []
         for i, (pred, orig_img) in enumerate(zip(preds, orig_imgs)):
             img_path = self.batch[0][i] if isinstance(self.batch[0], list) else self.batch[0]
-            # pred: [nc, H, W] logits - upsample to original image size
+            # pred: [nc, H, W] logits on letterboxed input. Remove padding, then resize to original image.
             oh, ow = orig_img.shape[:2]
-            pred = F.interpolate(pred.unsqueeze(0), size=(oh, ow), mode="bilinear", align_corners=False)[0]
+            pred = ops.scale_masks(pred.unsqueeze(0), (oh, ow))[0]
             class_map = pred.argmax(0).cpu()  # [H, W]
             results.append(Results(orig_img, path=img_path, names=self.model.names, semantic_mask=class_map))
         return results
