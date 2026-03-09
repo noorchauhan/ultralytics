@@ -1,5 +1,6 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
+from .axelera import onnx2axelera
 from .engine import onnx2engine, torch2onnx
 from .executorch import torch2executorch
 from .imx import torch2imx
@@ -7,6 +8,7 @@ from .tensorflow import keras2pb, onnx2saved_model, pb2tfjs, tflite2edgetpu
 
 __all__ = [
     "keras2pb",
+    "onnx2axelera",
     "onnx2engine",
     "onnx2saved_model",
     "pb2tfjs",

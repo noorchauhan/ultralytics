@@ -119,6 +119,7 @@ from ultralytics.utils.checks import (
 )
 from ultralytics.utils.export import (
     keras2pb,
+    onnx2axelera,
     onnx2engine,
     onnx2saved_model,
     pb2tfjs,
@@ -1163,50 +1164,16 @@ class Exporter:
 
         self.args.opset = 17  # hardcode opset for Axelera
         onnx_path = self.export_onnx()
-        model_name = Path(onnx_path).stem
-        export_path = Path(f"{model_name}_axelera_model")
-        export_path.mkdir(exist_ok=True)
-
-        if "C2PSA" in self.model.__str__():  # YOLO11
-            config = CompilerConfig(
-                quantization_scheme="per_tensor_min_max",
-                ignore_weight_buffers=False,
-                resources_used=0.25,
-                aipu_cores_used=1,
-                multicore_mode="batch",
-                output_axm_format=True,
-                model_name=model_name,
-            )
-        else:  # YOLOv8
-            config = CompilerConfig(
-                tiling_depth=6,
-                split_buffer_promotion=True,
-                resources_used=0.25,
-                aipu_cores_used=1,
-                multicore_mode="batch",
-                output_axm_format=True,
-                model_name=model_name,
-            )
-
-        qmodel = compiler.quantize(
-            model=onnx_path,
+        return onnx2axelera(
+            compiler=compiler,
+            compiler_config=CompilerConfig,
+            model=self.model,
+            onnx_path=onnx_path,
             calibration_dataset=self.get_int8_calibration_dataloader(prefix),
-            config=config,
             transform_fn=self._transform_fn,
+            metadata=self.metadata,
+            prefix=prefix,
         )
-
-        compiler.compile(model=qmodel, config=config, output_dir=export_path)
-
-        axm_name = f"{model_name}.axm"
-        axm_src = Path(axm_name)
-        axm_dst = export_path / axm_name
-
-        if axm_src.exists():
-            axm_src.replace(axm_dst)
-
-        YAML.save(export_path / "metadata.yaml", self.metadata)
-
-        return export_path
 
     @try_export
     def export_executorch(self, prefix=colorstr("ExecuTorch:")):
