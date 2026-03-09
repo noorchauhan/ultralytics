@@ -8,11 +8,11 @@ from .tensorflow import keras2pb, onnx2saved_model, pb2tfjs, tflite2edgetpu
 
 __all__ = [
     "keras2pb",
+    "onnx2axelera",
     "onnx2engine",
     "onnx2saved_model",
     "pb2tfjs",
     "tflite2edgetpu",
-    "onnx2axelera",
     "torch2executorch",
     "torch2imx",
     "torch2onnx",

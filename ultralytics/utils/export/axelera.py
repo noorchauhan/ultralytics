@@ -55,7 +55,6 @@ def onnx2axelera(
     Returns:
         (Path): Path to exported Axelera model directory.
     """
-
     onnx_path = Path(onnx_path)
     model_name = onnx_path.stem
     export_path = Path(f"{model_name}_axelera_model")
