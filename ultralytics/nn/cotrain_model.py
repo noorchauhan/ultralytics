@@ -5,16 +5,18 @@ feature distillation loss. Each model can reside on a different GPU device.
 """
 
 import math
+from copy import deepcopy
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
+from ultralytics.utils import LOGGER
 from ultralytics.utils.metrics import bbox_iou
 from ultralytics.utils.tal import dist2bbox
 from ultralytics.utils.torch_utils import copy_attr
 
-from .tasks import load_checkpoint
+from .tasks import DetectionModel, load_checkpoint
 
 
 class CoTrainingModel(nn.Module):
@@ -44,11 +46,9 @@ class CoTrainingModel(nn.Module):
         if isinstance(feats_idx, int):
             feats_idx = [feats_idx]
 
-        if isinstance(teacher_model, str):
-            teacher_model = load_checkpoint(teacher_model)[0]
-
         self.student_device = next(student_model.parameters()).device
         self.teacher_device = self._normalize_device(teacher_device, fallback=self.student_device)
+        teacher_model = self._build_teacher_model(teacher_model, student_model)
 
         self.teacher_model = teacher_model.to(self.teacher_device)
         self.student_model = student_model  # already on student_device
@@ -98,6 +98,14 @@ class CoTrainingModel(nn.Module):
                 t_dim = self._decouple(t_out, shape_check=True).shape[1]
                 if args.distill_projector == "linear":
                     projectors.append(nn.Conv2d(s_dim, t_dim, 1))
+                elif args.distill_projector == "mlp_silu":
+                    projectors.append(
+                        nn.Sequential(
+                            nn.Conv2d(s_dim, t_dim, kernel_size=1, stride=1, padding=0),
+                            nn.SiLU(),
+                            nn.Conv2d(t_dim, t_dim, kernel_size=1, stride=1, padding=0),
+                        )
+                    )
                 else:
                     projectors.append(
                         nn.Sequential(
@@ -144,9 +152,42 @@ class CoTrainingModel(nn.Module):
             assert b in {"one2one", "one2many"}, f"Unknown branch: {b}"
         self.refresh_devices(self.student_device, self.teacher_device)
 
-    # ------------------------------------------------------------------
-    # Epoch / mode helpers
-    # ------------------------------------------------------------------
+    @classmethod
+    def _build_teacher_model(cls, teacher_model: str | nn.Module, student_model: nn.Module) -> nn.Module:
+        """Rebuild teacher with the current training nc/ch, then load compatible weights."""
+        teacher_source = load_checkpoint(teacher_model)[0] if isinstance(teacher_model, str) else teacher_model
+        teacher_source = cls._unwrap_if_ddp(teacher_source)
+        student_core = cls._unwrap_if_ddp(student_model)
+
+        if not isinstance(teacher_source, nn.Module):
+            raise TypeError(f"Expected teacher_model to resolve to nn.Module, got {type(teacher_source).__name__}")
+        if getattr(teacher_source, "task", None) not in {None, "detect"}:
+            raise ValueError(
+                f"CoTrainingModel only supports detection teachers for rebuild, got task={teacher_source.task!r}."
+            )
+        if not hasattr(teacher_source, "yaml") or teacher_source.yaml is None:
+            raise ValueError("Teacher model must expose a valid model.yaml to rebuild the detection head.")
+
+        student_nc = getattr(student_core, "nc", None)
+        if student_nc is None:
+            raise ValueError("Student model must define 'nc' before constructing CoTrainingModel.")
+
+        teacher_cfg = deepcopy(teacher_source.yaml)
+        student_ch = teacher_cfg.get("channels", 3)
+        if hasattr(student_core, "yaml") and isinstance(student_core.yaml, dict):
+            student_ch = student_core.yaml.get("channels", student_ch)
+
+        rebuilt_teacher = DetectionModel(cfg=teacher_cfg, nc=student_nc, ch=student_ch, verbose=False)
+        if hasattr(student_core, "args"):
+            rebuilt_teacher.args = student_core.args
+        rebuilt_teacher.load(teacher_source, verbose=False)
+
+        source_nc = getattr(teacher_source, "nc", teacher_cfg.get("nc"))
+        LOGGER.info(
+            "Rebuilt co-training teacher with current training head "
+            f"(source_nc={source_nc}, target_nc={student_nc}) and loaded shape-compatible weights"
+        )
+        return rebuilt_teacher
 
     @staticmethod
     def _normalize_device(device, fallback=None):
