@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ultralytics.utils import LOGGER, YAML
+from ultralytics.utils import YAML
 
 
 def _axelera_compiler_config(compiler_config, model_name: str, is_yolo11: bool):
@@ -55,7 +55,6 @@ def onnx2axelera(
     Returns:
         (Path): Path to exported Axelera model directory.
     """
-    LOGGER.info(f"\n{prefix} starting export with axelera-voyager-sdk {compiler.__version__}...")
 
     onnx_path = Path(onnx_path)
     model_name = onnx_path.stem
