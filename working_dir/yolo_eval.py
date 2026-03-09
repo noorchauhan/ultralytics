@@ -1,6 +1,6 @@
 import argparse
 import yaml
-from ultralytics import YOLO
+from ultralytics import RTDETR, RTDETRDEIM, RTDETRDEIMv2, YOLO
 
 
 def parse_args():
@@ -16,6 +16,13 @@ def parse_args():
         type=str,
         default=None,
         help="Path to eval YAML config with val settings",
+    )
+    parser.add_argument(
+        "--model-class",
+        type=str,
+        default=None,
+        choices=["RTDETR", "RTDETRDEIM", "RTDETRDEIMv2", "YOLO"],
+        help="Model wrapper class to use. If omitted, config value is used, else defaults to YOLO.",
     )
     parser.add_argument(
         "--name",
@@ -55,7 +62,17 @@ def main():
     model_path = args.weights or cfg_overrides.pop("model", None)
     if not model_path:
         raise SystemExit("Provide --weights or set `model` in --config.")
-    model = YOLO(model_path)
+    model_class = args.model_class or cfg_overrides.pop("model_class", "YOLO")
+    model_classes = {
+        "RTDETR": RTDETR,
+        "RTDETRDEIM": RTDETRDEIM,
+        "RTDETRDEIMv2": RTDETRDEIMv2,
+        "YOLO": YOLO,
+    }
+
+    print(f"Model class: {model_class}")
+    print(f"Weights: {model_path}")
+    model = model_classes[model_class](model_path)
 
     val_kwargs = dict(cfg_overrides)
 
