@@ -807,6 +807,7 @@ nav:
           - errors: reference/utils/errors.md
           - events: reference/utils/events.md
           - export:
+              - axelera: reference/utils/export/axelera.md
               - engine: reference/utils/export/engine.md
               - executorch: reference/utils/export/executorch.md
               - imx: reference/utils/export/imx.md
