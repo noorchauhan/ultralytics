@@ -397,10 +397,8 @@ class Exporter:
         validate_args(fmt, self.args, fmt_keys)
         if deepx:
             if not self.args.int8:
-                LOGGER.warning("Setting int8=True for Axelera mixed-precision export.")
+                LOGGER.warning("DeepX export requires int8=True, setting int8=True.")
                 self.args.int8 = True
-            if not self.args.data:
-                self.args.data = "coco128.yaml"  # Axelera default to coco128.yaml
 
         if axelera:
             if not IS_PYTHON_3_10:
