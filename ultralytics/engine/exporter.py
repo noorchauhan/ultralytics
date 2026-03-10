@@ -397,6 +397,8 @@ class Exporter:
                 # Axelera default to coco128 yaml variants
                 if model.task in {"segment"}:
                     self.args.data = "coco128-seg.yaml"
+                elif model.task in {"pose"}:
+                    self.args.data = "coco8-pose.yaml"
                 else:
                     self.args.data = "coco128.yaml"
         if imx:
