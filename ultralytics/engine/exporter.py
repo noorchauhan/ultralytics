@@ -394,11 +394,13 @@ class Exporter:
                 LOGGER.warning("Setting int8=True for Axelera mixed-precision export.")
                 self.args.int8 = True
             if not self.args.data:
-                # Axelera default to coco128 yaml variants
+                # Axelera default to task-specific lightweight calibration datasets
                 if model.task in {"segment"}:
                     self.args.data = "coco128-seg.yaml"
                 elif model.task in {"pose"}:
                     self.args.data = "coco8-pose.yaml"
+                elif model.task in {"obb"}:
+                    self.args.data = "dota8.yaml"
                 else:
                     self.args.data = "coco128.yaml"
         if imx:
