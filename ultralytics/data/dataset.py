@@ -868,13 +868,14 @@ class SemanticDataset(BaseDataset):
             (dict): Collated batch with stacked tensors.
         """
         new_batch = {}
-        keys = batch[0].keys()
+        # Only collate keys that all samples share (mosaic vs non-mosaic may differ)
+        keys = set(batch[0].keys())
+        for b in batch[1:]:
+            keys &= set(b.keys())
         for k in keys:
             values = [b[k] for b in batch]
             if k in {"img", "semantic_mask"}:
                 new_batch[k] = torch.stack(values, 0)
-            elif k == "im_file":
-                new_batch[k] = values
             else:
                 new_batch[k] = values
         # Add empty cls tensor for compatibility with BaseTrainer progress logging
