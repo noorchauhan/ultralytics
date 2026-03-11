@@ -1076,7 +1076,7 @@ class C3k2(C2f):
         n: int = 1,
         c3k: bool = False,
         e: float = 0.5,
-        attn: bool = False,
+        attn: bool | None = None,
         g: int = 1,
         shortcut: bool = True,
         downsample: int = 1,
@@ -1498,6 +1498,8 @@ class PSABlock(nn.Module):
         """
         super().__init__()
 
+        if attn is True:
+            attn = "default"
         assert attn in {"default", "sim", "ds"}
         if attn == "default":
             self.attn = Attention(c, attn_ratio=attn_ratio, num_heads=num_heads)
