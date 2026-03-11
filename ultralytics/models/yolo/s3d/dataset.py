@@ -673,65 +673,6 @@ class Stereo3DDetDataset(BaseDataset):
     def __len__(self) -> int:
         return len(self.image_ids)
 
-    def get_occlusion_stats(self) -> Dict[str, Any]:
-        """Get statistics about occlusion levels in the dataset.
-        
-        Returns:
-            Dict with occlusion distribution statistics.
-        """
-        from collections import Counter
-        
-        occlusion_counts = Counter()
-        total_objects = 0
-        
-        for image_id in self.image_ids:
-            label_file = self.label_dir / f"{image_id}.txt"
-            if not label_file.exists():
-                continue
-            
-            labels = self._parse_labels(label_file)
-            for lab in labels:
-                occlusion = lab.get("occluded", 0)
-                occlusion_counts[occlusion] += 1
-                total_objects += 1
-        
-        # KITTI occlusion level descriptions
-        occlusion_descriptions = {
-            0: "fully visible",
-            1: "partially occluded", 
-            2: "heavily occluded",
-            3: "unknown/completely blocked"
-        }
-        
-        stats = {
-            "total_objects": total_objects,
-            "total_images": len(self.image_ids),
-            "occlusion_distribution": {
-                level: {
-                    "count": occlusion_counts.get(level, 0),
-                    "percentage": occlusion_counts.get(level, 0) / total_objects * 100 if total_objects > 0 else 0,
-                    "description": occlusion_descriptions.get(level, "unknown")
-                }
-                for level in range(4)
-            },
-            "filter_config": {
-                "filter_occluded": self.filter_occluded,
-                "max_occlusion_level": self.max_occlusion_level
-            }
-        }
-        
-        if self.filter_occluded:
-            # Calculate what would be filtered
-            excluded_count = sum(
-                occlusion_counts.get(level, 0) 
-                for level in range(self.max_occlusion_level + 1, 4)
-            )
-            stats["objects_after_filtering"] = total_objects - excluded_count
-            stats["objects_excluded"] = excluded_count
-            stats["exclusion_percentage"] = excluded_count / total_objects * 100 if total_objects > 0 else 0
-        
-        return stats
-
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """Get item using BaseDataset's transform pipeline.
 

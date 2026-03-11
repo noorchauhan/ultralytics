@@ -527,7 +527,3 @@ def create_dense_alignment_optimized(config: dict) -> Optional[DenseAlignmentOpt
         patch_size=config.get("patch_size", 7),
         method=config.get("method", "ncc"),
     )
-
-
-# Compatibility alias - maintain same API
-DenseAlignment = DenseAlignmentOptimized
