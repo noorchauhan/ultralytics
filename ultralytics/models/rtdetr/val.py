@@ -133,25 +133,25 @@ class RTDETRValidator(DetectionValidator):
         For further details on the attributes and methods, refer to the parent DetectionValidator class.
     """
 
-    def _maybe_normalize_input(self, img: torch.Tensor) -> torch.Tensor:
-        """Optionally apply DEIM-style mean/std normalization after /255 scaling."""
-        if not bool(self.args.rtdetr_input_normalize):
-            return img
-        if img.shape[1] != 3:
-            raise ValueError(f"rtdetr_input_normalize expects 3-channel input, got shape={tuple(img.shape)}.")
-        mean = (0.485, 0.456, 0.406)
-        std = (0.229, 0.224, 0.225)
-        mean_t = img.new_tensor(mean).view(1, 3, 1, 1)
-        std_t = img.new_tensor(std).view(1, 3, 1, 1)
-        return (img - mean_t) / std_t
+    @staticmethod
+    def _pop_batch_flag(batch: dict[str, Any], key: str) -> bool:
+        """Pop a boolean batch marker emitted by RT-DETR transforms."""
+        marker = batch.pop(key, None)
+        if isinstance(marker, torch.Tensor):
+            return bool(marker.view(-1)[0].item()) if marker.numel() else False
+        if isinstance(marker, (list, tuple)):
+            return bool(marker[0]) if marker else False
+        return bool(marker) if marker is not None else False
 
     def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
-        """Preprocess validation batch and optionally apply RT-DETR mean/std normalization."""
+        """Preprocess validation batch."""
+        already_scaled = self._pop_batch_flag(batch, "img_scaled")
         for k, v in batch.items():
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
-        batch["img"] = (batch["img"].half() if self.args.half else batch["img"].float()) / 255
-        batch["img"] = self._maybe_normalize_input(batch["img"])
+        batch["img"] = batch["img"].half() if self.args.half else batch["img"].float()
+        if not already_scaled:
+            batch["img"] = batch["img"] / 255
         return batch
 
     def build_dataset(self, img_path, mode="val", batch=None):

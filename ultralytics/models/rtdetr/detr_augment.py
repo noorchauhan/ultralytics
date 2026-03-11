@@ -49,8 +49,12 @@ class _RTDETRToTvTensors:
 
 
 class _RTDETRFromTvTensors:
+    def __init__(self, scale_float: bool = False, normalize: bool = False) -> None:
+        self.scale_float = bool(scale_float)
+        self.normalize = bool(normalize)
+
     @staticmethod
-    def _to_numpy_image(image: Any) -> np.ndarray:
+    def _to_numpy_image_default(image: Any) -> np.ndarray:
         if isinstance(image, torch.Tensor):
             img = image.detach().cpu()
             if img.ndim == 3:
@@ -64,12 +68,37 @@ class _RTDETRFromTvTensors:
             img = img.round().astype(np.uint8)
         return img
 
+    @staticmethod
+    def _to_numpy_image_scaled(image: Any) -> np.ndarray:
+        if isinstance(image, torch.Tensor):
+            img = image.detach().cpu()
+            if img.ndim == 3:
+                img = img.permute(1, 2, 0)
+            img = img.numpy()
+        else:
+            img = np.asarray(image)
+        img = img.astype(np.float32, copy=False)
+        if img.size and img.max() > 1.0:
+            img = img / 255.0
+        return img
+
+    @staticmethod
+    def _normalize_image(img: np.ndarray) -> np.ndarray:
+        mean = np.array((0.485, 0.456, 0.406), dtype=np.float32)
+        std = np.array((0.229, 0.224, 0.225), dtype=np.float32)
+        return (img - mean) / std
+
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         image = labels.pop("image")
         boxes_t = labels.pop("boxes", None)
         labels_t = labels.pop("labels", None)
 
-        img_np = self._to_numpy_image(image)
+        if self.scale_float:
+            img_np = self._to_numpy_image_scaled(image)
+        else:
+            img_np = self._to_numpy_image_default(image)
+        if self.scale_float and self.normalize:
+            img_np = self._normalize_image(img_np)
         if img_np.ndim == 3 and img_np.shape[2] == 3:
             img_np = img_np[..., ::-1]  # RGB -> BGR
 
@@ -86,6 +115,7 @@ class _RTDETRFromTvTensors:
         labels["img"] = img_np
         labels["instances"] = Instances(bboxes=bboxes, bbox_format="xyxy", normalized=False)
         labels["cls"] = cls_out
+        labels["img_scaled"] = self.scale_float
         # Keep a stable key set across mosaic/non-mosaic branches for downstream collate_fn.
         shape = tuple(img_np.shape[:2])
         labels.setdefault("im_file", "")
@@ -150,6 +180,7 @@ class _RTDETRDEIMPolicy:
         fliplr: float,
         policy_epochs: tuple[int, int, int],
         mosaic_prob: float,
+        normalize_input: bool = False,
         mosaic_use_cache: bool = False,
         mosaic_max_cached_images: int = 50,
         mosaic_random_pop: bool = True,
@@ -173,7 +204,7 @@ class _RTDETRDEIMPolicy:
         self.flip = T.RandomHorizontalFlip(p=fliplr)
         self.resize = T.Resize(size=[imgsz, imgsz])
         self.sanitize2 = T.SanitizeBoundingBoxes(min_size=1)
-        self.from_tv = _RTDETRFromTvTensors()
+        self.from_tv = _RTDETRFromTvTensors(scale_float=True, normalize=normalize_input)
 
         self.policy_epochs = policy_epochs
         self.mosaic_prob = mosaic_prob
@@ -428,6 +459,7 @@ def rtdetr_deim_transforms(
     if not hasattr(hyp, "fliplr"):
         raise AttributeError("rtdetr_deim_transforms requires 'fliplr' in hyp.")
     fliplr = float(hyp.fliplr)
+    normalize_input = bool(hyp.rtdetr_input_normalize)
     mosaic_use_cache = bool(hyp.mosaic_use_cache)
     mosaic_max_cached_images = 50
     mosaic_random_pop = True
@@ -437,6 +469,7 @@ def rtdetr_deim_transforms(
         fliplr=fliplr,
         policy_epochs=policy_epochs,
         mosaic_prob=float(mosaic_prob),
+        normalize_input=normalize_input,
         mosaic_use_cache=mosaic_use_cache,
         mosaic_max_cached_images=mosaic_max_cached_images,
         mosaic_random_pop=mosaic_random_pop,
