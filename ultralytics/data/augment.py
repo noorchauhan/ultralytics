@@ -1185,6 +1185,14 @@ class RandomPerspective:
         xy = xy[:, :2] / xy[:, 2:3]
         segments = xy.reshape(n, -1, 2)
         bboxes = np.stack([segment2box(xy, self.size[0], self.size[1]) for xy in segments], 0)
+        left_intersect = (segments[..., 0] <= 0).any(1) & (segments[..., 0] > 0).any(1)
+        top_intersect = (segments[..., 1] <= 0).any(1) & (segments[..., 1] > 0).any(1)
+        right_intersect = (segments[..., 0] >= self.size[0]).any(1) & (segments[..., 0] < self.size[0]).any(1)
+        bottom_intersect = (segments[..., 1] >= self.size[1]).any(1) & (segments[..., 1] < self.size[1]).any(1)
+        bboxes[left_intersect, 0] = 0
+        bboxes[top_intersect, 1] = 0
+        bboxes[right_intersect, 2] = self.size[0]
+        bboxes[bottom_intersect, 3] = self.size[1]
         segments[..., 0] = segments[..., 0].clip(bboxes[:, 0:1], bboxes[:, 2:3])
         segments[..., 1] = segments[..., 1].clip(bboxes[:, 1:2], bboxes[:, 3:4])
         return bboxes, segments
