@@ -194,6 +194,7 @@ class RTDETRTrainer(DetectionTrainer):
 
         use_muon = name == "MuSGD"
         backbone_len = self.backbone_len
+        sta_exclusion_enabled = bool(self.args.sta_exclusion)
         sta_tokens = {
             "sta",
             "spm",
@@ -221,7 +222,7 @@ class RTDETRTrainer(DetectionTrainer):
                 if len(parts) > 1 and parts[0] == "model" and parts[1].isdigit():
                     layer_idx = int(parts[1])
                     is_backbone = layer_idx < backbone_len
-                    if is_backbone and is_sta_param:
+                    if sta_exclusion_enabled and is_backbone and is_sta_param:
                         # Match requested behavior: backbone_lr_ratio applies to backbone except STA branch.
                         is_backbone = False
                         sta_excluded += 1
@@ -267,7 +268,8 @@ class RTDETRTrainer(DetectionTrainer):
 
         backbone_lr = lr * backbone_lr_ratio
         LOGGER.info(
-            f"{colorstr('optimizer:')} backbone low-LR excludes STA params: {sta_excluded} parameter tensors "
+            f"{colorstr('optimizer:')} backbone low-LR STA exclusion={sta_exclusion_enabled}: "
+            f"{sta_excluded} parameter tensors remapped to head LR "
             f"(backbone_lr_ratio={backbone_lr_ratio})"
         )
 
