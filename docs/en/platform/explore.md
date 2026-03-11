@@ -323,7 +323,3 @@ Featured content is selected based on:
 - Clear documentation
 
 There's no application process - just create great content!
-
-### Can I monetize public content?
-
-Currently, the platform doesn't support monetization. This may be added in future updates.
