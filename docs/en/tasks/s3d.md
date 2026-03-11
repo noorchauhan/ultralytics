@@ -12,7 +12,7 @@ The output of a stereo 3D detection model includes a 3D center location `[x, y, 
 
 !!! tip
 
-    YOLO26 _stereo 3D detection_ models use the `-stereo3ddet-siamese` suffix, i.e., `yolo26s-stereo3ddet-siamese.pt`. These models are trained on the [KITTI Stereo](../datasets/detect/kitti-stereo.md) dataset and use a siamese backbone that processes left and right images through shared weights.
+    YOLO26 _stereo 3D detection_ models use the `-s3d` suffix, i.e., `yolo26s-s3d.pt`. These models are trained on the [KITTI Stereo](../datasets/detect/kitti-stereo.md) dataset and use a siamese backbone that processes left and right images through shared weights.
 
     The siamese architecture splits standard 3-channel input into separate left/right streams, enabling 100% compatibility with pretrained YOLO26 backbone weights. A stereo cost volume module fuses the two views to estimate depth, while auxiliary prediction heads output 3D dimensions, orientation, and lateral distance.
 
@@ -22,10 +22,10 @@ Ultralytics YOLO26 pretrained Stereo 3D Detection models are shown here. All mod
 
 | Model | Params | AP3D@0.5 (Mod) | AP3D@0.7 (Mod) |
 |-------|--------|----------------|----------------|
-| [YOLO26n-stereo3ddet-siamese](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-stereo3ddet-siamese.yaml) | 3.6M | 48.1% | 29.9% |
-| [YOLO26s-stereo3ddet-siamese](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-stereo3ddet-siamese.yaml) | 11.6M | 48.3% | 29.4% |
-| [YOLO26m-stereo3ddet-siamese](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-stereo3ddet-siamese.yaml) | 26.8M | 49.0% | 29.1% |
-| [YOLO26l-stereo3ddet-siamese](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-stereo3ddet-siamese.yaml) | 31.2M | 50.9% | 31.6% |
+| [YOLO26n-s3d](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-s3d.yaml) | 3.6M | 48.1% | 29.9% |
+| [YOLO26s-s3d](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-s3d.yaml) | 11.6M | 48.3% | 29.4% |
+| [YOLO26m-s3d](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-s3d.yaml) | 26.8M | 49.0% | 29.1% |
+| [YOLO26l-s3d](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-s3d.yaml) | 31.2M | 50.9% | 31.6% |
 
 - **AP3D** values are KITTI R40 Moderate mean across Car/Pedestrian/Cyclist classes.
 - All models trained with `imgsz=[384, 1248]`, SGD optimizer, cosine LR schedule for 1000 epochs.
@@ -42,9 +42,9 @@ Train a YOLO26 stereo 3D detection model on the KITTI Stereo dataset.
         from ultralytics import YOLO
 
         # Load a model
-        model = YOLO("yolo26s-stereo3ddet-siamese.yaml")  # build a new model from YAML
-        model = YOLO("yolo26s-stereo3ddet-siamese.pt")  # load a pretrained model (recommended)
-        model = YOLO("yolo26s-stereo3ddet-siamese.yaml").load("yolo26s-stereo3ddet-siamese.pt")  # build and transfer weights
+        model = YOLO("yolo26s-s3d.yaml")  # build a new model from YAML
+        model = YOLO("yolo26s-s3d.pt")  # load a pretrained model (recommended)
+        model = YOLO("yolo26s-s3d.yaml").load("yolo26s-s3d.pt")  # build and transfer weights
 
         # Train the model (quick-start with mini dataset)
         results = model.train(data="kitti-stereo8.yaml", epochs=5, imgsz=[384, 1248])
@@ -57,15 +57,15 @@ Train a YOLO26 stereo 3D detection model on the KITTI Stereo dataset.
 
         ```bash
         # Quick-start with mini dataset (auto-downloads ~12 MB)
-        yolo stereo3ddet train data=kitti-stereo8.yaml model=yolo26s-stereo3ddet-siamese.yaml epochs=5 imgsz=384,1248
+        yolo s3d train data=kitti-stereo8.yaml model=yolo26s-s3d.yaml epochs=5 imgsz=384,1248
 
         # Full training on KITTI Stereo dataset (~12 GB download)
-        yolo stereo3ddet train data=kitti-stereo.yaml model=yolo26s-stereo3ddet-siamese.pt epochs=1000 imgsz=384,1248 optimizer=SGD lr0=0.01 cos_lr=True
+        yolo s3d train data=kitti-stereo.yaml model=yolo26s-s3d.pt epochs=1000 imgsz=384,1248 optimizer=SGD lr0=0.01 cos_lr=True
         ```
 
 ### Dataset format
 
-The KITTI Stereo dataset format uses 26-value labels per object containing left/right 2D bounding boxes, 3D dimensions, 3D location, rotation, keypoints, and truncation/occlusion metadata. See the [KITTI Stereo Dataset Guide](../datasets/detect/kitti-stereo.md) for full format details.
+The KITTI Stereo dataset format uses 18-value labels per object containing left/right 2D bounding boxes, 3D dimensions, 3D location, rotation, and truncation/occlusion metadata. See the [KITTI Stereo Dataset Guide](../datasets/detect/kitti-stereo.md) for full format details.
 
 Training requires calibrated stereo pairs (left + right images) with a calibration file per frame providing the projection matrices needed for depth computation.
 
@@ -81,7 +81,7 @@ Validate a trained stereo 3D detection model using KITTI R40 evaluation protocol
         from ultralytics import YOLO
 
         # Load a model
-        model = YOLO("yolo26s-stereo3ddet-siamese.pt")  # load a pretrained model
+        model = YOLO("yolo26s-s3d.pt")  # load a pretrained model
         model = YOLO("path/to/best.pt")  # load a custom model
 
         # Validate the model
@@ -94,8 +94,8 @@ Validate a trained stereo 3D detection model using KITTI R40 evaluation protocol
     === "CLI"
 
         ```bash
-        yolo stereo3ddet val model=yolo26s-stereo3ddet-siamese.pt  # val pretrained model
-        yolo stereo3ddet val model=path/to/best.pt  # val custom model
+        yolo s3d val model=yolo26s-s3d.pt  # val pretrained model
+        yolo s3d val model=path/to/best.pt  # val custom model
         ```
 
 The KITTI R40 evaluation uses 40-point interpolated precision-recall curves with three difficulty levels:
@@ -118,7 +118,7 @@ Use a trained stereo 3D detection model to predict 3D bounding boxes from stereo
         from ultralytics import YOLO
 
         # Load a model
-        model = YOLO("yolo26s-stereo3ddet-siamese.pt")  # load a pretrained model
+        model = YOLO("yolo26s-s3d.pt")  # load a pretrained model
         model = YOLO("path/to/best.pt")  # load a custom model
 
         # Predict with a stereo pair (left, right)
@@ -135,7 +135,7 @@ Use a trained stereo 3D detection model to predict 3D bounding boxes from stereo
     === "CLI"
 
         ```bash
-        yolo stereo3ddet predict model=yolo26s-stereo3ddet-siamese.pt source='left.jpg,right.jpg'
+        yolo s3d predict model=yolo26s-s3d.pt source='left.jpg,right.jpg'
         ```
 
 Stereo prediction requires paired left/right images. In Python, pass a list of `(left_path, right_path)` tuples. In the CLI, use comma-separated paths.
@@ -147,7 +147,7 @@ Stereo 3D detection benefits from multi-class training data to prevent depth fea
 !!! example
 
     ```bash
-    python -m ultralytics.models.yolo.stereo3ddet.auto_label --data kitti-stereo.yaml
+    python -m ultralytics.models.yolo.s3d.auto_label --data kitti-stereo.yaml
     ```
 
 The auto-labeler:
@@ -155,7 +155,7 @@ The auto-labeler:
 1. Runs a YOLO 2D detector on both left and right images
 2. Matches detections across views by class, scanline proximity, and size
 3. Triangulates depth via `z = fx * baseline / disparity` for stereo-matched pairs
-4. Writes 26-value pseudo-labels appended to existing label files
+4. Writes 18-value pseudo-labels appended to existing label files
 
 Pseudo-labels are marked with occlusion values to distinguish them: `occ=10` for stereo-matched labels (triangulated depth), `occ=20` for mono-only labels (estimated depth). Configure the pseudo-label loss weighting in your dataset YAML:
 
@@ -174,12 +174,12 @@ Standard object detection produces 2D bounding boxes `[x, y, width, height]` in 
 
 ### How do I train a stereo 3D detection model on a custom dataset?
 
-Your custom dataset needs calibrated stereo image pairs (left + right cameras), calibration files with projection matrices, and 26-value labels per object. Follow the [KITTI Stereo format](../datasets/detect/kitti-stereo.md), then train:
+Your custom dataset needs calibrated stereo image pairs (left + right cameras), calibration files with projection matrices, and 18-value labels per object. Follow the [KITTI Stereo format](../datasets/detect/kitti-stereo.md), then train:
 
 ```python
 from ultralytics import YOLO
 
-model = YOLO("yolo26s-stereo3ddet-siamese.yaml")
+model = YOLO("yolo26s-s3d.yaml")
 results = model.train(data="your-stereo-dataset.yaml", epochs=1000, imgsz=[384, 1248], optimizer="SGD", cos_lr=True)
 ```
 

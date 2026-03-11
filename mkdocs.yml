@@ -235,6 +235,7 @@ nav:
       - Classify: tasks/classify.md
       - Pose: tasks/pose.md
       - OBB: tasks/obb.md
+      - Stereo 3D: tasks/s3d.md
   - Models:
       - models/index.md
       - YOLOv3: models/yolov3.md
@@ -445,6 +446,7 @@ nav:
           - GlobalWheat2020: datasets/detect/globalwheat2020.md
           - HomeObjects-3K: datasets/detect/homeobjects-3k.md
           - KITTI: datasets/detect/kitti.md
+          - KITTI Stereo: datasets/detect/kitti-stereo.md
           - LVIS: datasets/detect/lvis.md
           - Medical-pills: datasets/detect/medical-pills.md
           - Objects365: datasets/detect/objects365.md

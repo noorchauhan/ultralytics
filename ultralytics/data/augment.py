@@ -2128,8 +2128,6 @@ class Format:
             )
 
             # Optional metadata passthrough
-            if "vertices" in labels:
-                labels["vertices"] = torch.from_numpy(labels["vertices"]) if nl else torch.zeros((nl, 4, 2))
             if "truncated" in labels:
                 labels["truncated"] = torch.from_numpy(labels["truncated"]) if nl else torch.zeros(nl)
             if "occluded" in labels:

@@ -4,8 +4,8 @@
 """
 KITTI to YOLO 3D Stereo Format Converter
 
-This script converts KITTI dataset to YOLO 3D stereo format with 26 values per object:
-class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y kp1_x kp1_y kp2_x kp2_y kp3_x kp3_y kp4_x kp4_y truncated occluded
+This script converts KITTI dataset to YOLO 3D stereo format with 18 values per object:
+class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y truncated occluded
 
 All coordinates normalized to [0, 1], dimensions in meters, rot_y in radians.
 Uses 3DOP split strategy: training set split into train (0-3711) and val (3712+).
@@ -174,54 +174,6 @@ class KITTIToYOLO3D:
             "P2": P2,
             "P3": P3,
         }
-
-    def compute_bottom_vertices(self, X, Y, Z, h, w, l, ry, calib):
-        """
-        Compute 4 bottom vertices of 3D box projected to left image.
-
-        Args:
-            X, Y, Z: 3D location (bottom center) in camera coords
-            h, w, l: 3D dimensions
-            ry: rotation around Y axis
-            calib: calibration dict
-
-        Returns:
-            4x2 array of [u, v] coordinates
-        """
-        # Define 4 bottom corners in object coordinate system
-        # Y=0 because KITTI location is at bottom center
-        corners_3d_obj = np.array(
-            [
-                [-l / 2, 0, -w / 2],  # rear-left
-                [l / 2, 0, -w / 2],  # front-left
-                [l / 2, 0, w / 2],  # front-right
-                [-l / 2, 0, w / 2],  # rear-right
-            ]
-        )
-
-        # Rotation matrix around Y axis
-        cos_ry = np.cos(ry)
-        sin_ry = np.sin(ry)
-        R = np.array([[cos_ry, 0, sin_ry], [0, 1, 0], [-sin_ry, 0, cos_ry]])
-
-        # Rotate corners
-        corners_3d_rotated = corners_3d_obj @ R.T
-
-        # Translate to camera coordinates
-        corners_3d_cam = corners_3d_rotated + np.array([X, Y, Z])
-
-        # Project to image plane
-        corners_2d = []
-        for corner in corners_3d_cam:
-            if corner[2] <= 0:  # Behind camera
-                corners_2d.append([0, 0])
-                continue
-
-            u = calib["fx"] * (corner[0] / corner[2]) + calib["cx"]
-            v = calib["fy"] * (corner[1] / corner[2]) + calib["cy"]
-            corners_2d.append([u, v])
-
-        return np.array(corners_2d)
 
     def compute_right_box(self, X, Y, Z, h, w, l, ry, calib, left_box_2d):
         """
@@ -394,22 +346,9 @@ class KITTIToYOLO3D:
                 width_r_norm = np.clip(width_r_norm, 0, 1)
                 height_r_norm = np.clip(height_r_norm, 0, 1)
 
-            # ===== Bottom 4 Vertices (normalized) =====
-            vertices_2d = self.compute_bottom_vertices(X, Y, Z, h, w, l, rotation_y, calib)
-
-            # Normalize vertices; for truncated objects do not clip so true projection is stored
-            vertices_norm = []
-            for v in vertices_2d:
-                v_x = v[0] / self.img_width
-                v_y = v[1] / self.img_height
-                if truncated <= 1e-6:
-                    v_x = np.clip(v_x, 0, 1)
-                    v_y = np.clip(v_y, 0, 1)
-                vertices_norm.extend([v_x, v_y])
-
             # ===== Build YOLO label line =====
-            # Format: 26 values total
-            # class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y kp1_x kp1_y kp2_x kp2_y kp3_x kp3_y kp4_x kp4_y truncated occluded
+            # Format: 18 values total
+            # class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y truncated occluded
             label = f"{class_id} "
             # Left box (4 values)
             label += f"{center_x_l_norm:.6f} {center_y_l_norm:.6f} "
@@ -423,10 +362,8 @@ class KITTIToYOLO3D:
             label += f"{X:.4f} {Y:.4f} {Z:.4f} "
             # Rotation around Y-axis (1 value)
             label += f"{rotation_y:.4f} "
-            # Bottom 4 vertices (8 values)
-            label += " ".join([f"{v:.6f}" for v in vertices_norm])
             # Truncation and occlusion (2 values)
-            label += f" {truncated:.6f} {occluded}"
+            label += f"{truncated:.6f} {occluded}"
 
             yolo_labels.append(label)
 

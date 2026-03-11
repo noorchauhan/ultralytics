@@ -1,6 +1,6 @@
 # Ultralytics AGPL-3.0 License - https://ultralytics.com/license
 
-"""Unified preprocessing and postprocessing utilities for stereo3ddet.
+"""Unified preprocessing and postprocessing utilities for s3d.
 
 This module provides shared preprocessing and postprocessing functions used by
 the trainer, validator, and predictor to ensure consistent behavior across
@@ -107,7 +107,7 @@ def decode_stereo3d_outputs(
     std_dims: dict[int, tuple[float, float, float]] | None = None,
     class_names: dict[int, str] | None = None,
 ) -> list[Box3D] | list[list[Box3D]]:
-    """Decode stereo3ddet outputs to Box3D objects.
+    """Decode s3d outputs to Box3D objects.
 
     Uses Detect inference output for candidate 2D boxes and class scores, then samples
     the auxiliary stereo/3D maps at the kept P3 indices to estimate depth/dimensions/orientation.
@@ -147,13 +147,15 @@ def decode_stereo3d_outputs(
         return_idxs=True,
     )
 
-    # Validate required parameters
+    # Default KITTI dimensions (H, W, L) when not provided by dataset config
+    _DEFAULT_DIMS = {0: (1.53, 1.63, 3.88), 1: (1.73, 0.60, 0.80), 2: (1.73, 0.60, 1.76)}
+    _DEFAULT_STD = {0: (0.15, 0.10, 0.42), 1: (0.12, 0.08, 0.20), 2: (0.15, 0.10, 0.25)}
     if mean_dims is None:
-        raise ValueError("mean_dims must be provided by dataset configuration")
+        mean_dims = _DEFAULT_DIMS
     if std_dims is None:
-        raise ValueError("std_dims must be provided by dataset configuration")
+        std_dims = _DEFAULT_STD
     if class_names is None:
-        raise ValueError("class_names must be provided by dataset configuration")
+        class_names = {0: "Object"}
 
     # Original shapes fallback
     if ori_shapes is None or len(ori_shapes) == 0:
@@ -521,7 +523,7 @@ def _apply_geometric_construction(
     Returns:
         Results with geometrically refined 3D estimates.
     """
-    from ultralytics.models.yolo.stereo3ddet.geometric import solve_geometric_batch
+    from ultralytics.models.yolo.s3d.geometric import solve_geometric_batch
 
     if not config.get("enabled", True):
         return results
@@ -631,10 +633,10 @@ def _apply_dense_alignment(
     Returns:
         Results with refined depth values.
     """
-    from ultralytics.models.yolo.stereo3ddet.dense_align_optimized import (
+    from ultralytics.models.yolo.s3d.dense_align_optimized import (
         create_dense_alignment_optimized,
     )
-    from ultralytics.models.yolo.stereo3ddet.occlusion import (
+    from ultralytics.models.yolo.s3d.occlusion import (
         classify_occlusion,
         should_skip_dense_alignment,
     )

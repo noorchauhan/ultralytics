@@ -11,7 +11,7 @@ from torch.utils.data import Dataset
 from ultralytics.data.augment import Compose, Format, LetterBox
 from ultralytics.data.base import BaseDataset
 from ultralytics.data.utils import IMG_FORMATS, load_dataset_cache_file, save_dataset_cache_file
-from ultralytics.models.yolo.stereo3ddet.augment import (
+from ultralytics.models.yolo.s3d.augment import (
     StereoCalibration,
     StereoHFlip,
     StereoHSV,
@@ -488,7 +488,6 @@ class Stereo3DDetDataset(BaseDataset):
             rotation_y = np.zeros((0,), dtype=np.float32)
             truncated = np.zeros((0,), dtype=np.float32)
             occluded = np.zeros((0,), dtype=np.int32)
-            vertices = np.zeros((0, 4, 2), dtype=np.float32)
         else:
             # Extract left boxes (normalized xywh) and class IDs
             bboxes = np.array([
@@ -521,21 +520,6 @@ class Stereo3DDetDataset(BaseDataset):
             # Extract additional metadata
             truncated = np.array([obj.get("truncated", 0.0) for obj in label_list], dtype=np.float32)
             occluded = np.array([obj.get("occluded", 0) for obj in label_list], dtype=np.int32)
-            
-            # Extract vertices if available
-            vertices_list = []
-            for obj in label_list:
-                if "vertices" in obj and obj["vertices"]:
-                    v = obj["vertices"]
-                    vertices_list.append([
-                        [v.get("v1", [0, 0])[0], v.get("v1", [0, 0])[1]],
-                        [v.get("v2", [0, 0])[0], v.get("v2", [0, 0])[1]],
-                        [v.get("v3", [0, 0])[0], v.get("v3", [0, 0])[1]],
-                        [v.get("v4", [0, 0])[0], v.get("v4", [0, 0])[1]],
-                    ])
-                else:
-                    vertices_list.append([[0, 0], [0, 0], [0, 0], [0, 0]])
-            vertices = np.array(vertices_list, dtype=np.float32)
         
         # Create Instances with 3D data included (normalized xywh format)
         label["instances"] = Instances(
@@ -551,7 +535,6 @@ class Stereo3DDetDataset(BaseDataset):
         # Store additional metadata that's not part of Instances
         label["truncated"] = truncated
         label["occluded"] = occluded
-        label["vertices"] = vertices
 
         return label
 
@@ -631,7 +614,7 @@ class Stereo3DDetDataset(BaseDataset):
         return calib_dict
 
     def _parse_labels(self, label_file: Path) -> list[dict[str, Any]]:
-        """Parse YOLO 3D label file (26-value format)."""
+        """Parse YOLO 3D label file (18-value format, with backward-compat for legacy 26-value)."""
         if not label_file.exists():
             raise FileNotFoundError(f"Label file not found: {label_file}")
 
@@ -642,8 +625,15 @@ class Stereo3DDetDataset(BaseDataset):
                 if not line:
                     continue
                 parts = line.split()
-                if len(parts) != 26:
-                    LOGGER.warning(f"Invalid label format in {label_file}: expected 26 values, got {len(parts)}")
+                n = len(parts)
+                if n == 18:
+                    # New 18-value format: no vertices
+                    trunc_idx, occ_idx = 16, 17
+                elif n == 26:
+                    # Legacy 26-value format: skip vertex indices 16-23
+                    trunc_idx, occ_idx = 24, 25
+                else:
+                    LOGGER.warning(f"Invalid label format in {label_file}: expected 18 or 26 values, got {n}")
                     continue
 
                 values = [float(x) for x in parts]
@@ -668,15 +658,9 @@ class Stereo3DDetDataset(BaseDataset):
                         "height": values[11],
                     },
                     "rotation_y": values[15],
-                    "vertices": {
-                        "v1": [values[16], values[17]],
-                        "v2": [values[18], values[19]],
-                        "v3": [values[20], values[21]],
-                        "v4": [values[22], values[23]],
-                    },
                     "location_3d": {"x": values[12], "y": values[13], "z": values[14]},
-                    "truncated": float(values[24]),
-                    "occluded": int(values[25]),
+                    "truncated": float(values[trunc_idx]),
+                    "occluded": int(values[occ_idx]),
                 }
 
                 # Keep existing assertions for early data-quality feedback
@@ -792,7 +776,7 @@ class Stereo3DDetDataset(BaseDataset):
         ori_shapes = [b.get("ori_shape", b.get("resized_shape", (0, 0))) for b in batch]
 
         # ---------------------------------------------------------------------
-        # YOLO11-style detection targets (P3-only first)
+        # YOLO26-style detection targets (P3-only first)
         # ---------------------------------------------------------------------
         # Produce standard keys used by TaskAlignedAssigner-based losses:
         # - batch_idx: [N, 1]

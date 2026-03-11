@@ -339,8 +339,8 @@ class BaseTrainer:
 
         # Check imgsz
         gs = max(int(self.model.stride.max() if hasattr(self.model, "stride") else 32), 32)  # grid size (max stride)
-        # NOTE: allow rectangular train imgsz=[h,w] for stereo3ddet (letterbox already supports (H,W))
-        if getattr(self.args, "task", None) == "stereo3ddet":
+        # NOTE: allow rectangular train imgsz=[h,w] for s3d (letterbox already supports (H,W))
+        if getattr(self.args, "task", None) == "s3d":
             self.args.imgsz = check_imgsz(self.args.imgsz, stride=gs, floor=gs, min_dim=2, max_dim=2)
         else:
             self.args.imgsz = check_imgsz(self.args.imgsz, stride=gs, floor=gs, max_dim=1)
@@ -704,7 +704,7 @@ class BaseTrainer:
                 "segment",
                 "pose",
                 "obb",
-                "stereo3ddet",
+                "s3d",
             }:
                 data = check_det_dataset(self.args.data)
                 if "yaml_file" in data:

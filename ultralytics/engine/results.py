@@ -1583,12 +1583,16 @@ class OBB(BaseTensor):
         )
 
 
-class Boxes3D:
+class Boxes3D(SimpleClass):
     """A class for managing and manipulating 3D bounding boxes.
 
     This class provides comprehensive functionality for handling 3D bounding boxes from stereo vision detection,
     including their 3D positions, dimensions, orientations, confidence scores, and optional 2D bounding boxes.
     It supports various formats and offers methods for easy manipulation and conversion.
+
+    Unlike other result types (Boxes, Masks, etc.) that wrap tensors via BaseTensor, Boxes3D stores a list of
+    Box3D dataclass objects. The cpu/numpy/cuda/to methods are no-ops that return a shallow copy, provided for
+    API compatibility with Results._apply().
 
     Attributes:
         data (list[Box3D]): List of 3D bounding box objects.
@@ -1606,10 +1610,10 @@ class Boxes3D:
         occluded: Occlusion levels for all boxes as numpy array [N, 1] (optional).
 
     Methods:
-        cpu: Return a copy of the object with all boxes (no-op for lists).
-        numpy: Return a copy of the object with all boxes (no-op for lists).
-        cuda: Return a copy of the object with all boxes (no-op for lists).
-        to: Return a copy of the object with all boxes (no-op for lists).
+        cpu: Return a shallow copy (no-op, data is not on GPU).
+        numpy: Return a shallow copy (no-op, data is already Python objects).
+        cuda: Return a shallow copy (no-op, data is not a tensor).
+        to: Return a shallow copy (no-op, data is not a tensor).
         tolist: Return the list of Box3D objects.
 
     Examples:
@@ -1864,54 +1868,29 @@ class Boxes3D:
             return np.empty((0,), dtype=np.float32)
         return np.array(occ_list, dtype=np.float32)
 
-    def cpu(self):
-        """Return a copy of the Boxes3D object (no-op for lists).
+    def _copy(self):
+        """Return a shallow copy of this Boxes3D object.
+
+        Since Boxes3D stores plain Python objects (Box3D dataclasses), not tensors,
+        device-transfer operations are no-ops. This single helper backs cpu/numpy/cuda/to.
 
         Returns:
-            (Boxes3D): A new Boxes3D object with the same data (no device change).
-
-        Examples:
-            >>> boxes = Boxes3D([Box3D(...)], orig_shape=(375, 1242))
-            >>> boxes_cpu = boxes.cpu()
+            (Boxes3D): A new Boxes3D object with a copied list of the same Box3D objects.
         """
-        return self if isinstance(self.data, np.ndarray) else self.__class__(self.data.copy(), self.orig_shape)
+        return self.__class__(self.data.copy(), self.orig_shape)
+
+    def cpu(self):
+        """Return a copy of the Boxes3D object (no-op, data is not on GPU)."""
+        return self._copy()
 
     def numpy(self):
-        """Return a copy of the Boxes3D object (no-op for lists).
-
-        Returns:
-            (Boxes3D): A new Boxes3D object with the same data (no conversion needed).
-
-        Examples:
-            >>> boxes = Boxes3D([Box3D(...)], orig_shape=(375, 1242))
-            >>> boxes_np = boxes.numpy()
-        """
-        return self if isinstance(self.data, np.ndarray) else self.__class__(self.data.copy(), self.orig_shape)
+        """Return a copy of the Boxes3D object (no-op, data is already Python objects)."""
+        return self._copy()
 
     def cuda(self):
-        """Return a copy of the Boxes3D object (no-op for lists).
-
-        Returns:
-            (Boxes3D): A new Boxes3D object with the same data (no device change).
-
-        Examples:
-            >>> boxes = Boxes3D([Box3D(...)], orig_shape=(375, 1242))
-            >>> boxes_cuda = boxes.cuda()
-        """
-        return self.__class__(self.data.copy(), self.orig_shape)
+        """Return a copy of the Boxes3D object (no-op, data is not a tensor)."""
+        return self._copy()
 
     def to(self, *args, **kwargs):
-        """Return a copy of the Boxes3D object (no-op for lists).
-
-        Args:
-            *args: Variable length argument list (ignored for lists).
-            **kwargs: Arbitrary keyword arguments (ignored for lists).
-
-        Returns:
-            (Boxes3D): A new Boxes3D object with the same data.
-
-        Examples:
-            >>> boxes = Boxes3D([Box3D(...)], orig_shape=(375, 1242))
-            >>> boxes_new = boxes.to("cpu")
-        """
-        return self.__class__(self.data.copy(), self.orig_shape)
+        """Return a copy of the Boxes3D object (no-op, data is not a tensor)."""
+        return self._copy()

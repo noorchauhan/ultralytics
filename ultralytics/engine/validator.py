@@ -122,8 +122,8 @@ class BaseValidator:
         (self.save_dir / "labels" if self.args.save_txt else self.save_dir).mkdir(parents=True, exist_ok=True)
         if self.args.conf is None:
             self.args.conf = 0.01 if self.args.task == "obb" else 0.001  # reduce OBB val memory usage
-        # NOTE: allow rectangular val imgsz=[h,w] for stereo3ddet
-        if getattr(self.args, "task", None) == "stereo3ddet":
+        # NOTE: allow rectangular val imgsz=[h,w] for s3d
+        if getattr(self.args, "task", None) == "s3d":
             self.args.imgsz = check_imgsz(self.args.imgsz, min_dim=2, max_dim=2)
         else:
             self.args.imgsz = check_imgsz(self.args.imgsz, max_dim=1)
@@ -175,10 +175,10 @@ class BaseValidator:
             self.device = model.device  # update device
             self.args.half = model.fp16  # update half
             stride, pt, jit = model.stride, model.pt, model.jit
-            imgsz = check_imgsz(self.args.imgsz, stride=stride, min_dim=2 if self.args.task == "stereo3ddet" else 1)
+            imgsz = check_imgsz(self.args.imgsz, stride=stride, min_dim=2 if self.args.task == "s3d" else 1)
             if not (pt or jit or getattr(model, "dynamic", False)):
                 self.args.batch = model.metadata.get("batch", 1)  # export.py models default to batch-size 1
-                if self.args.task == "stereo3ddet" and isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
+                if self.args.task == "s3d" and isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
                     LOGGER.info(
                         f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz[0]}, {imgsz[1]})"
                     )
@@ -186,8 +186,8 @@ class BaseValidator:
                     LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz}, {imgsz})")
 
             if str(self.args.data).rsplit(".", 1)[-1] in {"yaml", "yml"}:
-                # For stereo3ddet, use task-specific get_dataset() to handle stereo paths/metadata
-                if self.args.task == "stereo3ddet":
+                # For s3d, use task-specific get_dataset() to handle stereo paths/metadata
+                if self.args.task == "s3d":
                     if not (isinstance(self.data, dict) and self.data.get("channels") == 6):
                         self.data = self.get_dataset()
                 else:
@@ -207,7 +207,7 @@ class BaseValidator:
             model.eval()
             if self.args.compile:
                 model = attempt_compile(model, device=self.device)
-            if self.args.task == "stereo3ddet" and isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
+            if self.args.task == "s3d" and isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
                 model.warmup(imgsz=(1 if pt else self.args.batch, self.data["channels"], imgsz[0], imgsz[1]))  # warmup
             else:
                 model.warmup(imgsz=(1 if pt else self.args.batch, self.data["channels"], imgsz, imgsz))  # warmup

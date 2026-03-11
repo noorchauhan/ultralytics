@@ -67,7 +67,7 @@ def _deep_branch(in_ch: int, out_ch: int, hidden: int = 64) -> nn.Sequential:
     )
 
 
-class Stereo3DDetHeadYOLO11(Detect):
+class Stereo3DDetHead(Detect):
     """Multi-scale stereo 3D detection head (Pose-pattern).
 
     Receives P3/P4/P5 feature maps from FPN+PAN neck, plus optional cost volume

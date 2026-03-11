@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -11,19 +10,19 @@ import torch
 
 from ultralytics.data.stereo.box3d import Box3D
 from ultralytics.data.stereo.calib import CalibrationParameters
-from ultralytics.models.yolo.stereo3ddet.preprocess import (
+from ultralytics.models.yolo.s3d.preprocess import (
     preprocess_stereo_batch,
     compute_letterbox_params,
     decode_and_refine_predictions,
 )
-from ultralytics.models.yolo.stereo3ddet.metrics import (
+from ultralytics.models.yolo.s3d.metrics import (
     DIFFICULTY_EASY,
     DIFFICULTY_HARD,
     DIFFICULTY_MODERATE,
     Stereo3DDetMetrics,
     classify_difficulty,
 )
-from ultralytics.utils import LOGGER, RANK, YAML
+from ultralytics.utils import LOGGER, RANK
 from ultralytics.utils.metrics import DetMetrics, box_iou, compute_3d_iou
 from ultralytics.utils.plotting import plot_stereo3d_boxes
 
@@ -166,7 +165,7 @@ class Stereo3DDetValidator(BaseValidator):
             _callbacks: Callback functions.
         """
         super().__init__(dataloader, save_dir, args, _callbacks)
-        self.args.task = "stereo3ddet"
+        self.args.task = "s3d"
         self.iouv = torch.tensor([0.5, 0.7])  # IoU thresholds for AP3D
         self.niou = len(self.iouv)
         self.metrics = Stereo3DDetMetrics()
@@ -180,62 +179,39 @@ class Stereo3DDetValidator(BaseValidator):
         self.std_dims = None
 
     def get_dataset(self) -> dict[str, Any]:
-        """Parse stereo dataset YAML and return metadata for KITTIStereoDataset.
+        """Parse stereo dataset YAML and return metadata.
 
-        This overrides the base implementation to avoid the default YOLO detection dataset checks
-        and instead wire up paths/splits intended for the custom `KITTIStereoDataset` loader.
+        Uses check_det_dataset() for proper path resolution and automatic downloads,
+        then transforms the result into stereo descriptor format.
 
         Returns:
-            dict: Dataset dictionary with fields used by the validator and model.
+            dict: Dataset dictionary with stereo descriptor dicts for train/val splits.
         """
-        # Load YAML if a path is provided; accept dicts directly
-        data_cfg = self.args.data
-        if isinstance(data_cfg, (str, Path)):
-            from ultralytics.utils.checks import check_yaml
+        from ultralytics.data.utils import check_det_dataset
 
-            data_cfg = YAML.load(check_yaml(str(data_cfg)))
+        data_cfg = check_det_dataset(self.args.data, autodownload=True)
 
-        if not isinstance(data_cfg, dict):
-            raise RuntimeError("stereo3ddet: data must be a YAML path or dict")
-
-        channels = 6
-
-        # Root path and splits
-        root_path = data_cfg.get("path") or "."
-        root = Path(str(root_path)).resolve()
-        # Accept either directory-style train/val or txt; KITTIStereoDataset uses split names
+        root = Path(data_cfg["path"])
         train_split = data_cfg.get("train_split", "train")
         val_split = data_cfg.get("val_split", "val")
 
-        # Names/nc - must be provided by dataset configuration
         names = data_cfg.get("names")
         if names is None:
             raise ValueError("Dataset configuration must include 'names' mapping")
         nc = data_cfg.get("nc", len(names))
 
-        # Mean dimensions per class (for dimension decoding)
-        mean_dims = data_cfg.get("mean_dims")
-
-        # Standard deviation of dimensions per class (for normalized offset decoding)
-        std_dims = data_cfg.get("std_dims")
-
-        # Return a dict compatible with BaseValidator expectations, plus stereo descriptors
         return {
-            "yaml_file": (
-                str(self.args.data) if isinstance(self.args.data, (str, Path)) else None
-            ),
+            "yaml_file": str(self.args.data) if isinstance(self.args.data, (str, Path)) else None,
             "path": str(root),
-            "channels": channels,
-            # Signal to our get_dataloader/build_dataset that this is a stereo dataset
+            "channels": 6,
             "train": {"type": "kitti_stereo", "root": str(root), "split": train_split},
             "val": {"type": "kitti_stereo", "root": str(root), "split": val_split},
             "names": names,
             "nc": nc,
-            # carry over optional stereo metadata if present
             "stereo": data_cfg.get("stereo", True),
             "baseline": data_cfg.get("baseline"),
-            "mean_dims": mean_dims,
-            "std_dims": std_dims,
+            "mean_dims": data_cfg.get("mean_dims"),
+            "std_dims": data_cfg.get("std_dims"),
         }
 
     def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
@@ -341,6 +317,12 @@ class Stereo3DDetValidator(BaseValidator):
                         break
                 if not matched and isinstance(class_key, int):
                     result[class_key] = (h, w, l)
+            # Fallback: if name matching failed, assign by iteration order to class IDs 0..N
+            if not result and raw_dims:
+                for i, (_, dims) in enumerate(raw_dims.items()):
+                    if isinstance(dims, (list, tuple)) and len(dims) == 3:
+                        l, w, h = dims
+                        result[i] = (h, w, l)
             return result if result else None
 
         mean_dims_raw = self.data.get("mean_dims") if hasattr(self, "data") and self.data else None
@@ -665,9 +647,13 @@ class Stereo3DDetValidator(BaseValidator):
         self.metrics.process(
             save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot
         )
-        self.det_metrics.process(
-            save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot
-        )
+        try:
+            self.det_metrics.process(
+                save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot
+            )
+        except (KeyError, IndexError):
+            # 2D det metrics are auxiliary — plotting can fail when model nc != dataset nc
+            self.det_metrics.process(save_dir=self.save_dir, plot=False)
         # Merge so training logs/CSV show both 3D and 2D bbox metrics.
         # 3D metrics go LAST so fitness=AP3D@0.5 (not 2D mAP) drives best-model selection.
         # 3D metrics FIRST to preserve CSV column order, then 2D metrics appended.
@@ -990,84 +976,40 @@ class Stereo3DDetValidator(BaseValidator):
         """Build Stereo3DDetDataset for validation.
 
         Args:
-            img_path: Path to dataset root directory, or a descriptor dict from self.data.get(split).
+            img_path: Stereo descriptor dict from self.data[split], or a dataset root path string.
             mode: 'train' or 'val' mode.
             batch: Batch size (unused, kept for compatibility).
 
         Returns:
             Stereo3DDetDataset: Dataset instance for validation.
         """
-        from ultralytics.models.yolo.stereo3ddet.dataset import Stereo3DDetDataset
+        from ultralytics.models.yolo.s3d.dataset import Stereo3DDetDataset
 
-        # img_path should be a dir
-
-        # means it's a file instead of the path, return it's parent directory
-        if isinstance(img_path, str) and not os.path.isdir(img_path):
-            img_path = Path(img_path).parent
-
-        # Handle descriptor dict from self.data.get(self.args.split)
-        desc = (
-            img_path
-            if isinstance(img_path, dict)
-            else self.data.get(mode) if hasattr(self, "data") else None
-        )
-
-        if isinstance(desc, dict) and desc.get("type") == "kitti_stereo":
-            # Get image size from args, default to 384
-            imgsz = getattr(self.args, "imgsz", 384)
-            if isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
-                imgsz = (int(imgsz[0]), int(imgsz[1]))  # (H, W)
-            elif isinstance(imgsz, (list, tuple)):
-                imgsz = (int(imgsz[0]), int(imgsz[0]))  # Fallback to square
-            else:
-                imgsz = (int(imgsz), int(imgsz))  # Int to square
-
-            # Compute output_size from imgsz with default stride (8x for P3)
-            # This can be overridden if model is available later, but default works for most cases
-            output_size = None  # Will use dataset default (imgsz // 8)
-
-            # Get mean_dims from dataset config if available
-            mean_dims = self.data.get("mean_dims") if hasattr(self, "data") else None
-            std_dims = self.data.get("std_dims") if hasattr(self, "data") else None
-
-            return Stereo3DDetDataset(
-                root=str(desc.get("root", ".")),
-                split=str(desc.get("split", mode)),
-                imgsz=imgsz,
-                names=self.data.get("names") if hasattr(self, "data") else None,
-                output_size=output_size,
-                mean_dims=mean_dims,
-                std_dims=std_dims,
-                augment=False,
-                filter_occluded=False,
+        # Resolve descriptor: prefer the dict passed in, fall back to self.data[mode]
+        desc = img_path if isinstance(img_path, dict) else self.data.get(mode)
+        if not isinstance(desc, dict) or desc.get("type") != "kitti_stereo":
+            raise ValueError(
+                f"Cannot build stereo dataset from img_path={img_path} (type: {type(img_path)}). "
+                f"Expected a descriptor dict with type='kitti_stereo'."
             )
 
-        # Fallback: if img_path is a string, try to use it directly
-        if isinstance(img_path, str) or isinstance(img_path, Path):
-            imgsz = getattr(self.args, "imgsz", 384)
-            if isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
-                imgsz = (int(imgsz[0]), int(imgsz[1]))  # (H, W)
-            elif isinstance(imgsz, (list, tuple)):
-                imgsz = (int(imgsz[0]), int(imgsz[0]))  # Fallback to square
-            else:
-                imgsz = (int(imgsz), int(imgsz))  # Int to square
+        imgsz = getattr(self.args, "imgsz", 384)
+        if isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
+            imgsz = (int(imgsz[0]), int(imgsz[1]))
+        elif isinstance(imgsz, (list, tuple)):
+            imgsz = (int(imgsz[0]), int(imgsz[0]))
+        else:
+            imgsz = (int(imgsz), int(imgsz))
 
-            return Stereo3DDetDataset(
-                root=img_path,
-                split=mode,
-                imgsz=imgsz,
-                names=self.data.get("names") if hasattr(self, "data") else None,
-                output_size=None,  # Will use dataset default
-                mean_dims=self.data.get("mean_dims") if hasattr(self, "data") else None,
-                std_dims=self.data.get("std_dims") if hasattr(self, "data") else None,
-                augment=False,
-                filter_occluded=False,
-            )
-
-        # If we can't determine the dataset, raise an error
-        raise ValueError(
-            f"Cannot build dataset from img_path={img_path} (type: {type(img_path)}). "
-            f"Expected a string path or a descriptor dict with type='kitti_stereo'."
+        return Stereo3DDetDataset(
+            root=str(desc["root"]),
+            split=str(desc.get("split", mode)),
+            imgsz=imgsz,
+            names=self.data.get("names"),
+            mean_dims=self.data.get("mean_dims"),
+            std_dims=self.data.get("std_dims"),
+            augment=False,
+            filter_occluded=False,
         )
 
     def get_dataloader(

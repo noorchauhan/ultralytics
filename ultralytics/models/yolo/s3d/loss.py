@@ -10,7 +10,7 @@ from ultralytics.utils.loss import DFLoss, v8DetectionLoss
 
 
 
-class Stereo3DDetLossYOLO11(v8DetectionLoss):
+class Stereo3DDetLoss(v8DetectionLoss):
     """Multi-scale loss for stereo 3D detection using YOLO-style bbox assignment.
 
     Overrides loss() to add auxiliary 3D losses (lr_distance, depth, dimensions,
@@ -40,7 +40,7 @@ class Stereo3DDetLossYOLO11(v8DetectionLoss):
         self.cls_label_smoothing = cls_label_smoothing
 
         # Depth bin classification (DFL-style)
-        from ultralytics.models.yolo.stereo3ddet.head_yolo11 import DEPTH_BINS, DEPTH_MAX, DEPTH_MIN
+        from ultralytics.models.yolo.s3d.head import DEPTH_BINS, DEPTH_MAX, DEPTH_MIN
 
         self.depth_dfl_loss = DFLoss(reg_max=DEPTH_BINS)
         self.depth_log_min = math.log(DEPTH_MIN)

@@ -2,7 +2,7 @@
 
 # KITTI Stereo 8 dataset (first 8 stereo pairs from KITTI) by Ultralytics
 # Documentation: https://docs.ultralytics.com/datasets/detect/kitti-stereo/
-# Example usage: yolo stereo3ddet train data=kitti-stereo8.yaml
+# Example usage: yolo s3d train data=kitti-stereo8.yaml
 # parent
 # ├── ultralytics
 # └── datasets

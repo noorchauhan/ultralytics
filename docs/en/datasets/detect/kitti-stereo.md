@@ -31,10 +31,10 @@ dataset_root/
 
 ## Label Format
 
-Each label file (`.txt`) corresponds to one stereo image pair and contains one line per object. The format uses 26 values per line:
+Each label file (`.txt`) corresponds to one stereo image pair and contains one line per object. The format uses 18 values per line:
 
 ```
-class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y kp1_x kp1_y kp2_x kp2_y kp3_x kp3_y kp4_x kp4_y truncated occluded
+class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y truncated occluded
 ```
 
 ## Field Descriptions
@@ -74,13 +74,6 @@ class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y 
 - **Description**: Direct global yaw angle (rotation around vertical Y-axis, which points down)
 - **Rotation_y = 0**: Object faces along the camera Z-axis (forward direction)
 
-### Bottom 4 Vertices (normalized)
-- **kp1_x, kp1_y**: First bottom vertex (normalized 0-1)
-- **kp2_x, kp2_y**: Second bottom vertex (normalized 0-1)
-- **kp3_x, kp3_y**: Third bottom vertex (normalized 0-1)
-- **kp4_x, kp4_y**: Fourth bottom vertex (normalized 0-1)
-- **Description**: Projected 2D coordinates of the 4 bottom corners of the 3D bounding box in normalized image coordinates [0, 1]
-
 ### Truncation and Occlusion
 - **truncated**: Float value [0.0, 1.0] indicating truncation level where 0 = fully visible (object fully within image boundaries) and 1 = fully truncated (object leaving image boundaries)
 - **occluded**: Integer value indicating occlusion level:
@@ -106,7 +99,7 @@ class x_l y_l w_l h_l x_r y_r w_r h_r dim_l dim_w dim_h loc_x loc_y loc_z rot_y 
 ## Example Label Line
 
 ```
-0 0.739219 0.739093 0.256667 0.505120 0.681871 0.880345 0.318305 0.489783 3.580000 1.710000 1.490000 2.810000 1.600000 7.590000 -1.610000 0.610886 0.486533 0.867552 0.486533 0.867552 0.991653 0.610886 0.991653 0.000000 0
+0 0.739219 0.739093 0.256667 0.505120 0.681871 0.880345 0.318305 0.489783 3.580000 1.710000 1.490000 2.810000 1.600000 7.590000 -1.610000 0.000000 0
 ```
 
 Breaking down:
@@ -116,7 +109,6 @@ Breaking down:
 - **Dimensions**: length=3.58m, width=1.71m, height=1.49m
 - **3D location**: X=2.81m, Y=1.6m (bottom center), Z=7.59m
 - **Rotation_y**: -1.61 radians (global yaw)
-- **Vertices**: 4 bottom corners (kp1-kp4) in normalized coordinates
 - **Truncated**: 0.0 (fully visible)
 - **Occluded**: 0 (fully visible)
 
@@ -194,19 +186,19 @@ To train a stereo 3D detection model:
         ```python
         from ultralytics import YOLO
 
-        model = YOLO("yolo26-stereo3ddet-siamese.yaml")
+        model = YOLO("yolo26-s3d.yaml")
         results = model.train(data="kitti-stereo.yaml", epochs=1000, imgsz=[384, 1248])
         ```
 
     === "CLI"
 
         ```bash
-        yolo task=stereo3ddet train data=kitti-stereo.yaml model=yolo26-stereo3ddet-siamese.yaml epochs=1000 imgsz=384,1248
+        yolo task=s3d train data=kitti-stereo.yaml model=yolo26-s3d.yaml epochs=1000 imgsz=384,1248
         ```
 
 ## Important Notes
 
-1. **Normalized Coordinates**: All 2D coordinates (x_l, y_l, w_l, h_l, x_r, y_r, w_r, h_r, vertices) are normalized to [0, 1] relative to image dimensions.
+1. **Normalized Coordinates**: All 2D coordinates (x_l, y_l, w_l, h_l, x_r, y_r, w_r, h_r) are normalized to [0, 1] relative to image dimensions.
 
 2. **Coordinate System**: 3D coordinates use camera coordinate system with Y pointing down (KITTI convention).
 
@@ -218,7 +210,7 @@ To train a stereo 3D detection model:
 
 6. **Truncation and Occlusion**: Used for KITTI R40 difficulty classification (Easy/Moderate/Hard) during evaluation.
 
-7. **Format Compatibility**: The parser expects exactly 26 values per line. Use the conversion script below to generate labels from raw KITTI data.
+7. **Format Compatibility**: The parser accepts both 18-value (current) and legacy 26-value label formats. Use the conversion script below to generate labels from raw KITTI data.
 
 ## Conversion from KITTI Format
 
@@ -239,4 +231,4 @@ The script will:
 - Include all classes by default, or only specified classes if `--filter-classes` is used
 - Available classes: Car, Van, Truck, Pedestrian, Person_sitting, Cyclist, Tram, Misc
 
-This will create the proper directory structure and convert all annotations to the YOLO 3D format (26 values per object, including truncated and occluded attributes). When using `--filter-classes`, class IDs will be remapped to be consecutive starting from 0.
+This will create the proper directory structure and convert all annotations to the YOLO 3D format (18 values per object, including truncated and occluded attributes). When using `--filter-classes`, class IDs will be remapped to be consecutive starting from 0.

@@ -5,7 +5,7 @@
 # features are split at the tap point for cost volume, then left-only features
 # continue through the neck/head for 2D detection.
 # Benefits: 100% pretrained weight compatibility, clean left-only 2D features.
-# Usage: model=yolo26s-stereo3ddet-siamese.yaml
+# Usage: model=yolo26s-s3d.yaml
 
 # Parameters
 nc: 3
@@ -67,4 +67,4 @@ head:
   - [-1, 1, C3k2, [1024, True, 0.5, True]]  # 23 (P5/32)
 
   # Head: [P3, P4, P5, cost_vol] — cost vol only feeds depth branches
-  - [[16, 20, 23, 17], 1, Stereo3DDetHeadYOLO11, [nc]]
+  - [[16, 20, 23, 17], 1, Stereo3DDetHead, [nc]]

@@ -31,7 +31,7 @@ class Stereo3DDetModel(DetectionModel):
             ch = 6
 
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
-        self.task = "stereo3ddet"
+        self.task = "s3d"
         self.end2end = False  # stereo uses custom geometric postprocessing, not NMS-free
 
         # Now enable siamese mode and find tap/cv layer indices
@@ -46,10 +46,10 @@ class Stereo3DDetModel(DetectionModel):
         # Apply depth_mode from YAML (prune unused aux branches)
         depth_mode = (self.yaml or {}).get("training", {}).get("depth_mode", "both")
         if depth_mode != "both":
-            from ultralytics.models.yolo.stereo3ddet.head_yolo11 import Stereo3DDetHeadYOLO11
+            from ultralytics.models.yolo.s3d.head import Stereo3DDetHead
 
             head = self.model[-1]
-            if isinstance(head, Stereo3DDetHeadYOLO11):
+            if isinstance(head, Stereo3DDetHead):
                 head.set_depth_mode(depth_mode)
 
     def _predict_once(self, x, profile=False, visualize=False, embed=None):
@@ -108,7 +108,7 @@ class Stereo3DDetModel(DetectionModel):
 
     def init_criterion(self):
         """Initialize the loss criterion."""
-        from ultralytics.models.yolo.stereo3ddet.loss_yolo11 import Stereo3DDetLossYOLO11
+        from ultralytics.models.yolo.s3d.loss import Stereo3DDetLoss
 
         aux_w = None
         use_bbox_loss = True
@@ -121,6 +121,6 @@ class Stereo3DDetModel(DetectionModel):
                     use_bbox_loss = bool(training_config["use_bbox_loss"])
 
         pseudo_cfg = getattr(self, "pseudo_labels", {})
-        return Stereo3DDetLossYOLO11(
+        return Stereo3DDetLoss(
             self, loss_weights=aux_w, use_bbox_loss=use_bbox_loss, pseudo_labels=pseudo_cfg,
         )

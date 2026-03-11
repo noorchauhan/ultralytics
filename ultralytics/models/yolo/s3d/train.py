@@ -12,10 +12,10 @@ import torch
 
 from ultralytics.data import build_dataloader
 from ultralytics.models import yolo
-from ultralytics.models.yolo.stereo3ddet.dataset import Stereo3DDetDataset
-from ultralytics.models.yolo.stereo3ddet.model import Stereo3DDetModel
-from ultralytics.models.yolo.stereo3ddet.preprocess import preprocess_stereo_batch
-from ultralytics.models.yolo.stereo3ddet.visualize import labels_to_box3d
+from ultralytics.models.yolo.s3d.dataset import Stereo3DDetDataset
+from ultralytics.models.yolo.s3d.model import Stereo3DDetModel
+from ultralytics.models.yolo.s3d.preprocess import preprocess_stereo_batch
+from ultralytics.models.yolo.s3d.visualize import labels_to_box3d
 from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
 
 from ultralytics.utils.plotting import Annotator, VisualizationConfig, colors, plot_labels, plot_stereo3d_boxes
@@ -62,7 +62,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
     def __init__(self, cfg=DEFAULT_CFG, overrides: dict[str, Any] | None = None, _callbacks=None):
         if overrides is None:
             overrides = {}
-        overrides["task"] = "stereo3ddet"
+        overrides["task"] = "s3d"
         super().__init__(cfg, overrides, _callbacks)
         self.add_callback("on_train_epoch_start", Stereo3DDetTrainer._set_loss_epoch_frac)
 
@@ -77,7 +77,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         """Return a Stereo3DDetValidator, currently extending DetectionValidator."""
         # T204: Determine loss names dynamically from model before creating validator
         self._determine_loss_names()
-        val = yolo.stereo3ddet.Stereo3DDetValidator(
+        val = yolo.s3d.Stereo3DDetValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
         # Set names early so CSV header includes per-class/difficulty R40 AP keys
@@ -137,7 +137,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         val_split = data_cfg.get("val_split", "val")
 
         # Names/nc fallback - use paper classes (3 classes: Car, Pedestrian, Cyclist)
-        from ultralytics.models.yolo.stereo3ddet.utils import get_paper_class_names
+        from ultralytics.models.yolo.s3d.utils import get_paper_class_names
         names = data_cfg.get("names") or get_paper_class_names()  # {0: "Car", 1: "Pedestrian", 2: "Cyclist"}
         nc = data_cfg.get("nc", len(names))
 
@@ -163,13 +163,13 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                 if std_dims and 0 in std_dims:
                     std_dims = {cid: std_dims[0] for cid in names}
                 LOGGER.info(
-                    "stereo3ddet: auto-expanded nc=1 → nc=%d using label classes %s",
+                    "s3d: auto-expanded nc=1 → nc=%d using label classes %s",
                     nc, list(names.values()),
                 )
             else:
                 LOGGER.warning(
-                    "stereo3ddet: nc=1 with truly single-class labels. Run auto-labeling first:\n"
-                    "  python -m ultralytics.models.yolo.stereo3ddet.auto_label --data kitti-stereo.yaml"
+                    "s3d: nc=1 with truly single-class labels. Run auto-labeling first:\n"
+                    "  python -m ultralytics.models.yolo.s3d.auto_label --data kitti-stereo.yaml"
                 )
         else:
             # nc>1: scan for pseudo-classes from prior auto-labeling
@@ -185,7 +185,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                 mean_dims = _rekey_dims(mean_dims, names)
                 std_dims = _rekey_dims(std_dims, names)
                 LOGGER.info(
-                    "stereo3ddet: auto-expanded nc=%d → nc=%d from label classes",
+                    "s3d: auto-expanded nc=%d → nc=%d from label classes",
                     n_real, nc,
                 )
 
@@ -442,7 +442,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             cv2.imwrite(str(out), grid)
 
     def plot_training_labels(self) -> None:
-        """Plot training label statistics for stereo3ddet.
+        """Plot training label statistics for s3d.
 
         The default detection implementation expects a YOLODetectionDataset-style `dataset.labels` cache.
         Our stereo dataset does not provide that cache, so we build the arrays by scanning label files.
@@ -459,7 +459,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         image_ids = getattr(dataset, "image_ids", None)
         parse_labels = getattr(dataset, "_parse_labels", None)
         if label_dir is None or image_ids is None or parse_labels is None:
-            LOGGER.warning("stereo3ddet: plot_training_labels() skipped (dataset missing label_dir/image_ids/_parse_labels).")
+            LOGGER.warning("s3d: plot_training_labels() skipped (dataset missing label_dir/image_ids/_parse_labels).")
             return
 
         boxes_list: list[list[float]] = []
@@ -472,7 +472,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             try:
                 labels = parse_labels(label_file)
             except FileNotFoundError:
-                LOGGER.warning(f"stereo3ddet: missing label file, skipping: {label_file}")
+                LOGGER.warning(f"s3d: missing label file, skipping: {label_file}")
                 continue
 
             total_images += 1

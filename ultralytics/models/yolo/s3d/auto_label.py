@@ -18,7 +18,7 @@ Supports two modes:
   Pseudo class IDs are assigned contiguously starting at nc.
 
 Usage:
-  python -m ultralytics.models.yolo.stereo3ddet.auto_label --data kitti-stereo.yaml
+  python -m ultralytics.models.yolo.s3d.auto_label --data kitti-stereo.yaml
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ import numpy as np
 
 LOGGER = logging.getLogger(__name__)
 
-# Pseudo-label quality markers (stored in the `occluded` field, index 25)
+# Pseudo-label quality markers (stored in the `occluded` field, index 17)
 OCC_PSEUDO_STEREO = 10  # stereo-matched: triangulated depth (higher quality)
 OCC_PSEUDO_MONO = 20  # mono-only: depth from bbox height (lower quality)
 
@@ -300,7 +300,7 @@ def _load_calib(calib_path: Path) -> dict | None:
 
 def _format_label_line(kitti_cls, l_cx, l_cy, l_w, l_h, r_cx, r_cy, r_w, r_h,
                        mean_dims, x_3d, y_bottom, z_3d, img_w, img_h, occ):
-    """Format a 26-value pseudo-label line."""
+    """Format an 18-value pseudo-label line."""
     return (
         f"{kitti_cls} "
         f"{l_cx / img_w:.6f} {l_cy / img_h:.6f} {l_w / img_w:.6f} {l_h / img_h:.6f} "
@@ -308,7 +308,6 @@ def _format_label_line(kitti_cls, l_cx, l_cy, l_w, l_h, r_cx, r_cy, r_w, r_h,
         f"{mean_dims[0]:.2f} {mean_dims[1]:.2f} {mean_dims[2]:.2f} "
         f"{x_3d:.2f} {y_bottom:.2f} {z_3d:.2f} "
         f"0.00 "
-        f"0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 "
         f"0.0 {occ}"
     )
 
@@ -321,7 +320,7 @@ def _generate_pseudo_labels(left_result, right_result, calib, img_w, img_h, coco
             this dict are skipped (either out of range or in skip_coco_ids).
 
     Returns:
-        (stereo_lines, mono_lines): Two lists of 26-value label strings.
+        (stereo_lines, mono_lines): Two lists of 18-value label strings.
     """
     stereo_lines = []
     mono_lines = []

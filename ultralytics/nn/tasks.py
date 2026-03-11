@@ -76,18 +76,18 @@ from ultralytics.nn.modules import (
 )
 
 # Lazy import stereo-specific module for parse_model() resolution
-Stereo3DDetHeadYOLO11 = None
+Stereo3DDetHead = None
 
-def _lazy_import_stereo3ddet_head_yolo11():
-    """Lazy import of Stereo3DDetHeadYOLO11 to avoid circular dependencies."""
-    global Stereo3DDetHeadYOLO11
-    if Stereo3DDetHeadYOLO11 is None:
+def _lazy_import_s3d_head():
+    """Lazy import of Stereo3DDetHead to avoid circular dependencies."""
+    global Stereo3DDetHead
+    if Stereo3DDetHead is None:
         try:
-            from ultralytics.models.yolo.stereo3ddet.head_yolo11 import Stereo3DDetHeadYOLO11 as SYH
-            Stereo3DDetHeadYOLO11 = SYH
+            from ultralytics.models.yolo.s3d.head import Stereo3DDetHead as SYH
+            Stereo3DDetHead = SYH
         except ImportError:
             pass
-    return Stereo3DDetHeadYOLO11
+    return Stereo3DDetHead
 
 from ultralytics.utils import DEFAULT_CFG_DICT, LOGGER, WINDOWS, YAML, colorstr, emojis
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -1647,8 +1647,8 @@ def parse_model(d, ch, verbose=True):
     )
     for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args
         # Lazy import for stereo head to avoid circular dependencies
-        if m == "Stereo3DDetHeadYOLO11" and Stereo3DDetHeadYOLO11 is None:
-            _lazy_import_stereo3ddet_head_yolo11()
+        if m == "Stereo3DDetHead" and Stereo3DDetHead is None:
+            _lazy_import_s3d_head()
         m = (
             getattr(torch.nn, m[3:])
             if "nn." in m
@@ -1711,12 +1711,12 @@ def parse_model(d, ch, verbose=True):
                 OBB,
                 OBB26,
             }
-        ) or (Stereo3DDetHeadYOLO11 is not None and m is Stereo3DDetHeadYOLO11):
+        ) or (Stereo3DDetHead is not None and m is Stereo3DDetHead):
             args.extend([reg_max, end2end, [ch[x] for x in f]])
             if m is Segment or m is YOLOESegment or m is Segment26 or m is YOLOESegment26:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
             if m in {Detect, YOLOEDetect, Segment, Segment26, YOLOESegment, YOLOESegment26, Pose, Pose26, OBB, OBB26} or (
-                Stereo3DDetHeadYOLO11 is not None and m is Stereo3DDetHeadYOLO11
+                Stereo3DDetHead is not None and m is Stereo3DDetHead
             ):
                 m.legacy = legacy
         elif m is v10Detect:
@@ -1775,8 +1775,8 @@ def yaml_model_load(path):
         LOGGER.warning(f"Ultralytics YOLO P6 models now use -p6 suffix. Renaming {path.stem} to {new_stem}.")
         path = path.with_name(new_stem + path.suffix)
 
-    # Strip scale suffix to find base file: yolo11n-stereo3ddet.yaml -> yolo11-stereo3ddet.yaml
-    # Also handles: stereo3ddet11n.yaml -> stereo3ddet11.yaml, yolo11n.yaml -> yolo11.yaml
+    # Strip scale suffix to find base file: yolo26n-s3d.yaml -> yolo26-s3d.yaml
+    # Also handles: yolo11n.yaml -> yolo11.yaml
     unified_path = re.sub(r"(\d+)([nslmx])(.+)?$", r"\1\3", str(path))  # i.e. yolov8x.yaml -> yolov8.yaml
     yaml_file = check_yaml(unified_path, hard=False) or check_yaml(path)
     d = YAML.load(yaml_file)  # model dict
@@ -1809,14 +1809,14 @@ def guess_model_task(model):
         model (torch.nn.Module | dict | str | Path): PyTorch model, model configuration dict, or model file path.
 
     Returns:
-        (str): Task of the model ('detect', 'segment', 'classify', 'pose', 'obb', 'stereo3ddet').
+        (str): Task of the model ('detect', 'segment', 'classify', 'pose', 'obb', 's3d').
     """
 
     def cfg2task(cfg):
         """Guess from YAML dictionary."""
         # Check for stereo flag first (highest priority)
         if cfg.get("stereo") is True:
-            return "stereo3ddet"
+            return "s3d"
         
         m = cfg["head"][-1][-2].lower()  # output module name
         if m in {"classify", "classifier", "cls", "fc"}:
@@ -1857,8 +1857,8 @@ def guess_model_task(model):
     # Guess from model filename
     if isinstance(model, (str, Path)):
         model = Path(model)
-        if "stereo" in model.stem.lower() or "stereo" in model.parts:
-            return "stereo3ddet"
+        if "-s3d" in model.stem.lower() or "s3d" in model.parts:
+            return "s3d"
         elif "-seg" in model.stem or "segment" in model.parts:
             return "segment"
         elif "-cls" in model.stem or "classify" in model.parts:

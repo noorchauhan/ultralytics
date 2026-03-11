@@ -203,7 +203,7 @@ class Box3D:
         Returns:
             (4,) array [x1, y1, x2, y2] in pixels, or zeros if projection fails.
         """
-        from ultralytics.models.yolo.stereo3ddet.augment import project_3d_box_to_2d
+        from ultralytics.models.yolo.s3d.augment import project_3d_box_to_2d
 
         length, width, height = self.dimensions
         x, y_center, z = self.center_3d

@@ -15,7 +15,7 @@ from ultralytics.data.stereo.calib import CalibrationParameters, load_kitti_cali
 from ultralytics.engine.results import Results
 from ultralytics.models.yolo.detect import DetectionPredictor
 
-from ultralytics.models.yolo.stereo3ddet.preprocess import (
+from ultralytics.models.yolo.s3d.preprocess import (
     decode_and_refine_predictions,
     preprocess_stereo_images,
 )
@@ -85,7 +85,7 @@ class Stereo3DDetPredictor(DetectionPredictor):
         if overrides is None:
             overrides = {}
         if "task" not in overrides:
-            overrides["task"] = "stereo3ddet"
+            overrides["task"] = "s3d"
         
         # Use DEFAULT_CFG if cfg is None (BasePredictor expects this)
         from ultralytics.utils import DEFAULT_CFG
@@ -93,7 +93,7 @@ class Stereo3DDetPredictor(DetectionPredictor):
             cfg = DEFAULT_CFG
         
         super().__init__(cfg, overrides, _callbacks)
-        self.args.task = "stereo3ddet"
+        self.args.task = "s3d"
         # Store calibration parameters for each image
         self.calib_params: dict[str, CalibrationParameters] = {}
         
@@ -114,20 +114,21 @@ class Stereo3DDetPredictor(DetectionPredictor):
 
     @staticmethod
     def _reorder_dims(raw_dims):
-        """Convert YAML dims {key: [L,W,H]} to decode format {key: (H,W,L)}."""
+        """Convert YAML dims {key: [L,W,H]} to decode format {int_id: (H,W,L)}."""
         if raw_dims is None:
             return None
         result = {}
-        for key, dims in raw_dims.items():
+        for i, (key, dims) in enumerate(raw_dims.items()):
             if isinstance(dims, (list, tuple)) and len(dims) == 3:
                 l, w, h = dims
-                result[key] = (h, w, l)
+                cid = key if isinstance(key, int) else i
+                result[cid] = (h, w, l)
         return result if result else None
 
     def setup_source(self, source=None):
         """Set up input source for stereo prediction.
 
-        For stereo3ddet, source can be:
+        For s3d, source can be:
         - A tuple/list of (left_path, right_path) for a single stereo pair
         - A list of tuples/lists for multiple stereo pairs
         - A single path (raises ValueError - stereo requires both left and right)
