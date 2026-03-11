@@ -600,7 +600,13 @@ class Mosaic(BaseMixTransform):
             x1, y1, x2, y2 = (max(x, 0) for x in c)  # allocate coordinates
 
             img3[y1:y2, x1:x2] = img[y1 - padh :, x1 - padw :]  # img3[ymin:ymax, xmin:xmax]
-            # hp, wp = h, w  # height, width previous for next iteration
+            # Semantic mask
+            if i == 0:
+                has_sem_mask = "semantic_mask" in labels_patch
+                if has_sem_mask:
+                    mask3 = np.full((s * 3, s * 3), 255, dtype=np.uint8)
+            if has_sem_mask and "semantic_mask" in labels_patch:
+                mask3[y1:y2, x1:x2] = labels_patch["semantic_mask"][y1 - padh :, x1 - padw :]
 
             # Labels assuming imgsz*2 mosaic size
             labels_patch = self._update_labels(labels_patch, padw + self.border[0], padh + self.border[1])
@@ -608,6 +614,8 @@ class Mosaic(BaseMixTransform):
         final_labels = self._cat_labels(mosaic_labels)
 
         final_labels["img"] = img3[-self.border[0] : self.border[0], -self.border[1] : self.border[1]]
+        if has_sem_mask:
+            final_labels["semantic_mask"] = mask3[-self.border[0] : self.border[0], -self.border[1] : self.border[1]]
         return final_labels
 
     def _mosaic4(self, labels: dict[str, Any]) -> dict[str, Any]:
@@ -659,6 +667,14 @@ class Mosaic(BaseMixTransform):
                 x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
 
             img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
+            # Semantic mask
+            if i == 0:
+                has_sem_mask = "semantic_mask" in labels_patch
+                if has_sem_mask:
+                    mask4 = np.full((s * 2, s * 2), 255, dtype=np.uint8)
+            if has_sem_mask and "semantic_mask" in labels_patch:
+                mask4[y1a:y2a, x1a:x2a] = labels_patch["semantic_mask"][y1b:y2b, x1b:x2b]
+
             padw = x1a - x1b
             padh = y1a - y1b
 
@@ -666,6 +682,8 @@ class Mosaic(BaseMixTransform):
             mosaic_labels.append(labels_patch)
         final_labels = self._cat_labels(mosaic_labels)
         final_labels["img"] = img4
+        if has_sem_mask:
+            final_labels["semantic_mask"] = mask4
         return final_labels
 
     def _mosaic9(self, labels: dict[str, Any]) -> dict[str, Any]:
@@ -730,6 +748,14 @@ class Mosaic(BaseMixTransform):
 
             # Image
             img9[y1:y2, x1:x2] = img[y1 - padh :, x1 - padw :]  # img9[ymin:ymax, xmin:xmax]
+            # Semantic mask
+            if i == 0:
+                has_sem_mask = "semantic_mask" in labels_patch
+                if has_sem_mask:
+                    mask9 = np.full((s * 3, s * 3), 255, dtype=np.uint8)
+            if has_sem_mask and "semantic_mask" in labels_patch:
+                mask9[y1:y2, x1:x2] = labels_patch["semantic_mask"][y1 - padh :, x1 - padw :]
+
             hp, wp = h, w  # height, width previous for next iteration
 
             # Labels assuming imgsz*2 mosaic size
@@ -738,6 +764,8 @@ class Mosaic(BaseMixTransform):
         final_labels = self._cat_labels(mosaic_labels)
 
         final_labels["img"] = img9[-self.border[0] : self.border[0], -self.border[1] : self.border[1]]
+        if has_sem_mask:
+            final_labels["semantic_mask"] = mask9[-self.border[0] : self.border[0], -self.border[1] : self.border[1]]
         return final_labels
 
     @staticmethod
@@ -1274,6 +1302,16 @@ class RandomPerspective:
         # M is affine matrix
         # Scale for func:`box_candidates`
         img, M, scale = self.affine_transform(img, border)
+
+        # Apply same transform to semantic mask (nearest interp to preserve class IDs)
+        if "semantic_mask" in labels:
+            sem_mask = labels["semantic_mask"]
+            if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():
+                if self.perspective:
+                    sem_mask = cv2.warpPerspective(sem_mask, M, dsize=self.size, borderValue=255, flags=cv2.INTER_NEAREST)
+                else:
+                    sem_mask = cv2.warpAffine(sem_mask, M[:2], dsize=self.size, borderValue=255, flags=cv2.INTER_NEAREST)
+            labels["semantic_mask"] = sem_mask
 
         bboxes = self.apply_bboxes(instances.bboxes, M)
 
@@ -1833,6 +1871,15 @@ class CopyPaste(BaseMixTransform):
             result = result[..., None]
         i = im_new.astype(bool)
         im[i] = result[i]
+
+        # Composite semantic mask at the same locations
+        if "semantic_mask" in labels1 and i.any():
+            sem_mask = labels1["semantic_mask"]
+            if "mosaic_border" not in labels1:
+                sem_mask = sem_mask.copy()
+            donor_sem = labels2.get("semantic_mask", cv2.flip(sem_mask, 1))
+            sem_mask[i] = donor_sem[i]
+            labels1["semantic_mask"] = sem_mask
 
         labels1["img"] = im
         labels1["cls"] = cls

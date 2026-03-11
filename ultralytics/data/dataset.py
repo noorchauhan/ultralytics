@@ -777,20 +777,72 @@ class SemanticDataset(BaseDataset):
             (Compose): Composed transforms.
         """
         if self.augment:
-            from ultralytics.data.augment import SemanticRandomScaleCrop
+            from ultralytics.data.augment import Mosaic, RandomPerspective
 
-            transforms = []
+            mosaic = Mosaic(self, imgsz=self.imgsz, p=getattr(hyp, "mosaic", 1.0) if hyp else 1.0)
+            affine = RandomPerspective(
+                degrees=getattr(hyp, "degrees", 0.0) if hyp else 0.0,
+                translate=getattr(hyp, "translate", 0.1) if hyp else 0.1,
+                scale=getattr(hyp, "scale", 0.5) if hyp else 0.5,
+                shear=getattr(hyp, "shear", 0.0) if hyp else 0.0,
+                perspective=getattr(hyp, "perspective", 0.0) if hyp else 0.0,
+                pre_transform=LetterBox(new_shape=(self.imgsz, self.imgsz)),
+            )
+            transforms = [mosaic, affine]
             if hyp:
-                hsv_h = getattr(hyp, "hsv_h", 0.015)
-                hsv_s = getattr(hyp, "hsv_s", 0.7)
-                hsv_v = getattr(hyp, "hsv_v", 0.4)
-                transforms.append(RandomHSV(hgain=hsv_h, sgain=hsv_s, vgain=hsv_v))
-            transforms.append(SemanticRandomScaleCrop(crop_size=self.imgsz, scale_min=0.5, scale_max=2.0))
+                transforms.append(
+                    RandomHSV(
+                        hgain=getattr(hyp, "hsv_h", 0.015),
+                        sgain=getattr(hyp, "hsv_s", 0.7),
+                        vgain=getattr(hyp, "hsv_v", 0.4),
+                    )
+                )
             transforms.append(RandomFlip(p=0.5, direction="horizontal"))
         else:
             transforms = [LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)]
         transforms.append(SemanticFormat())
         return Compose(transforms)
+
+    def _load_semantic_mask(self, index):
+        """Load semantic mask for the given index.
+
+        Args:
+            index (int): Dataset index.
+
+        Returns:
+            (np.ndarray): Semantic mask array (H, W) with class IDs, 255 for ignore.
+        """
+        mask_path = self.mask_files[index]
+        try:
+            from PIL import Image
+
+            mask = np.array(Image.open(mask_path), dtype=np.uint8)
+        except Exception:
+            mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            mask = np.full((640, 640), 255, dtype=np.uint8)
+        return mask
+
+    def get_image_and_label(self, index):
+        """Get image, label and semantic mask for the given index.
+
+        Overrides parent to include semantic mask so that Mosaic/CopyPaste mix images
+        also have their masks loaded.
+
+        Args:
+            index (int): Dataset index.
+
+        Returns:
+            (dict): Label dict with 'img', 'semantic_mask', and metadata.
+        """
+        label = super().get_image_and_label(index)
+        mask = self._load_semantic_mask(index)
+        # Resize mask to match the resized image dimensions
+        h, w = label["img"].shape[:2]
+        if mask.shape[:2] != (h, w):
+            mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        label["semantic_mask"] = mask
+        return label
 
     def __getitem__(self, index):
         """Return transformed image and semantic mask for the given index.
@@ -802,21 +854,6 @@ class SemanticDataset(BaseDataset):
             (dict): Dictionary with 'img' tensor and 'semantic_mask' tensor.
         """
         label = self.get_image_and_label(index)
-
-        # Load semantic mask (use PIL to correctly read palette PNG indices)
-        mask_path = self.mask_files[index]
-        try:
-            from PIL import Image
-
-            mask = np.array(Image.open(mask_path), dtype=np.uint8)
-        except Exception:
-            mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        if mask is None:
-            # If mask not found, create an ignore mask
-            h, w = label["img"].shape[:2]
-            mask = np.full((h, w), 255, dtype=np.uint8)
-
-        label["semantic_mask"] = mask
         label = self.transforms(label)
         return label
 
