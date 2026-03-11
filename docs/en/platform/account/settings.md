@@ -130,7 +130,7 @@ The storage card shows:
 | ------------ | ----------------------------------------------------- |
 | **Datasets** | Uploaded images, videos, labels, and annotation files |
 | **Models**   | Trained model checkpoints (`.pt` files)               |
-| **Exports**  | Exported model formats (ONNX, TensorRT, CoreML, etc) |
+| **Exports**  | Exported model formats (ONNX, TensorRT, CoreML, etc)  |
 
 !!! tip "Recalculate Storage"
 
