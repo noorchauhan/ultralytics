@@ -143,6 +143,17 @@ class RTDETRValidator(DetectionValidator):
             return bool(marker[0]) if marker else False
         return bool(marker) if marker is not None else False
 
+    @staticmethod
+    def _normalize_input(img: torch.Tensor) -> torch.Tensor:
+        """Apply ImageNet mean/std normalization to BCHW tensors."""
+        if img.shape[1] != 3:
+            raise ValueError(f"rtdetr_input_normalize expects 3-channel input, got shape={tuple(img.shape)}.")
+        mean = (0.485, 0.456, 0.406)
+        std = (0.229, 0.224, 0.225)
+        mean_t = img.new_tensor(mean).view(1, 3, 1, 1)
+        std_t = img.new_tensor(std).view(1, 3, 1, 1)
+        return (img - mean_t) / std_t
+
     def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Preprocess validation batch."""
         already_scaled = self._pop_batch_flag(batch, "img_scaled")
@@ -152,6 +163,8 @@ class RTDETRValidator(DetectionValidator):
         batch["img"] = batch["img"].half() if self.args.half else batch["img"].float()
         if not already_scaled:
             batch["img"] = batch["img"] / 255
+        if bool(self.args.rtdetr_input_normalize):
+            batch["img"] = self._normalize_input(batch["img"])
         return batch
 
     def build_dataset(self, img_path, mode="val", batch=None):
