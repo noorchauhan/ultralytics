@@ -102,7 +102,7 @@ Use a trained YOLO26n-semseg model to run predictions on images.
 
         # Access the results
         for result in results:
-            semantic_mask = result.semantic_mask  # H x W class map (numpy array)
+            semantic_mask = result.semantic_mask  # H x W class map (torch.Tensor)
         ```
 
     === "CLI"
