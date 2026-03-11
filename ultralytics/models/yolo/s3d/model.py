@@ -52,6 +52,40 @@ class Stereo3DDetModel(DetectionModel):
             if isinstance(head, Stereo3DDetHead):
                 head.set_depth_mode(depth_mode)
 
+    def _backbone_to_tap(self, x):
+        """Run backbone layers 0..tap_layer on an image, return tap features."""
+        y = []
+        for m in self.model:
+            if m.i > self._tap_layer:
+                break
+            if m.f != -1:
+                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]
+            x = m(x)
+            y.append(x if m.i in self.save else None)
+        return x
+
+    def forward_export(self, left_img, right_img):
+        """Two-input forward for ONNX export. Runs backbone on L/R separately.
+
+        Trace-safe: no tensor-dependent branching. All layer indices are Python ints
+        resolved at trace time. Shares backbone weights between L/R passes.
+        """
+        # Run backbone layers 0..tap on right image to get right_tap features
+        right_tap = self._backbone_to_tap(right_img)
+
+        # Run full model on left, injecting right_tap at cost volume layer
+        y = []
+        x = left_img
+        for m in self.model:
+            if m.f != -1:
+                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]
+            if m.i == self._cv_layer:
+                x = m((y[self._tap_layer], right_tap))
+            else:
+                x = m(x)
+            y.append(x if m.i in self.save else None)
+        return x
+
     def _predict_once(self, x, profile=False, visualize=False, embed=None):
         """Forward pass with siamese batch trick for stereo input.
 

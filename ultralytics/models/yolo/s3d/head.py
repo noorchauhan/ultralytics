@@ -165,10 +165,32 @@ class Stereo3DDetHead(Detect):
                     feats.append(branches[i](feat).view(bs, out_c, -1))
                 preds[name] = torch.cat(feats, -1)  # [B, C, HW_total]
 
-        # Decode depth bins → scalar log-depth (keep raw logits for loss during training)
+        # Decode depth bins → scalar log-depth (keep raw logits for loss/export)
         if "depth" in preds:
-            if self.training:
-                preds["depth_bins"] = preds["depth"]  # raw logits [B, 16, HW] for DFLoss
-            preds["depth"] = self.depth_dfl(preds["depth"])  # decoded [B, 1, HW]
+            depth_logits = preds["depth"]  # raw logits [B, 16, HW]
+            preds["depth"] = self.depth_dfl(depth_logits)  # decoded [B, 1, HW]
+            if self.training or self.export:
+                preds["depth_bins"] = depth_logits  # raw logits for DFLoss / ONNX export
 
         return preds
+
+    def forward(self, x):
+        """Forward with aux output concatenation in export mode."""
+        preds = self.forward_head(x, **self.one2many)
+        if self.training:
+            return preds
+        y = self._inference(preds)  # [B, nc+4, anchors]
+
+        if self.export:
+            # Concat aux outputs: lr_distance, dimensions, orientation, depth_bins
+            aux_tensors = []
+            for name in ("lr_distance", "dimensions", "orientation"):
+                if name in preds:
+                    aux_tensors.append(preds[name])  # [B, C, anchors]
+            if "depth_bins" in preds:
+                aux_tensors.append(preds["depth_bins"])  # [B, 16, anchors] raw logits
+            if aux_tensors:
+                y = torch.cat([y, *aux_tensors], dim=1)  # [B, 7+22, anchors]
+            return y
+
+        return (y, preds)

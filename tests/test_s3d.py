@@ -41,10 +41,26 @@ def test_predict(tmp_path):
 
 
 def test_export_onnx():
-    """Test ONNX export for s3d model."""
+    """Test ONNX export for s3d model with two stereo inputs and full 3D output."""
+    import onnx
+
     model = YOLO(MODEL)
     path = model.export(format="onnx", imgsz=[384, 1248])
     assert path.endswith(".onnx")
+
+    # Verify two-input stereo model
+    m = onnx.load(path)
+    inputs = {inp.name for inp in m.graph.input}
+    assert inputs == {"left_img", "right_img"}, f"Expected stereo inputs, got {inputs}"
+
+    # Both inputs should be [1, 3, 384, 1248]
+    for inp in m.graph.input:
+        dims = [d.dim_value for d in inp.type.tensor_type.shape.dim]
+        assert dims == [1, 3, 384, 1248], f"{inp.name} shape {dims} != [1, 3, 384, 1248]"
+
+    # Output should include aux channels: 4(box) + 3(cls) + 1(lr) + 3(dims) + 2(orient) + 16(depth) = 29
+    out_shape = [d.dim_value for d in m.graph.output[0].type.tensor_type.shape.dim]
+    assert out_shape[1] == 29, f"Expected 29 output channels (7 det + 22 aux), got {out_shape[1]}"
 
 
 @pytest.mark.skipif(not __import__("torch").cuda.is_available(), reason="TensorRT requires CUDA")
