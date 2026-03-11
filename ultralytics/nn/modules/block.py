@@ -1079,6 +1079,7 @@ class C3k2(C2f):
         attn: bool = False,
         g: int = 1,
         shortcut: bool = True,
+        downsample: int = 1,
     ):
         """Initialize C3k2 module.
 
@@ -1096,9 +1097,9 @@ class C3k2(C2f):
         self.m = nn.ModuleList(
             nn.Sequential(
                 Bottleneck(self.c, self.c, shortcut, g),
-                PSABlock(self.c, attn_ratio=0.5, num_heads=max(self.c // 64, 1)),
+                PSABlock(self.c, attn_ratio=0.5, num_heads=max(self.c // 64, 1), attn=attn, downsample=downsample),
             )
-            if attn
+            if attn is not None
             else C3k(self.c, self.c, 2, shortcut, g)
             if c3k
             else Bottleneck(self.c, self.c, shortcut, g)
@@ -1328,6 +1329,135 @@ class Attention(nn.Module):
         return x
 
 
+class DSAttention(nn.Module):
+    """
+    Attention module that performs self-attention on the input tensor.
+
+    Args:
+        dim (int): The input tensor dimension.
+        num_heads (int): The number of attention heads.
+        attn_ratio (float): The ratio of the attention key dimension to the head dimension.
+
+    Attributes:
+        num_heads (int): The number of attention heads.
+        head_dim (int): The dimension of each attention head.
+        key_dim (int): The dimension of the attention key.
+        scale (float): The scaling factor for the attention scores.
+        qkv (Conv): Convolutional layer for computing the query, key, and value.
+        proj (Conv): Convolutional layer for projecting the attended values.
+        pe (Conv): Convolutional layer for positional encoding.
+    """
+
+    def __init__(self, dim, num_heads=8, attn_ratio=0.5, downsample_ratio=2):
+        """
+        Initialize multi-head attention module.
+
+        Args:
+            dim (int): Input dimension.
+            num_heads (int): Number of attention heads.
+            attn_ratio (float): Attention ratio for key dimension.
+        """
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.key_dim = int(self.head_dim * attn_ratio)
+        self.scale = self.key_dim**-0.5
+        nh_kd = self.key_dim * num_heads
+        self.q = Conv(dim, nh_kd, 1, act=False)
+        self.k = Conv(dim, nh_kd, 1, act=False)
+        self.v = Conv(dim, dim, 1, act=False)
+        self.proj = Conv(dim, dim, 1, act=False)
+        self.pe = Conv(dim, dim, 3, 1, g=dim, act=False)
+        self.downsample = nn.MaxPool2d(kernel_size=downsample_ratio, stride=downsample_ratio)
+        self.downsample_ratio = downsample_ratio
+
+    def forward(self, x):
+        """
+        Forward pass of the Attention module.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+            (torch.Tensor): The output tensor after self-attention.
+        """
+        B, C, H, W = x.shape
+        N = H * W
+        N_q = int(H / self.downsample_ratio * W / self.downsample_ratio)
+        x_q = self.downsample(x)
+        q = self.q(x_q).view(B, self.num_heads, self.key_dim, N_q)
+        k = self.k(x_q).view(B, self.num_heads, self.key_dim, N_q)
+        v = self.v(x).view(B, self.num_heads, self.head_dim, N)
+
+        attn = (q.transpose(-2, -1) @ k) * self.scale
+        attn = attn.softmax(dim=-1)
+        v = v.reshape(B, self.num_heads, self.head_dim * int(N / N_q), N_q)
+        x = (v @ attn.transpose(-2, -1)).view(B, C, H, W) + self.pe(v.reshape(B, C, H, W))
+        x = self.proj(x)
+        return x
+
+
+class SimAttention(nn.Module):
+    """
+    Simplified Attention Module from MobileViTv2.
+
+    Args:
+        dim (int): The input tensor dimension.
+        num_heads (int): The number of attention heads.
+        attn_ratio (float): The ratio of the attention key dimension to the head dimension.
+
+    Attributes:
+        num_heads (int): The number of attention heads.
+        head_dim (int): The dimension of each attention head.
+        key_dim (int): The dimension of the attention key.
+        scale (float): The scaling factor for the attention scores.
+        qkv (Conv): Convolutional layer for computing the query, key, and value.
+        proj (Conv): Convolutional layer for projecting the attended values.
+        pe (Conv): Convolutional layer for positional encoding.
+    """
+
+    def __init__(self, dim, num_heads=8):
+        """
+        Initialize multi-head attention module.
+
+        Args:
+            dim (int): Input dimension.
+            num_heads (int): Number of attention heads.
+            attn_ratio (float): Attention ratio for key dimension.
+        """
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.key_dim = 1
+        h = (self.head_dim * 2 + self.key_dim) * num_heads
+        self.qkv = Conv(dim, h, 1, act=False)
+        self.proj = Conv(dim, dim, 1, act=False)
+        self.pe = Conv(dim, dim, 3, 1, g=dim, act=False)
+
+    def forward(self, x):
+        """
+        Forward pass of the Attention module.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+            (torch.Tensor): The output tensor after self-attention.
+        """
+        B, C, H, W = x.shape
+        N = H * W
+        qkv = self.qkv(x)
+        q, k, v = qkv.view(B, self.num_heads, self.key_dim + self.head_dim * 2, N).split(
+            [self.key_dim, self.head_dim, self.head_dim], dim=2
+        )
+        q = q.softmax(dim=-1)  # (B, num_heads, 1, N)
+        k = k * q  # (B, num_heads, head_dim, N)
+        # k = k.sum(dim=-1, keepdim=True)  # (B, num_heads, head_dim, 1)
+        # (B, num_heads, head_dim, 1) * (B, num_heads, head_dim, N)
+        x = (F.silu(v) * k).view(B, C, H, W) + self.pe(v.reshape(B, C, H, W))
+        return self.proj(x)
+
+
 class PSABlock(nn.Module):
     """PSABlock class implementing a Position-Sensitive Attention block for neural networks.
 
@@ -1349,7 +1479,15 @@ class PSABlock(nn.Module):
         >>> output_tensor = psablock(input_tensor)
     """
 
-    def __init__(self, c: int, attn_ratio: float = 0.5, num_heads: int = 4, shortcut: bool = True) -> None:
+    def __init__(
+        self,
+        c: int,
+        attn_ratio: float = 0.5,
+        num_heads: int = 4,
+        shortcut: bool = True,
+        attn="default",
+        downsample=1,
+    ) -> None:
         """Initialize the PSABlock.
 
         Args:
@@ -1360,7 +1498,13 @@ class PSABlock(nn.Module):
         """
         super().__init__()
 
-        self.attn = Attention(c, attn_ratio=attn_ratio, num_heads=num_heads)
+        assert attn in {"default", "sim", "ds"}
+        if attn == "default":
+            self.attn = Attention(c, attn_ratio=attn_ratio, num_heads=num_heads)
+        elif attn == "sim":
+            self.attn = SimAttention(c, num_heads=num_heads)
+        elif attn == "ds":
+            self.attn = DSAttention(c, attn_ratio=attn_ratio, num_heads=num_heads, downsample_ratio=downsample)
         self.ffn = nn.Sequential(Conv(c, c * 2, 1), Conv(c * 2, c, 1, act=False))
         self.add = shortcut
 
