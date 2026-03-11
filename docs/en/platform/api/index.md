@@ -20,7 +20,7 @@ keywords: Ultralytics Platform, REST API, API reference, authentication, endpoin
 
 !!! tip "Interactive API Docs"
 
-    Explore the full interactive API reference at [platform.ultralytics.com/api/docs](https://platform.ultralytics.com/api/docs).
+    Explore the full interactive API reference in the [Ultralytics Platform API docs](https://platform.ultralytics.com/api/docs).
 
 ## API Overview
 
