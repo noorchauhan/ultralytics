@@ -351,7 +351,7 @@ class BaseTrainer:
 
         self._build_train_pipeline()
         self.validator = self.get_validator()
-        self.ema = ModelEMA(self.model)
+        self.ema = ModelEMA(self.model, tau=float(self.args.ema_tau))
         if RANK in {-1, 0}:
             metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix="val")
             self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))
@@ -895,7 +895,9 @@ class BaseTrainer:
         if ckpt.get("scaler") is not None:
             self.scaler.load_state_dict(ckpt["scaler"])
         if self.ema and ckpt.get("ema"):
-            self.ema = ModelEMA(self.model)  # validation with EMA creates inference tensors that can't be updated
+            self.ema = ModelEMA(
+                self.model, tau=float(self.args.ema_tau)
+            )  # validation with EMA creates inference tensors that can't be updated
             self.ema.ema.load_state_dict(ckpt["ema"].float().state_dict())
             self.ema.updates = ckpt["updates"]
         self.best_fitness = ckpt.get("best_fitness", 0.0)

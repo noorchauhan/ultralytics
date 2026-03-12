@@ -555,7 +555,7 @@ class RTDETRDEIMTrainerV2(RTDETRDEIMTrainer):
         if not self.ema:
             return
         decay = float(self._deim_ema_restart_decay)
-        tau = 2000.0  # Ultralytics ModelEMA default
+        tau = float(getattr(self.args, "ema_tau", 2000.0))
         self.ema.decay = lambda x, d=decay, t=tau: d * (1.0 - math.exp(-x / t))
 
     def _reload_stage1_anchor(self) -> bool:
