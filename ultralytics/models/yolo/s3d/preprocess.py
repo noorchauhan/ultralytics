@@ -497,9 +497,7 @@ def decode_and_refine_predictions(
         results = _apply_geometric_construction(results, calibs, batch_size, geo_config)
 
     # Apply dense alignment refinement (enabled by default, matching old behavior)
-    should_apply_dense = use_dense_alignment is True or (
-        use_dense_alignment is None and dense_config.get("enabled", True)
-    )
+    should_apply_dense = use_dense_alignment or dense_config.get("enabled", True)
     if should_apply_dense and batch is not None:
         results = _apply_dense_alignment(results, calibs, batch, batch_size, dense_config)
 
@@ -507,10 +505,7 @@ def decode_and_refine_predictions(
 
 
 def _apply_geometric_construction(
-    results: list[list[Box3D]],
-    calibs: list[dict],
-    batch_size: int,
-    config: dict,
+    results: list[list[Box3D]], calibs: list[dict], batch_size: int, config: dict
 ) -> list[list[Box3D]]:
     """Apply geometric construction to refine initial 3D estimates.
 
