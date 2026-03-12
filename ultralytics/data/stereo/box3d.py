@@ -43,7 +43,7 @@ class Box3D:
         if length <= 0 or width <= 0 or height <= 0:
             raise ValueError(f"Dimensions must be positive, got {self.dimensions}")
 
-        x, y, z = self.center_3d
+        z = self.center_3d[-1]
         if z <= 0:
             raise ValueError(f"Depth (z) must be positive, got z={z}")
 

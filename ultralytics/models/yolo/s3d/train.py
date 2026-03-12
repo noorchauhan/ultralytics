@@ -11,11 +11,11 @@ import numpy as np
 import torch
 
 from ultralytics.data import build_dataloader
+from ultralytics.data.stereo.box3d import Box3D
 from ultralytics.models import yolo
 from ultralytics.models.yolo.s3d.dataset import Stereo3DDetDataset
 from ultralytics.models.yolo.s3d.model import Stereo3DDetModel
 from ultralytics.models.yolo.s3d.preprocess import preprocess_stereo_batch
-from ultralytics.models.yolo.s3d.visualize import labels_to_box3d
 from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
 
 from ultralytics.utils.plotting import Annotator, VisualizationConfig, colors, plot_labels, plot_stereo3d_boxes
@@ -372,13 +372,12 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             # ------------------------------------------------------------------
             L3 = left_img.copy()
             if isinstance(calib_i, dict):
-                boxes3d = labels_to_box3d(
-                    labels=labels,
-                    calib=calib_i,
-                    image_hw=L3.shape[:2],
-                    class_names=self.data["names"],
-                )
-                if boxes3d:
+                if len(labels) and calib_i is not None:
+                    boxes3d = [
+                        b
+                        for lab in labels
+                        if (b := Box3D.from_label(lab, calib_i, self.data["names"], L3.shape[:2])) is not None
+                    ]
                     class_ids = {int(b.class_id) for b in boxes3d}
                     magenta = (255, 0, 255)  # BGR
                     scheme = {cid: magenta for cid in class_ids}
