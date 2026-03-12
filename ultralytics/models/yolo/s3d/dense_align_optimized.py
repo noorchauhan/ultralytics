@@ -19,7 +19,7 @@ Paper Reference: Section 3.2 "Dense Alignment"
 
 from __future__ import annotations
 
-from typing import Literal, Tuple, Optional, Union
+from typing import Literal, Tuple, Optional
 
 import cv2
 import numpy as np

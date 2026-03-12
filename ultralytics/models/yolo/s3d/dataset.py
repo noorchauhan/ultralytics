@@ -19,16 +19,8 @@ from ultralytics.models.yolo.s3d.augment import (
 )
 from ultralytics.utils import DEFAULT_CFG, LOGGER
 from ultralytics.data.stereo.target_improved import TargetGenerator, compute_dimension_offset
+from ultralytics.utils.checks import check_imgsz
 import math
-
-
-def _to_hw(imgsz: int | tuple[int, int] | list[int]) -> tuple[int, int]:
-    """Normalize imgsz to (H, W)."""
-    if isinstance(imgsz, int):
-        return int(imgsz), int(imgsz)
-    if isinstance(imgsz, (tuple, list)) and len(imgsz) == 2:
-        return int(imgsz[0]), int(imgsz[1])
-    raise TypeError(f"imgsz must be int or (h,w), got {imgsz} ({type(imgsz).__name__})")
 
 
 class Stereo3DDetDataset(BaseDataset):
@@ -87,7 +79,7 @@ class Stereo3DDetDataset(BaseDataset):
         """
         self.root = Path(root)
         self.split = split
-        self.imgsz_tuple = _to_hw(imgsz)  # (H, W) - stored separately for transforms
+        self.imgsz_tuple = check_imgsz(imgsz, min_dim=2)  # (H, W) - stored separately for transforms
         # BaseDataset expects imgsz to be an integer for load_image() operations
         # For non-square imgsz (e.g., 384,1248), use max dimension for BaseDataset compatibility.
         # BaseDataset.load_image() will resize long side to this value, then LetterBox transform
@@ -206,7 +198,7 @@ class Stereo3DDetDataset(BaseDataset):
     def get_img_files(self, img_path: str | list[str]) -> list[str]:
         """Override to return left image files filtered by image_ids."""
         # Get all left image files
-        left_files = sorted(f for f in self.left_dir.glob("*.*") if f.suffix[1:].lower() in IMG_FORMATS)
+        left_files = super().get_img_files(img_path)  # This returns list of left image files as strings
         # Filter by image_ids
         im_files = [str(f) for f in left_files if f.stem in self.image_ids]
         return im_files
@@ -272,7 +264,6 @@ class Stereo3DDetDataset(BaseDataset):
 
                 # Get original shapes
                 left_h0, left_w0 = left_img.shape[:2]
-                right_h0, right_w0 = right_img.shape[:2]
                 h0, w0 = left_h0, left_w0  # Store for return
 
                 # Apply resize logic (same as BaseDataset.load_image())
@@ -745,7 +736,6 @@ class Stereo3DDetDataset(BaseDataset):
         #
         # Also produce per-object stereo/3D targets, padded per image:
         # aux_targets[name]: [B, max_n, C] in feature-map units for P3 (stride=8).
-        input_h, input_w = self.imgsz_tuple  # Use tuple format
 
         all_batch_idx: list[int] = []
         all_cls: list[int] = []
@@ -766,7 +756,7 @@ class Stereo3DDetDataset(BaseDataset):
         per_image_counts: list[int] = []
         labels_list: list[list[dict[str, Any]]] = []
 
-        for i, (b, calib, ori_shape) in enumerate(zip(batch, calibs, ori_shapes)):
+        for i, b in enumerate(batch):
             # Extract from Format output tensors (instances was already popped by Format)
             bboxes_tensor = b.get("bboxes")  # torch.Tensor (N, 4) normalized xywh
             cls_tensor = b.get("cls")  # torch.Tensor (N,)
