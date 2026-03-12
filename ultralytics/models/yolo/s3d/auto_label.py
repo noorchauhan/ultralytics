@@ -23,12 +23,10 @@ Usage:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
+from ultralytics.utils import LOGGER
 
 import numpy as np
-
-LOGGER = logging.getLogger(__name__)
 
 # Pseudo-label quality markers (stored in the `occluded` field, index 17)
 OCC_PSEUDO_STEREO = 10  # stereo-matched: triangulated depth (higher quality)
@@ -298,8 +296,9 @@ def _load_calib(calib_path: Path) -> dict | None:
     return None
 
 
-def _format_label_line(kitti_cls, l_cx, l_cy, l_w, l_h, r_cx, r_cy, r_w, r_h,
-                       mean_dims, x_3d, y_bottom, z_3d, img_w, img_h, occ):
+def _format_label_line(
+    kitti_cls, l_cx, l_cy, l_w, l_h, r_cx, r_cy, r_w, r_h, mean_dims, x_3d, y_bottom, z_3d, img_w, img_h, occ
+):
     """Format an 18-value pseudo-label line."""
     return (
         f"{kitti_cls} "
@@ -398,10 +397,26 @@ def _generate_pseudo_labels(left_result, right_result, calib, img_w, img_h, coco
         y_3d = (l_cy - cy_cal) * z_3d / fy
         y_bottom = y_3d + mean_dims[2] / 2
 
-        stereo_lines.append(_format_label_line(
-            kitti_cls, l_cx, l_cy, l_w, l_h, r_cx, r_cy, r_w, r_h,
-            mean_dims, x_3d, y_bottom, z_3d, img_w, img_h, OCC_PSEUDO_STEREO,
-        ))
+        stereo_lines.append(
+            _format_label_line(
+                kitti_cls,
+                l_cx,
+                l_cy,
+                l_w,
+                l_h,
+                r_cx,
+                r_cy,
+                r_w,
+                r_h,
+                mean_dims,
+                x_3d,
+                y_bottom,
+                z_3d,
+                img_w,
+                img_h,
+                OCC_PSEUDO_STEREO,
+            )
+        )
 
     # Pass 2: mono-only fallback for unmatched left detections
     for li in range(len(l_xyxy)):
@@ -436,10 +451,26 @@ def _generate_pseudo_labels(left_result, right_result, calib, img_w, img_h, coco
         if r_cx < 0:  # right bbox would be off-image
             continue
 
-        mono_lines.append(_format_label_line(
-            kitti_cls, l_cx, l_cy, l_w, l_h, r_cx, l_cy, l_w, l_h,
-            mean_dims, x_3d, y_bottom, z_3d, img_w, img_h, OCC_PSEUDO_MONO,
-        ))
+        mono_lines.append(
+            _format_label_line(
+                kitti_cls,
+                l_cx,
+                l_cy,
+                l_w,
+                l_h,
+                r_cx,
+                l_cy,
+                l_w,
+                l_h,
+                mean_dims,
+                x_3d,
+                y_bottom,
+                z_3d,
+                img_w,
+                img_h,
+                OCC_PSEUDO_MONO,
+            )
+        )
 
     return stereo_lines, mono_lines
 
