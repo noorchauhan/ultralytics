@@ -22,40 +22,6 @@ from ultralytics.utils.plotting import Annotator, VisualizationConfig, colors, p
 from ultralytics.utils.torch_utils import unwrap_model
 
 
-def _rekey_dims(dims: dict | None, names: dict[int, str]) -> dict | None:
-    """Convert string-keyed dims dict to integer-keyed using class names mapping.
-
-    Matches string keys (e.g., "Car") to integer class IDs via names dict.
-    Unmatched classes get the first matched class's dims as fallback.
-    """
-    if not dims:
-        return dims
-    int_keyed = {}
-    for cid, cname in names.items():
-        if cname in dims:
-            int_keyed[cid] = dims[cname]
-    if not int_keyed:
-        return dims  # no matches, return original
-    fallback = next(iter(int_keyed.values()))
-    for cid in names:
-        if cid not in int_keyed:
-            int_keyed[cid] = fallback
-    return int_keyed
-
-
-def _scan_label_classes(label_dir: Path, max_files: int = 200) -> set[int]:
-    """Scan label files for unique class IDs present in the dataset."""
-    class_ids: set[int] = set()
-    files = sorted(label_dir.glob("*.txt"))[:max_files]
-    for f in files:
-        with open(f) as fh:
-            for line in fh:
-                parts = line.strip().split()
-                if parts:
-                    class_ids.add(int(parts[0]))
-    return class_ids
-
-
 class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
     """Stereo 3D Detection trainer extending DetectionTrainer with stereo-specific dataset, loss, and validation."""
 
@@ -76,7 +42,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
     def get_validator(self):
         """Return a Stereo3DDetValidator, currently extending DetectionValidator."""
         # T204: Determine loss names dynamically from model before creating validator
-        self._determine_loss_names()
+        self.loss_names = ("box", "cls", "lr_dist", "depth", "dims", "orient")
         val = yolo.s3d.Stereo3DDetValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
@@ -87,23 +53,8 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             val.metrics.nc = len(names)
         return val
 
-    def _determine_loss_names(self):
-        """Set loss names for stereo 3D detection."""
-        self.loss_names = ("box", "cls", "lr_dist", "depth", "dims", "orient")
-
     def progress_string(self):
-        """Return a formatted string showing training progress with dynamically determined loss branches.
-
-        Follows DetectionTrainer pattern from detect/train.py:187-195.
-        Format: ("\n" + "%11s" * (4 + len(self.loss_names))) % ("Epoch", "GPU_mem", *self.loss_names, "Instances", "Size")
-
-        Returns:
-            str: Formatted progress string with column headers.
-        """
-        # Ensure loss_names is determined
-        if not hasattr(self, "loss_names") or not self.loss_names:
-            self._determine_loss_names()
-
+        """Return formatted training progress string with loss names."""
         return ("\n" + "%11s" * (4 + len(self.loss_names))) % (
             "Epoch",
             "GPU_mem",
@@ -147,11 +98,19 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         # visual diversity that forces the backbone to learn richer features.
         label_dir = root / "labels" / train_split
 
+        # Scan label files for class IDs present in the dataset (up to 200 files)
+        class_ids: set[int] = set()
+        for f in sorted(label_dir.glob("*.txt"))[:200]:
+            with open(f) as fh:
+                for line in fh:
+                    parts = line.strip().split()
+                    if parts:
+                        class_ids.add(int(parts[0]))
+
         if nc == 1:
-            extra_ids = _scan_label_classes(label_dir)
-            if len(extra_ids) > 1:
+            if len(class_ids) > 1:
                 base_name = names[0] if isinstance(names, dict) else names[0] if isinstance(names, list) else "Object"
-                max_id = max(extra_ids)
+                max_id = max(class_ids)
                 names = {i: base_name if i == 0 else f"Aux_{i}" for i in range(max_id + 1)}
                 nc = max_id + 1
                 if mean_dims and 0 in mean_dims:
@@ -169,9 +128,8 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                     "  python -m ultralytics.models.yolo.s3d.auto_label --data kitti-stereo.yaml"
                 )
         else:
-            # nc>1: scan for pseudo-classes from prior auto-labeling
-            extra_ids = _scan_label_classes(label_dir)
-            max_id = max(extra_ids, default=nc - 1)
+            # nc>1: check for pseudo-classes from prior auto-labeling
+            max_id = max(class_ids, default=nc - 1)
             if max_id >= nc:
                 new_names = dict(names) if isinstance(names, dict) else {i: n for i, n in enumerate(names)}
                 n_real = len(new_names)
@@ -179,8 +137,13 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                     new_names[i] = f"Aux_{i}"
                 names = new_names
                 nc = max_id + 1
-                mean_dims = _rekey_dims(mean_dims, names)
-                std_dims = _rekey_dims(std_dims, names)
+                # Rekey dims: convert string-keyed to integer-keyed using class names
+                for dims_dict in (mean_dims, std_dims):
+                    if dims_dict:
+                        int_keyed = {cid: dims_dict.get(cname) for cid, cname in names.items() if cname in dims_dict}
+                        if int_keyed:
+                            fallback = next(iter(int_keyed.values()))
+                            dims_dict.update({cid: fallback for cid in names if cid not in int_keyed})
                 LOGGER.info("s3d: auto-expanded nc=%d → nc=%d from label classes", n_real, nc)
 
         # Return a dict compatible with BaseTrainer expectations, plus stereo descriptors
