@@ -323,9 +323,7 @@ class Stereo3DDetValidator(BaseValidator):
         self.std_dims = _parse_dims(std_dims_raw)
         if self.mean_dims is None:
             LOGGER.info("No mean_dims in dataset config, will use defaults")
-        if self.std_dims is not None:
-            LOGGER.info("Loaded std_dims with %d classes: %s", len(self.std_dims), list(self.std_dims.keys()))
-        else:
+        if self.std_dims is None:
             LOGGER.info("No std_dims in dataset config, will use defaults")
 
         # Build dataset→model class ID mapping when dataset has more classes than model.
@@ -343,7 +341,6 @@ class Stereo3DDetValidator(BaseValidator):
                     remap[int(did)] = model_name_to_id[dname]
             if remap:
                 self._dataset_to_model_cls = remap
-                LOGGER.info("Class ID remap (dataset→model): %s", remap)
 
         # Clear accumulated stats from previous validation epoch
         self.metrics.clear_stats()
