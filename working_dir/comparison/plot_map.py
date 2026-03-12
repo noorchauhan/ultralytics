@@ -24,16 +24,18 @@ def parse_map(log_path, pattern):
                 values.append(float(m.group(1)))
     return values
 
-deim_map      = parse_map(HERE / "deimv2_dinov3_l_coco.log", deim_pattern)
-repli_map     = parse_map(HERE / "deimv2_large_bs16.log", deim_pattern)
-ult_map       = parse_map(HERE / "output.log", ult_pattern)
-ult_bs16_map  = parse_map(HERE / "output_bs16.log", ult_pattern)
+deim_map         = parse_map(HERE / "deimv2_dinov3_l_coco.log", deim_pattern)
+repli_map        = parse_map(HERE / "deimv2_large_bs16.log", deim_pattern)
+ult_map          = parse_map(HERE / "output.log", ult_pattern)
+ult_bs16_map     = parse_map(HERE / "output_bs16.log", ult_pattern)
+ult_cocoeval_map = parse_map(HERE / "output_coco_eval.log", deim_pattern)
 
 for label, vals in [
-    ("DEIM (original)",         deim_map),
-    ("DEIM (replication bs16)", repli_map),
-    ("Ultralytics",             ult_map),
-    ("Ultralytics bs16",        ult_bs16_map),
+    ("DEIM (original)",              deim_map),
+    ("DEIM (replication bs16)",      repli_map),
+    ("Ultralytics",                  ult_map),
+    ("Ultralytics bs16",             ult_bs16_map),
+    ("Ultralytics COCO eval",        ult_cocoeval_map),
 ]:
     best = max(vals)
     print(f"{label}: {len(vals)} epochs, best={best:.4f} @ ep{vals.index(best)}, final={vals[-1]:.4f}")
@@ -45,13 +47,15 @@ OFFSET = 0.003
 ult_map_shifted      = [v + OFFSET for v in ult_map]
 ult_bs16_map_shifted = [v + OFFSET for v in ult_bs16_map]
 
-COLORS = {"deim": "#1f77b4", "repli": "#2ca02c", "ult": "#ff7f0e", "ult_bs16": "#d62728"}
+COLORS = {"deim": "#1f77b4", "repli": "#2ca02c", "ult": "#ff7f0e", "ult_bs16": "#d62728", "ult_cocoeval": "#9467bd"}
 
+# Toggle any series by commenting out its line
 series = [
-    (deim_map,             COLORS["deim"],     "Original DEIMv2 repo (deimv2_dinov3_l_coco.log)"),
-    (repli_map,            COLORS["repli"],    "DEIMv2 repo replication bs16 (deimv2_large_bs16.log)"),
-    (ult_map_shifted,      COLORS["ult"],      "Ultralytics training (output.log)"),
-    (ult_bs16_map_shifted, COLORS["ult_bs16"], "Ultralytics training bs16 (output_bs16.log)"),
+    (deim_map,             COLORS["deim"],        "Original DEIMv2 repo (deimv2_dinov3_l_coco.log)"),
+    (repli_map,            COLORS["repli"],       "DEIMv2 repo replication bs16 (deimv2_large_bs16.log)"),
+    (ult_cocoeval_map,     COLORS["ult_cocoeval"],"Ultralytics COCO eval (output_coco_eval.log)"),
+    # (ult_map_shifted,      COLORS["ult"],         "Ultralytics training (output.log)"),
+    # (ult_bs16_map_shifted, COLORS["ult_bs16"],    "Ultralytics training bs16 (output_bs16.log)"),
 ]
 
 for vals, color, label in series:
