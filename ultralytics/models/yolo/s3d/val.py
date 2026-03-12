@@ -11,9 +11,9 @@ import torch
 from ultralytics.data.stereo.box3d import Box3D
 from ultralytics.data.stereo.calib import CalibrationParameters
 from ultralytics.models.yolo.s3d.preprocess import (
-    preprocess_stereo_batch,
     compute_letterbox_params,
     decode_and_refine_predictions,
+    preprocess_stereo_batch,
 )
 from ultralytics.models.yolo.s3d.metrics import (
     DIFFICULTY_EASY,
@@ -25,7 +25,6 @@ from ultralytics.models.yolo.s3d.metrics import (
 from ultralytics.utils import LOGGER, RANK
 from ultralytics.utils.metrics import DetMetrics, box_iou, compute_3d_iou
 from ultralytics.utils.plotting import plot_stereo3d_boxes
-
 from ultralytics.engine.validator import BaseValidator
 
 
@@ -104,40 +103,6 @@ def compute_3d_iou_batch(pred_boxes: list[Box3D], gt_boxes: list[Box3D], eps: fl
             iou_matrix[i, j] = compute_3d_iou(pred_boxes[i], gt_boxes[j], eps=eps)
 
     return iou_matrix
-
-
-def _labels_to_box3d_list(
-    labels: list[dict[str, Any]], calib: dict[str, float] | None = None, names: dict[int, str] | None = None
-) -> list[Box3D]:
-    """Convert label dictionaries to Box3D objects.
-
-    Delegates to Box3D.from_label() for 3D reconstruction.
-
-    Args:
-        labels: List of label dictionaries from dataset.
-        calib: Calibration parameters dict.
-        names: Class names mapping {class_id: class_name}.
-
-    Returns:
-        List of Box3D objects.
-    """
-    if names is None:
-        raise ValueError("class_names mapping must be provided")
-
-    # Convert calib to dict if CalibrationParameters
-    calib_dict = calib.to_dict() if hasattr(calib, "to_dict") else calib
-
-    # Determine image_hw for disparity fallback
-    if calib is not None:
-        image_hw = (int(calib.get("image_height", 375)), int(calib.get("image_width", 1242)))
-    else:
-        image_hw = (375, 1242)
-
-    return [
-        b
-        for lab in labels
-        if (b := Box3D.from_label(lab, calib_dict, class_names=names, image_hw=image_hw)) is not None
-    ]
 
 
 class Stereo3DDetValidator(BaseValidator):
@@ -380,10 +345,17 @@ class Stereo3DDetValidator(BaseValidator):
                     calib = _reverse_letterbox_calib(calib, letterbox_scale, pad_left, pad_top, actual_w, actual_h)
                     in_h, in_w = (imgsz, imgsz) if isinstance(imgsz, int) else (int(imgsz[0]), int(imgsz[1]))
 
-            # Convert labels to Box3D. Use data_names (all classes) for from_label since
-            # label dicts carry dataset class IDs, then remap to model class IDs.
+            # Convert labels to Box3D
             data_names = self.data.get("names") if hasattr(self, "data") and self.data else self.names
-            gt_boxes = _labels_to_box3d_list(labels, calib, data_names)
+            calib_dict = calib.to_dict() if hasattr(calib, "to_dict") else calib
+            image_hw = (
+                (int(calib.get("image_height", 375)), int(calib.get("image_width", 1242))) if calib else (375, 1242)
+            )
+            gt_boxes = [
+                b
+                for lab in labels
+                if (b := Box3D.from_label(lab, calib_dict, class_names=data_names, image_hw=image_hw)) is not None
+            ]
 
             # Remap GT class IDs from dataset space to model space and drop unmapped classes
             if self._dataset_to_model_cls:
@@ -688,10 +660,11 @@ class Stereo3DDetValidator(BaseValidator):
             calib_orig = _reverse_letterbox_calib(calib, letterbox_scale, pad_left, pad_top, actual_w, actual_h)
 
             # Convert labels to Box3D for ground truth
-            # Use original calibration, pass letterbox parameters for bbox_2d conversion
-            gt_boxes = []
-            if labels:
-                gt_boxes = _labels_to_box3d_list(labels, calib_orig, self.names)
+            gt_boxes = (
+                [b for lab in labels if (b := Box3D.from_label(lab, calib_orig, class_names=self.names)) is not None]
+                if labels
+                else []
+            )
 
             # Filter out predictions with confidence == 0 or below threshold before visualization
             if pred_boxes:
