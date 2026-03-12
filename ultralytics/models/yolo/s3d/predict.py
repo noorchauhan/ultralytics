@@ -10,23 +10,16 @@ import numpy as np
 import torch
 
 from ultralytics.data.augment import LetterBox
-from ultralytics.data.stereo.box3d import Box3D
 from ultralytics.data.stereo.calib import CalibrationParameters, load_kitti_calibration
 from ultralytics.engine.results import Results
 from ultralytics.models.yolo.detect import DetectionPredictor
 
-from ultralytics.models.yolo.s3d.preprocess import (
-    decode_and_refine_predictions,
-    preprocess_stereo_images,
-)
+from ultralytics.models.yolo.s3d.preprocess import decode_and_refine_predictions, preprocess_stereo_images
 from ultralytics.utils import LOGGER, YAML
 from ultralytics.utils.checks import check_imgsz
 
 
-def load_stereo_pair(
-    left_path: str | Path,
-    right_path: str | Path,
-) -> tuple[np.ndarray, np.ndarray]:
+def load_stereo_pair(left_path: str | Path, right_path: str | Path) -> tuple[np.ndarray, np.ndarray]:
     """Load stereo image pair (left and right images).
 
     Args:
@@ -59,9 +52,7 @@ def load_stereo_pair(
 
     # Verify images have the same size
     if left_img.shape != right_img.shape:
-        raise ValueError(
-            f"Image size mismatch: left {left_img.shape} vs right {right_img.shape}"
-        )
+        raise ValueError(f"Image size mismatch: left {left_img.shape} vs right {right_img.shape}")
 
     return left_img, right_img
 
@@ -86,21 +77,22 @@ class Stereo3DDetPredictor(DetectionPredictor):
             overrides = {}
         if "task" not in overrides:
             overrides["task"] = "s3d"
-        
+
         # Use DEFAULT_CFG if cfg is None (BasePredictor expects this)
         from ultralytics.utils import DEFAULT_CFG
+
         if cfg is None:
             cfg = DEFAULT_CFG
-        
+
         super().__init__(cfg, overrides, _callbacks)
         self.args.task = "s3d"
         # Store calibration parameters for each image
         self.calib_params: dict[str, CalibrationParameters] = {}
-        
+
         # Initialize letterbox transformer (same as dataset)
         # Will be updated in setup_source when imgsz is checked
         self._letterbox = None
-        
+
         # Mean and std dimensions for decoding (from dataset config)
         if isinstance(self.data, (str, Path)):
             from ultralytics.utils.checks import check_yaml
@@ -137,11 +129,11 @@ class Stereo3DDetPredictor(DetectionPredictor):
             source: Input source(s) for prediction.
         """
         self.imgsz = check_imgsz(self.args.imgsz, stride=self.model.stride, min_dim=2)  # check image size
-        
+
         # Initialize letterbox transformer (same as dataset)
         # Use the same parameters: auto=False, scale_fill=False, scaleup=True, stride=32
         self._letterbox = LetterBox(new_shape=self.imgsz, auto=False, scale_fill=False, scaleup=True, stride=32)
-        
+
         if source is None:
             source = self.args.source
 
@@ -169,8 +161,7 @@ class Stereo3DDetPredictor(DetectionPredictor):
                 stereo_pairs = [source]
             else:
                 raise ValueError(
-                    f"Invalid source format. Expected (left_path, right_path) or "
-                    f"[(left1, right1), ...], got: {source}"
+                    f"Invalid source format. Expected (left_path, right_path) or [(left1, right1), ...], got: {source}"
                 )
         else:
             raise ValueError(f"Invalid source type: {type(source)}")
@@ -198,14 +189,24 @@ class Stereo3DDetPredictor(DetectionPredictor):
                     LOGGER.warning(f"Failed to load calibration from {calib_path}: {e}")
                     # Use default calibration
                     self.calib_params[str(left_path)] = CalibrationParameters(
-                        fx=721.5377, fy=721.5377, cx=609.5593, cy=172.8540,
-                        baseline=0.54, image_width=stereo_img.shape[1], image_height=stereo_img.shape[0]
+                        fx=721.5377,
+                        fy=721.5377,
+                        cx=609.5593,
+                        cy=172.8540,
+                        baseline=0.54,
+                        image_width=stereo_img.shape[1],
+                        image_height=stereo_img.shape[0],
                     )
             else:
                 # Use default calibration
                 self.calib_params[str(left_path)] = CalibrationParameters(
-                    fx=721.5377, fy=721.5377, cx=609.5593, cy=172.8540,
-                    baseline=0.54, image_width=stereo_img.shape[1], image_height=stereo_img.shape[0]
+                    fx=721.5377,
+                    fy=721.5377,
+                    cx=609.5593,
+                    cy=172.8540,
+                    baseline=0.54,
+                    image_width=stereo_img.shape[1],
+                    image_height=stereo_img.shape[0],
                 )
 
         # Set up dataset-like structure for BasePredictor
@@ -215,12 +216,16 @@ class Stereo3DDetPredictor(DetectionPredictor):
                 self.stereo_pairs = stereo_pairs
                 self.bs = len(stereo_pairs)  # batch size
                 self.mode = "image"  # Stereo pairs are image files
-                self.source_type = type("SourceType", (), {
-                    "stream": False,
-                    "tensor": False,
-                    "screenshot": False,
-                    "from_img": False,
-                })()
+                self.source_type = type(
+                    "SourceType",
+                    (),
+                    {
+                        "stream": False,
+                        "tensor": False,
+                        "screenshot": False,
+                        "from_img": False,
+                    },
+                )()
 
             def __iter__(self):
                 # Yield batch as (paths, im0s, s) tuple
@@ -283,13 +288,15 @@ class Stereo3DDetPredictor(DetectionPredictor):
                 calib = self.calib_params.get(img_path)
                 if calib is not None:
                     if isinstance(calib, CalibrationParameters):
-                        calibs.append({
-                            "fx": calib.fx,
-                            "fy": calib.fy,
-                            "cx": calib.cx,
-                            "cy": calib.cy,
-                            "baseline": calib.baseline,
-                        })
+                        calibs.append(
+                            {
+                                "fx": calib.fx,
+                                "fy": calib.fy,
+                                "cx": calib.cx,
+                                "cy": calib.cy,
+                                "baseline": calib.baseline,
+                            }
+                        )
                     else:
                         calibs.append(calib)
 
