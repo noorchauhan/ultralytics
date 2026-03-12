@@ -1,0 +1,97 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# Ultralytics RT-DETR (DINOv2-s) with STA dual-path fusion and DEIMv2-large-like encoder+decoder settings
+# DINOv2 backbone loaded via timm (vit_small_patch14_reg4_dinov2); STA detail path uses explicit binding pattern.
+# NOTE: use imgsz that is a multiple of 224 (recommended: 672 ≈ 640, or 448) for exact spatial alignment
+#       between DINOv2 (patch14, stride-14) features and STA (stride 8/16/32) feature maps.
+#       P3 needs lcm(14,8)=56, P4 needs lcm(14,16)=112, P5 needs lcm(14,32)=224 → use 224.
+#       Scale factors 1.75 / 0.875 / 0.4375 = 14/8 : 14/16 : 14/32.
+#       At 672: DINOv2 → 48×48 patches → ×1.75=84 (P3), ×0.875=42 (P4), ×0.4375=21 (P5). All exact.
+# Model docs: https://docs.ultralytics.com/models/rtdetr
+# Task docs: https://docs.ultralytics.com/tasks/detect
+
+# Parameters
+nc: 80 # number of classes
+
+backbone:
+  # [from, repeats, module, args]
+  # Keep raw image as a stable anchor so both semantic and detail paths can read it.
+  - [-1, 1, nn.Identity, []] # 0 image
+
+  # Semantic path (DINOv2 features from timm)
+  # Timm args: [out_ch, model_name, pretrained, out_indices, split]
+  # No imgsz arg: DINOv2 interpolates positional embeddings dynamically → accepts any input size.
+  - [0, 1, Timm, [None, vit_small_patch14_reg4_dinov2.lvd142m, True, [5, 8, 11], True]] # 1
+  - [1, 1, Index, [384, 1]] # 2 sem early (block 5)
+  - [1, 1, Index, [384, 2]] # 3 sem mid   (block 8)
+  - [1, 1, Index, [384, 3]] # 4 sem late  (block 11)
+
+  # Scale alignment: DINOv2 patch14 (stride-14) → P3/P4/P5 (stride 8/16/32)
+  # Bilinear semantic alignment (exact integer dims when imgsz is a multiple of 224, e.g. 672, 448).
+  - [2, 1, nn.Upsample, [None, 1.75,   "bilinear", False]] # 5 sem → P3 scale (H/14 × 1.75 = H/8)
+  - [3, 1, nn.Upsample, [None, 0.875,  "bilinear", False]] # 6 sem → P4 scale (H/14 × 0.875 = H/16)
+  - [4, 1, nn.Upsample, [None, 0.4375, "bilinear", False]] # 7 sem → P5 scale (H/14 × 0.4375 = H/32)
+
+  # Detail path (STA): stride-based CNN pyramid, independent of ViT patch size
+  - [0, 1, SpatialPriorModulev2, [16]] # 8  → [P3=32ch, P4=64ch, P5=64ch]
+  - [8, 1, Index, [32, 0]] # 9  detail P3
+  - [8, 1, Index, [64, 1]] # 10 detail P4
+  - [8, 1, Index, [64, 2]] # 11 detail P5
+
+  # Fusion + projection back to 384 channels per scale
+  - [[5, 9],  1, Concat, [1]] # 12 fused P3 (384+32 = 416 ch)
+  - [-1,      1, Conv,   [384, 1, 1]] # 13 fused P3 proj
+  - [[6, 10], 1, Concat, [1]] # 14 fused P4 (384+64 = 448 ch)
+  - [-1,      1, Conv,   [384, 1, 1]] # 15 fused P4 proj
+  - [[7, 11], 1, Concat, [1]] # 16 fused P5 (384+64 = 448 ch)
+  - [-1,      1, Conv,   [384, 1, 1]] # 17 fused P5 proj
+
+head:
+  # DEIMv2-large-like HybridEncoder head: input_proj + AIFI + FPN/PAN.
+  - [17, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 18 input_proj.2
+  - [-1, 1, AIFI, [896, 8]]                        # 19
+  - [-1, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 20 Y5, lateral_convs.0
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]    # 21
+  - [15, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 22 input_proj.1
+  - [[-2, -1], 1, Add, []]                         # 23
+  - [-1, 1, RepNCSPELAN5, [224, 448, 112, 3]]      # 24 fpn_blocks.0
+  - [-1, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 25 Y4, lateral_convs.1
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]    # 26
+  - [13, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 27 input_proj.0
+  - [[-2, -1], 1, Add, []]                         # 28
+  - [-1, 1, RepNCSPELAN5, [224, 448, 112, 3]]      # 29 X3, fpn_blocks.1
+
+  - [-1, 1, SCDown, [224, 3, 2, False]]            # 30 downsample_convs.0
+  - [[-1, 25], 1, Add, []]                         # 31
+  - [-1, 1, RepNCSPELAN5, [224, 448, 112, 3]]      # 32 F4, pan_blocks.0
+
+  - [-1, 1, SCDown, [224, 3, 2, False]]            # 33 downsample_convs.1
+  - [[-1, 20], 1, Add, []]                         # 34
+  - [-1, 1, RepNCSPELAN5, [224, 448, 112, 3]]      # 35 F5, pan_blocks.1
+
+  # DeimDecoder (DEIMv2-large defaults explicitly set in YAML)
+  # Args: [nc, hd, nq, ndp, nh, ndl, d_ffn, dropout, act, eval_idx, nd, label_noise_ratio, box_noise_scale,
+  #        learnt_init_query, enable_cuda_acceleration, one_to_many_groups, dab_sine_embedding,
+  #        efficient_msdeformable_attn, query_select_method, reg_max, reg_scale, layer_scale, mlp_act,
+  #        o2m_topk_mode, use_gateway, share_bbox_head, share_score_head]
+  - [[29, 32, 35], 1, DeimDecoder, [nc, 224, 300, [3, 6, 3], 8, 4, 1792, 0.0, "silu", -1, 100, 0.5, 1.0, False, False, 0, False, False, "default", 32, 4.0, 1.0, "silu", "unshared", True, False, False]]
+
+loss:
+  gamma: 1.5
+  alpha: 0.75
+  use_fl: False
+  use_vfl: False
+  use_mal: True
+  use_union_set: True
+  reg_max: 32
+  loss_gain: {class: 1, bbox: 5, giou: 2, fgl: 0.15, ddf: 1.5}
+  matcher:
+    cost_gain: {class: 2, bbox: 5, giou: 2}
+    use_fl: True
+    alpha: 0.25
+    gamma: 2.0
+    change_matcher: True
+    iou_order_alpha: 4.0
+    matcher_change_epoch: 50

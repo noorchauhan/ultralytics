@@ -1815,6 +1815,8 @@ class Timm(nn.Module):
         kwargs = {}
         if imgsz is not None:
             kwargs['img_size'] = imgsz
+        if 'vit' in model.lower():
+            kwargs['dynamic_img_size'] = True
         self.m = timm.create_model(
             model,
             pretrained=pretrained,
