@@ -134,7 +134,7 @@ The storage card shows:
 
 !!! tip "Recalculate Storage"
 
-    If your storage numbers seem incorrect, click the **Recalculate** button on the storage card to recompute usage from the database.
+    To refresh your storage values, click the **Recalculate** button on the storage card.
 
 #### Storage Limits
 
