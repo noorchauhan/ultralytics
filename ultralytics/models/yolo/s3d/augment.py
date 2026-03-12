@@ -379,32 +379,6 @@ class StereoLabels:
             self.calibration["height"] = new_h
         return self
 
-    def swap_left_right_bboxes(self) -> "StereoLabels":
-        """Swap left and right bboxes (used after horizontal flip with view swap).
-
-        Returns:
-            Self for method chaining.
-        """
-        if self.has_instances() and self.instances.right_bboxes is not None:
-            left = self.instances.bboxes.copy()
-            right = self.instances.right_bboxes.copy()
-            self.instances._bboxes.bboxes[:] = right
-            self.instances.right_bboxes = left
-        return self
-
-    def mirror_location_3d(self, baseline: float) -> "StereoLabels":
-        """Mirror 3D location x-coordinate (used after horizontal flip with view swap).
-
-        Args:
-            baseline: Stereo baseline distance.
-
-        Returns:
-            Self for method chaining.
-        """
-        if self.has_instances() and self.instances.location_3d is not None:
-            self.instances.location_3d[:, 0] = baseline - self.instances.location_3d[:, 0]
-        return self
-
     def regenerate_2d_bboxes_from_3d(self, image_size: Tuple[int, int]) -> "StereoLabels":
         """Regenerate 2D bboxes by projecting 3D boxes to both cameras.
 

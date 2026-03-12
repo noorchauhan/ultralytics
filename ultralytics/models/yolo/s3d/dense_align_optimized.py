@@ -466,33 +466,6 @@ class DenseAlignmentOptimized:
         
         return float(best_z)
     
-    def refine_depth_batch(
-        self,
-        left_img: np.ndarray,
-        right_img: np.ndarray,
-        boxes3d_init: list[dict],
-        calib: dict,
-    ) -> list[float]:
-        """Refine depth for multiple 3D boxes (optimized).
-        
-        Convenience method that applies optimize refine_depth to each box.
-        """
-        self._set_calibration(calib)
-        
-        # Pre-convert to grayscale once (big optimization!)
-        if len(left_img.shape) == 3 and left_img.shape[2] == 3:
-            left_img_gray = cv2.cvtColor(left_img, cv2.COLOR_BGR2GRAY).astype(np.float32)
-            right_img_gray = cv2.cvtColor(right_img, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        else:
-            left_img_gray = left_img.astype(np.float32)
-            right_img_gray = right_img.astype(np.float32)
-        
-        return [
-            self.refine_depth(left_img_gray, right_img_gray, box, calib)
-            for box in boxes3d_init
-        ]
-
-
 def create_dense_alignment_optimized(config: dict) -> Optional[DenseAlignmentOptimized]:
     """Create DenseAlignmentOptimized instance from configuration dictionary.
     
