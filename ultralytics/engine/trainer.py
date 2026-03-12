@@ -61,7 +61,8 @@ from ultralytics.utils.torch_utils import (
     unset_deterministic,
     unwrap_model,
 )
-from ultralytics.nn.distill_model import DistillationModel
+from ultralytics.nn.distill_model import DistillationModel as DistillationModelStd
+from ultralytics.nn.distill_model_ema import DistillationModel as DistillationModelEMA
 from ultralytics.nn.cotrain_model import CoTrainingModel
 
 
@@ -295,7 +296,7 @@ class BaseTrainer:
         )
         always_freeze_names = [".dfl"]  # always freeze these layers
         freeze_layer_names = [f"model.{x}." for x in freeze_list] + always_freeze_names
-        if isinstance(model_ref, DistillationModel):
+        if isinstance(model_ref, DistillationModelStd):
             freeze_layer_names.append("teacher_model.")
         # CoTrainingModel: do NOT freeze teacher (both models train)
         self.freeze_layer_names = freeze_layer_names
@@ -323,9 +324,19 @@ class BaseTrainer:
         self.scaler = (
             torch.amp.GradScaler("cuda", enabled=self.amp) if TORCH_2_4 else torch.cuda.amp.GradScaler(enabled=self.amp)
         )
-        if self.args.distill_model is not None and not isinstance(unwrap_model(self.model), DistillationModel):
-            # Only wrap with DistillationModel if not already wrapped (e.g., when resuming from checkpoint)
-            self.model = DistillationModel(
+        distill_ema_mode = isinstance(self.args.distill_model, str) and self.args.distill_model.strip().lower() == "ema"
+        model_ref = unwrap_model(self.model)
+        already_wrapped = isinstance(model_ref, (DistillationModelStd, DistillationModelEMA, CoTrainingModel))
+        if distill_ema_mode and not already_wrapped:
+            # Only wrap with EMA DistillationModel if not already wrapped (e.g., when resuming from checkpoint)
+            self.model = DistillationModelEMA(
+                student_model=self.model,
+                teacher_model="ema",
+                feats_idx=self.args.distill_layer,
+            ).to(self.device)
+        elif self.args.distill_model is not None and not distill_ema_mode and not already_wrapped:
+            # Only wrap with external-teacher DistillationModel if not already wrapped (e.g., when resuming)
+            self.model = DistillationModelStd(
                 student_model=self.model,
                 teacher_model=self.args.distill_model,
                 feats_idx=self.args.distill_layer,
@@ -403,6 +414,7 @@ class BaseTrainer:
         )
         self.validator = self.get_validator()
         self.ema = ModelEMA(self.model)
+        self._refresh_ema_teacher_if_needed()
         if RANK in {-1, 0}:
             metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix="val")
             self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))
@@ -455,7 +467,7 @@ class BaseTrainer:
         while True:
             self.epoch = epoch
             model_ref = unwrap_model(self.model)
-            if isinstance(model_ref, (DistillationModel, CoTrainingModel)):
+            if isinstance(model_ref, (DistillationModelStd, DistillationModelEMA, CoTrainingModel)):
                 model_ref._set_epoch_progress(self.epoch, self.epochs)
             self.run_callbacks("on_train_epoch_start")
             with warnings.catch_warnings():
@@ -493,6 +505,7 @@ class BaseTrainer:
                 # Forward
                 with autocast(self.amp):
                     batch = self.preprocess_batch(batch)
+                    self._refresh_ema_teacher_if_needed()
                     if self.args.compile:
                         # Decouple inference and loss calculations for improved compile performance
                         preds = self.model(batch["img"])
@@ -669,7 +682,10 @@ class BaseTrainer:
         """Set model in training mode."""
         self.model.train()
         model_ref = unwrap_model(self.model)
-        if isinstance(model_ref, DistillationModel):
+        if isinstance(model_ref, DistillationModelEMA):
+            self._refresh_ema_teacher_if_needed()
+            model_ref._freeze_teacher()
+        elif isinstance(model_ref, DistillationModelStd):
             model_ref.teacher_model.eval()
             for p in model_ref.teacher_model.parameters():
                 if p.requires_grad:
@@ -679,6 +695,17 @@ class BaseTrainer:
         for n, m in self.model.named_modules():
             if any(filter(lambda f: f in n, self.freeze_layer_names)) and isinstance(m, nn.BatchNorm2d):
                 m.eval()
+
+    def _refresh_ema_teacher_if_needed(self):
+        """Bind EMA student branch as distillation teacher for EMA distillation wrapper."""
+        model_ref = unwrap_model(self.model)
+        if not isinstance(model_ref, DistillationModelEMA):
+            return
+        if not self.ema or getattr(self.ema, "ema", None) is None:
+            return
+        ema_ref = unwrap_model(self.ema.ema)
+        teacher_model = getattr(ema_ref, "student_model", ema_ref)
+        model_ref.set_ema_teacher(teacher_model)
 
     @staticmethod
     def _parse_cuda_device_ids(device, arg_name="device"):

@@ -1,0 +1,585 @@
+import math
+import weakref
+
+import torch
+import torch.nn.functional as F
+from torch import nn
+
+from ultralytics.utils import nms as nms_utils
+from ultralytics.utils.metrics import bbox_iou
+from ultralytics.utils.tal import dist2bbox, make_anchors
+from ultralytics.utils.torch_utils import copy_attr
+
+
+class DistillationModel(nn.Module):
+    """Distillation model wrapper.
+    Currently only supports feature-based distillation with a single feature index on YOLO models.
+    """
+
+    def __init__(self, teacher_model: str | nn.Module | None, student_model: nn.Module, feats_idx: int):
+        """Initialize DistillationModel."""
+        super().__init__()
+        if isinstance(feats_idx, int):
+            feats_idx = [feats_idx]
+        self._teacher_model_ref: weakref.ReferenceType | None = None
+        if isinstance(teacher_model, nn.Module):
+            self.set_ema_teacher(teacher_model)
+        elif teacher_model is None:
+            pass
+        elif isinstance(teacher_model, str) and teacher_model.lower() == "ema":
+            pass
+        else:
+            raise ValueError(
+                f"EMA distillation only supports teacher_model='ema' or None, but got {teacher_model!r}."
+            )
+        self.student_model = student_model
+        self.feats_idx = feats_idx
+        device = next(student_model.parameters()).device
+        # get the feature dimensions
+        with torch.inference_mode():
+            student_output = student_model(torch.zeros(1, 3, 256, 256).to(device), embed=feats_idx, direct_return=True)
+        copy_attr(self, student_model)
+        self.distill_box_loss = self.student_model.args.distill_box_loss
+        self.distill_cls_loss = self.student_model.args.distill_cls_loss
+        self.distill_feature_loss = self.student_model.args.distill_feature_loss
+        self.distill_box = self.student_model.args.distill_box
+        self.distill_cls = self.student_model.args.distill_cls
+        self.distill_feature = self.student_model.args.distill_feature
+        self.cur_epoch = 0
+        self.total_epochs = max(int(getattr(self.student_model.args, "epochs", 1) or 1), 1)
+        if self.distill_feature_loss:
+            projectors = []
+            for student_out in student_output:
+                student_dim = self.decouple_outputs(student_out, shape_check=True).shape[1]
+                teacher_dim = student_dim
+                if self.student_model.args.distill_projector == "linear":
+                    projectors.append(nn.Conv2d(student_dim, teacher_dim, kernel_size=1, stride=1, padding=0))
+                elif self.student_model.args.distill_projector == "mlp_silu":
+                    projectors.append(
+                        nn.Sequential(
+                            nn.Conv2d(student_dim, teacher_dim, kernel_size=1, stride=1, padding=0),
+                            nn.SiLU(),
+                            nn.Conv2d(teacher_dim, teacher_dim, kernel_size=1, stride=1, padding=0),
+                        )
+                    )
+                elif self.student_model.args.distill_projector == "identity":
+                    projectors.append(nn.Identity())
+                else:
+                    projectors.append(
+                        nn.Sequential(
+                            nn.Conv2d(student_dim, teacher_dim, kernel_size=1, stride=1, padding=0),
+                            nn.ReLU(inplace=True),
+                            nn.Conv2d(teacher_dim, teacher_dim, kernel_size=1, stride=1, padding=0),
+                        )
+                    )
+            self.projector = nn.ModuleList(projectors)
+        if self.distill_feature_loss == "mgd":
+            generations = []
+            for student_out in student_output:
+                student_out = self.decouple_outputs(student_out)
+                if not isinstance(student_out, dict):
+                    teacher_dim = student_out.shape[1]
+                    generations.append(
+                        nn.Sequential(
+                            nn.Conv2d(teacher_dim, teacher_dim, kernel_size=3, padding=1),
+                            nn.SiLU(),
+                            nn.Conv2d(teacher_dim, teacher_dim, kernel_size=3, padding=1),
+                        )
+                    )
+            self.generation = nn.ModuleList(generations)
+        if self.distill_feature_loss == "cwd":
+            norms = []
+            for student_out in student_output:
+                student_out = self.decouple_outputs(student_out)
+                if not isinstance(student_out, dict):
+                    teacher_dim = student_out.shape[1]
+                    norms.append(nn.BatchNorm2d(teacher_dim, affine=False))
+            self.norm = nn.ModuleList(norms)
+        if self.distill_box or self.distill_cls or self.distill_feature_loss == "sl2":
+            if 23 not in self.feats_idx:
+                self.feats_idx = list(self.feats_idx)
+                self.feats_idx.append(23)
+                self.feats_idx = tuple(self.feats_idx)
+        self.distill_area = self.student_model.args.distill_area
+        self.distill_branch = self.student_model.args.distill_branch
+        self.distill_branch = self.student_model.args.distill_branch.split(",")
+        for branch in self.distill_branch:
+            assert branch in {"one2one", "one2many"}
+
+    def _set_epoch_progress(self, cur_epoch: int, total_epochs: int):
+        """Update cached epoch progress for distillation scheduling."""
+        self.cur_epoch = int(cur_epoch)
+        self.total_epochs = max(int(total_epochs), 1)
+
+    @property
+    def teacher_model(self):
+        """Expose currently bound EMA teacher (if any)."""
+        return self._get_teacher_model()
+
+    def _get_teacher_model(self, require: bool = False):
+        """Get EMA teacher model from weakref."""
+        teacher_model = self._teacher_model_ref() if self._teacher_model_ref is not None else None
+        if teacher_model is None and require:
+            raise RuntimeError(
+                "EMA teacher is not bound. Call `set_ema_teacher()` from trainer before computing distillation loss."
+            )
+        return teacher_model
+
+    def set_ema_teacher(self, teacher_model: nn.Module):
+        """Bind EMA student branch as current teacher."""
+        if teacher_model is None:
+            raise ValueError("teacher_model cannot be None when binding EMA teacher.")
+        self._teacher_model_ref = weakref.ref(teacher_model)
+        self._freeze_teacher()
+        return self
+
+    def __getstate__(self):
+        """Exclude runtime EMA teacher reference from checkpoints."""
+        state = super().__getstate__()
+        state["_teacher_model_ref"] = None
+        return state
+
+    def __setstate__(self, state):
+        """Restore module state and initialize optional EMA teacher reference."""
+        super().__setstate__(state)
+        if "_teacher_model_ref" not in self.__dict__:
+            self._teacher_model_ref = None
+
+    def _freeze_teacher(self):
+        """Keep teacher fixed for distillation."""
+        teacher_model = self._get_teacher_model()
+        if teacher_model is None:
+            return
+        teacher_model.eval()
+        for v in teacher_model.parameters():
+            if v.requires_grad:
+                v.requires_grad = False
+
+    def train(self, mode: bool = True):
+        """Set model train mode while keeping teacher frozen in eval mode."""
+        super().train(mode)
+        self._freeze_teacher()
+        return self
+
+    def _distill_feature_weight(self) -> float:
+        """Compute dynamic feature distillation weight from current epoch progress."""
+        epoch = max(int(self.total_epochs), 1)
+        cur_epoch = min(max(int(self.cur_epoch), 0), epoch)
+        return ((1 - math.cos(cur_epoch * math.pi / epoch)) / 2) * (0.1 - 1) + 1
+
+    def loss_kl(self, student_logits, teacher_logits, temperature: float = 5.0):
+        """The KL divergence loss for knowledge distillation."""
+        soft_targets = F.softmax(teacher_logits / temperature, dim=1)  # train does not have softmax
+        student_soft_logits = F.log_softmax(student_logits / temperature, dim=1)
+
+        # Distillation loss (Kullback-Leibler divergence)
+        distillation_loss = F.kl_div(student_soft_logits, soft_targets, reduction="mean") * (temperature**2)
+        # distillation_loss = distillation_loss / teacher_logits.shape[-1]  # divide the number of anchors
+        return distillation_loss
+
+    def forward(self, x, *args, **kwargs):
+        """Forward pass through the student model."""
+        if isinstance(x, dict):  # for cases of training and validating while training.
+            return self.loss(x, *args, **kwargs)
+        return self.student_model.predict(x, *args, **kwargs)
+        # y = []  # outputs
+        # sx = x.clone()
+        # for i, m in enumerate(self.student_model.model):
+        #     sx = m(sx)  # run
+        #     if i == 10:
+        #         sx = self.projector[0](sx.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+        #         break
+        # for i, m in enumerate(self.teacher_model.model):
+        #     if m.f != -1:  # if not from previous layer
+        #         x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+        #     x = m(x)  # run
+        #     if i == 10:
+        #         y.append(sx)
+        #     else:
+        #         y.append(x if m.i in self.save else None)  # save output
+        # return x
+    @staticmethod
+    def keep_local_max(x, kernel_size=3):
+        # max pooling
+        pooled = F.max_pool2d(
+            x, 
+            kernel_size=kernel_size, 
+            stride=1, 
+            padding=kernel_size//2
+        )
+        
+        # mask: only keep positions equal to local max
+        mask = (x == pooled)
+        
+        # keep max, others set to 0
+        out = x * mask
+
+        # max along channel dimension
+        out = out.max(dim=1, keepdim=True).values
+    
+        return out
+
+    def loss(self, batch, preds=None):
+        """
+        Compute loss.
+
+        Args:
+            batch (dict): Batch to compute loss on.
+            preds (torch.Tensor | list[torch.Tensor], optional): Predictions.
+        """
+        if not self.training:
+            preds = self.student_model(batch["img"])
+            regular_loss, regular_loss_detach = self.student_model.loss(batch, preds)
+            loss_distill = torch.zeros(1, device=batch["img"].device)
+            loss_distill_detach = torch.zeros(1, device=batch["img"].device)
+            return torch.cat([regular_loss, loss_distill]), torch.cat([regular_loss_detach, loss_distill_detach])
+
+        teacher_model = self._get_teacher_model(require=True)
+        with torch.inference_mode():
+            teacher_feats = teacher_model(batch["img"], embed=self.feats_idx, direct_return=True)
+        preds, feats = self.student_model(batch["img"], return_feats=True)
+
+        regular_loss, regular_loss_detach, targets = self.student_model.loss(batch, preds, return_targets=True)
+
+        loss_distill_cls = torch.zeros(1, device=batch["img"].device)
+        loss_distill_box = torch.zeros(1, device=batch["img"].device)
+        loss_distill_feature = torch.zeros(1, device=batch["img"].device)
+        if self.distill_feature_loss == "sl2" or self.distill_feature_loss == "scosine":
+            if self.student_model.args.sl2_score == "one2one":
+                teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"]
+                parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
+                teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
+            elif self.student_model.args.sl2_score == "one2many":
+                teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2many")["scores"]
+                parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
+                teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
+            elif self.student_model.args.sl2_score == "avg":
+                teacher_scores = (self.decouple_outputs(teacher_feats[-1], branch="one2many")["scores"] + self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"]) / 2
+                parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
+                teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
+            elif self.student_model.args.sl2_score == "o2m":
+                o2m, o2o = self.student_model.criterion.o2m, self.student_model.criterion.o2o
+                teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2many")["scores"] * o2m + self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"] * o2o
+                parts = torch.split(teacher_scores, [6400, 1600, 400], dim=-1)
+                teacher_scores = tuple(p.sigmoid().max(dim=1, keepdim=True).values for p in parts)
+            elif self.student_model.args.sl2_score == "local_max":
+                one2many_feats = self.decouple_outputs(teacher_feats[-1], branch="one2many")["scores"]
+                parts = torch.split(one2many_feats, [6400, 1600, 400], dim=-1)
+                one2many_scores = tuple(p.sigmoid() for p in parts)
+                kernel_sizes = (7, 5, 3)
+                teacher_scores = tuple(
+                    self.keep_local_max(t, k) for t, k in zip(one2many_scores, kernel_sizes)
+                )
+        if self.distill_box_loss == "siou":
+            teacher_scores = self.decouple_outputs(teacher_feats[-1], branch="one2one")["scores"]
+        feature_main_masking = self.distill_area == "main" and self.distill_feature_loss in {"l1", "l2"}
+        feature_fg_masks = None
+        if feature_main_masking:
+            feature_fg_masks = torch.split(targets["one2one"][0], [6400, 1600, 400], dim=-1)
+        feature_level_idx = 0
+        feature_weight = self.distill_feature
+        for i, feat_idx in enumerate(self.feats_idx):
+            # handle head ouput
+            teacher_feat = self.decouple_outputs(teacher_feats[i])
+            student_feat = self.decouple_outputs(feats[feat_idx])
+            assert isinstance(teacher_feat, type(student_feat)), (
+                f"Expect same type for teacher feature and student feature, but got teacher: {type(teacher_feat)} and student: {type(student_feat)}"
+            )
+            # means distill head, and the output shape should be exactly the same
+            if isinstance(teacher_feat, dict):
+                for branch in self.distill_branch:
+                    teacher_feat = self.decouple_outputs(teacher_feats[i], branch=branch)
+                    student_feat = self.decouple_outputs(feats[feat_idx], branch=branch)
+                    assert "boxes" in teacher_feat and "scores" in teacher_feat
+                    if self.distill_cls_loss:
+                        teacher_logits = teacher_feat["scores"]
+                        student_logits = student_feat["scores"]
+                        teacher_logits = teacher_logits.permute(0, 2, 1).contiguous()  # (bs, c, anchors) -> (bs, anchors, c)
+                        student_logits = student_logits.permute(0, 2, 1).contiguous()
+                        if self.distill_area == "main":
+                            fg_mask = targets[branch][0]
+                            teacher_logits = teacher_logits[fg_mask]  # (n, c)
+                            student_logits = student_logits[fg_mask]
+                        else:
+                            teacher_logits = teacher_logits.view(-1, teacher_logits.shape[-1])  # (bs, anchors, c) -> (bs*anchors, c)
+                            student_logits = student_logits.view(-1, student_logits.shape[-1])
+                        loss_distill_cls += self.cls_kd_loss(student_logits, teacher_logits) * self.distill_cls
+                    if self.distill_box_loss:
+                        teacher_boxes = teacher_feat["boxes"]
+                        student_boxes = student_feat["boxes"]
+                        if self.distill_box_loss in {"iou", "siou"}:
+                            anchor_points = targets[branch][3]
+                            teacher_boxes = teacher_boxes.permute(0, 2, 1).contiguous()  # (bs, c, anchors) -> (bs, anchors, c)
+                            student_boxes = student_boxes.permute(0, 2, 1).contiguous()
+                            teacher_score_weight = None
+                            if self.distill_box_loss == "siou":
+                                score_weight = teacher_scores.sigmoid().amax(dim=1, keepdim=True)
+                                teacher_score_weight = score_weight.permute(0, 2, 1).contiguous()
+                            if self.distill_area == "main":
+                                fg_mask = targets[branch][0]
+                                teacher_boxes = teacher_boxes[fg_mask]  # (n, c)
+                                student_boxes = student_boxes[fg_mask]
+                                anchor_points = anchor_points.unsqueeze(0).expand(fg_mask.shape[0], -1, -1)[fg_mask]
+                                if teacher_score_weight is not None:
+                                    teacher_score_weight = teacher_score_weight[fg_mask]
+                            loss_distill_box += self.box_kd_loss(student_boxes, teacher_boxes, anchor_points, teacher_score_weight) * self.distill_box
+                        else:
+                            if self.distill_area == "main":
+                                teacher_boxes = teacher_boxes.permute(0, 2, 1).contiguous()  # (bs, c, anchors) -> (bs, anchors, c)
+                                student_boxes = student_boxes.permute(0, 2, 1).contiguous()
+                                fg_mask = targets[branch][0]
+                                teacher_boxes = teacher_boxes[fg_mask]  # (n, c)
+                                student_boxes = student_boxes[fg_mask]
+                            loss_distill_box += self.box_kd_loss(student_boxes, teacher_boxes) * self.distill_box
+            else:
+                if self.distill_feature_loss:
+                    student_feat = (
+                        self.projector[i](student_feat)
+                        if student_feat.ndim == 4
+                        else student_feat
+                    )
+                    if feature_main_masking:
+                        fg_mask = feature_fg_masks[feature_level_idx]
+                        feature_level_idx += 1
+                        _, _, h, w = student_feat.shape
+                        if fg_mask.any():
+                            student_feat = student_feat.permute(0, 2, 3, 1).reshape(student_feat.shape[0], h * w, -1)[fg_mask]
+                            teacher_feat = teacher_feat.permute(0, 2, 3, 1).reshape(teacher_feat.shape[0], h * w, -1)[fg_mask]
+                        else:
+                            continue
+                    if self.distill_feature_loss == "sl2" or self.distill_feature_loss == "scosine":
+                        loss_distill_feature += self.feature_kd_loss(student_feat, teacher_feat, feat_idx=i, teacher_scores=teacher_scores) * feature_weight
+                    else:
+                        loss_distill_feature += self.feature_kd_loss(student_feat, teacher_feat, feat_idx=i) * feature_weight
+
+        loss_distill_detach = (loss_distill_cls + loss_distill_box + loss_distill_feature).detach()
+        batch_size = batch["img"].shape[0]
+        loss_distill = loss_distill_cls + loss_distill_box + loss_distill_feature
+        return torch.cat([regular_loss, loss_distill]), torch.cat([regular_loss_detach, loss_distill_detach])
+
+    def loss_cosine(self, student_feat, teacher_feat):
+        """Compute cosine similarity loss between teacher and student features."""
+        if student_feat.ndim == 4:
+            student_feat = student_feat.flatten(2).permute(0, 2, 1)
+        if teacher_feat.ndim == 4:
+            teacher_feat = teacher_feat.flatten(2).permute(0, 2, 1)
+        student_feat = F.normalize(student_feat, p=2, dim=-1)
+        teacher_feat = F.normalize(teacher_feat, p=2, dim=-1)
+        cos_sim = F.cosine_similarity(student_feat, teacher_feat, dim=-1)
+        loss = (1 - cos_sim).mean()
+        return loss
+
+    def loss_mgd(self, student_feat, teacher_feat, lambda_mgd=0.65, feat_idx=0):
+        loss_mse = nn.MSELoss(reduction='sum')
+        N, C, H, W = teacher_feat.shape
+
+        device = student_feat.device
+        mat = torch.rand((N, 1, H, W)).to(device)
+        mat = torch.where(mat > 1 - lambda_mgd, 0, 1).to(device)
+
+        masked_fea = torch.mul(student_feat, mat)
+        new_fea = self.generation[feat_idx](masked_fea)
+
+        dis_loss = loss_mse(new_fea, teacher_feat) / N
+        return dis_loss
+
+    def loss_cwd(self, student_feat, teacher_feat, feat_idx=0, temperature: float = 1.0):
+        student_feat = self.norm[feat_idx](student_feat)
+        teacher_feat = self.norm[feat_idx](teacher_feat)
+
+        N, C, H, W = teacher_feat.shape
+        softmax_pred_T = F.softmax(teacher_feat.view(-1, W * H) / temperature, dim=1)  # [N*C, H*W]
+        logsoftmax = torch.nn.LogSoftmax(dim=1)
+        cost = torch.sum(
+            softmax_pred_T * logsoftmax(teacher_feat.view(-1, W * H) / temperature) -
+            softmax_pred_T * logsoftmax(student_feat.view(-1, W * H) / temperature)) * (temperature**2)
+
+        dis_loss = cost / (N * C)
+        return dis_loss
+
+    def loss_sl2(self, student_feat, teacher_feat, feat_idx=0, teacher_scores=None):
+        teacher_score = teacher_scores[feat_idx].to(dtype=torch.float32)
+        teacher_score = torch.nan_to_num(teacher_score, nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
+        N, C, H, W = student_feat.shape
+        student_feat = student_feat.view(N, C, -1).float()
+        teacher_feat = teacher_feat.view(N, C, -1).float()
+        student_feat = F.normalize(student_feat, p=2, dim=1)
+        teacher_feat = F.normalize(teacher_feat, p=2, dim=1)
+        dis_loss = F.mse_loss(student_feat, teacher_feat, reduction='none')
+        dis_loss = torch.nan_to_num(dis_loss, nan=0.0, posinf=0.0, neginf=0.0)
+        dis_loss = dis_loss * teacher_score
+        dis_loss = dis_loss.sum() / (teacher_score.sum().clamp_min(1e-9) * C)
+        return torch.nan_to_num(dis_loss, nan=0.0, posinf=0.0, neginf=0.0)
+
+    def loss_s_cosine(self, student_feat, teacher_feat, feat_idx=0, teacher_scores=None):
+        teacher_score = teacher_scores[feat_idx].to(dtype=torch.float32)  # (B, 1, N)
+        teacher_score = torch.nan_to_num(teacher_score, nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
+        B, C, H, W = student_feat.shape
+
+        student_feat = F.normalize(student_feat.float(), p=2, dim=1, eps=1e-9)
+        teacher_feat = F.normalize(teacher_feat.float(), p=2, dim=1, eps=1e-9)
+
+        student_feat = student_feat.view(B, C, -1)
+        teacher_feat = teacher_feat.view(B, C, -1)
+
+        cos_sim = (student_feat * teacher_feat).sum(dim=1, keepdim=True).clamp(min=-1.0, max=1.0)  # (B, 1, N)
+        loss_map = 1.0 - cos_sim
+        loss_map = torch.nan_to_num(loss_map, nan=0.0, posinf=0.0, neginf=0.0)
+
+        dis_loss = loss_map * teacher_score
+        dis_loss = torch.nan_to_num(dis_loss, nan=0.0, posinf=0.0, neginf=0.0)
+        dis_loss = dis_loss.sum() / teacher_score.sum().clamp_min(1e-9)
+        return torch.nan_to_num(dis_loss, nan=0.0, posinf=0.0, neginf=0.0)
+
+    def bbox_decode(self, anchor_points, pred_dist):
+        c = pred_dist.shape[-1]
+        if c % 4 != 0:
+            raise ValueError(f"Expected box channels divisible by 4, but got {c}")
+        if c > 4:
+            reg_max = c // 4
+            proj = torch.arange(reg_max, dtype=pred_dist.dtype, device=pred_dist.device)
+            pred_dist = pred_dist.view(*pred_dist.shape[:-1], 4, reg_max).softmax(-1).matmul(proj)
+        return dist2bbox(pred_dist, anchor_points, xywh=False)
+
+    def loss_iou(self, student_boxes, teacher_boxes, anchor_points):
+        if student_boxes.numel() == 0:
+            return student_boxes.sum() * 0.0
+        student_decoded = self.bbox_decode(anchor_points, student_boxes)
+        teacher_decoded = self.bbox_decode(anchor_points, teacher_boxes)
+        iou = bbox_iou(student_decoded, teacher_decoded, xywh=False, CIoU=True)
+        return (1.0 - iou).mean()
+
+    def loss_siou(self, student_boxes, teacher_boxes, anchor_points, teacher_scores):
+        if student_boxes.numel() == 0:
+            return student_boxes.sum() * 0.0
+        if teacher_scores is None:
+            raise ValueError("teacher_score_weight is required when distill_box_loss is 'siou'.")
+        if teacher_scores.shape[:-1] != student_boxes.shape[:-1] or teacher_scores.shape[-1] != 1:
+            raise ValueError(
+                f"teacher_score_weight shape {tuple(teacher_scores.shape)} does not match boxes shape {tuple(student_boxes.shape)}."
+            )
+
+        student_decoded = self.bbox_decode(anchor_points, student_boxes)
+        teacher_decoded = self.bbox_decode(anchor_points, teacher_boxes)
+        ciou = bbox_iou(student_decoded, teacher_decoded, xywh=False, CIoU=True)
+        base_loss = 1.0 - ciou
+        # teacher_scores = teacher_scores.to(base_loss.dtype)
+        # teacher_scores = teacher_scores * (teacher_scores > 0.01).float()
+        return (base_loss * teacher_scores).sum() / (teacher_scores.sum() + 1e-9)
+
+    def box_kd_loss(self, student_boxes, teacher_boxes, anchor_points=None, teacher_scores=None):
+        if self.distill_box_loss == "cos":
+            return self.loss_cosine(student_boxes, teacher_boxes)
+        elif self.distill_box_loss == "l1":
+            return F.l1_loss(student_boxes, teacher_boxes)
+        elif self.distill_box_loss == "l2":
+            return F.mse_loss(student_boxes, teacher_boxes)
+        elif self.distill_box_loss == "iou":
+            if anchor_points is None:
+                raise ValueError("anchor_points is required when distill_box_loss is 'iou'.")
+            return self.loss_iou(student_boxes, teacher_boxes, anchor_points)
+        elif self.distill_box_loss == "siou":
+            if anchor_points is None:
+                raise ValueError("anchor_points is required when distill_box_loss is 'siou'.")
+            return self.loss_siou(student_boxes, teacher_boxes, anchor_points, teacher_scores)
+        else:
+            raise ValueError(f"Unknown box distillation loss: {self.distill_box_loss}")
+
+    def loss_s_sigmoid(self, student_logits, teacher_logits):
+        nc = student_logits.shape[1]
+        distillation_loss = F.binary_cross_entropy_with_logits(
+            student_logits,
+            torch.sigmoid(teacher_logits),
+            reduction='none'
+        )
+        teacher_score = teacher_logits.sigmoid().max(dim=1, keepdim=True).values
+        distillation_loss = distillation_loss * teacher_score
+        distillation_loss = distillation_loss.sum() / (teacher_score.sum() * nc + 1e-9)
+        return distillation_loss
+
+    def cls_kd_loss(self, student_logits, teacher_logits, temperature=5.0):
+        from ultralytics.utils.torch_utils import autocast
+        with autocast(enabled=False):
+            student_logits = student_logits.float()
+            teacher_logits = teacher_logits.float()
+            if self.distill_cls_loss == "softmax":
+                return self.loss_kl(student_logits, teacher_logits, temperature)
+            elif self.distill_cls_loss == "sigmoid":
+                distillation_loss = F.binary_cross_entropy_with_logits(
+                        student_logits / temperature,
+                        torch.sigmoid(teacher_logits / temperature),
+                        reduction='mean'
+                    ) * (temperature ** 2)
+                return distillation_loss
+            elif self.distill_cls_loss == "s_sigmoid":
+                return self.loss_s_sigmoid(student_logits, teacher_logits)
+            else:
+                raise ValueError(f"Unknown cls distillation loss: {self.distill_cls_loss}")
+
+    def feature_kd_loss(self, student_feat, teacher_feat, feat_idx=0, teacher_scores=None):
+        if self.distill_feature_loss == "cos":
+            return self.loss_cosine(student_feat, teacher_feat)
+        elif self.distill_feature_loss == "l1":
+            return F.l1_loss(student_feat, teacher_feat)
+        elif self.distill_feature_loss == "l2":
+            return F.mse_loss(student_feat, teacher_feat)
+        elif self.distill_feature_loss == "mgd":
+            return self.loss_mgd(student_feat, teacher_feat, feat_idx=feat_idx)
+        elif self.distill_feature_loss == "cwd":
+            return self.loss_cwd(student_feat, teacher_feat, feat_idx=feat_idx)
+        elif self.distill_feature_loss == "sl2":
+            return self.loss_sl2(student_feat, teacher_feat, feat_idx=feat_idx, teacher_scores=teacher_scores)
+        elif self.distill_feature_loss == "scosine":
+            return self.loss_s_cosine(student_feat, teacher_feat, feat_idx=feat_idx, teacher_scores=teacher_scores)
+        else:
+            raise ValueError(f"Unknown feature distillation loss: {self.distill_feature_loss}")
+
+    @property
+    def criterion(self):
+        """Get the criterion from the student model."""
+        return self.student_model.criterion
+
+    @criterion.setter
+    def criterion(self, value) -> None:
+        """Set value for student criterion."""
+        self.student_model.criterion = value
+
+    @property
+    def end2end(self):
+        """Expose student end-to-end mode for validator/predictor control."""
+        return getattr(self.student_model, "end2end", False)
+
+    @end2end.setter
+    def end2end(self, value):
+        """Forward end-to-end mode update to the student model."""
+        self.student_model.end2end = value
+
+    def set_head_attr(self, **kwargs):
+        """Forward head-attribute updates (e.g. max_det, agnostic_nms, end2end) to the student model."""
+        if hasattr(self.student_model, "set_head_attr"):
+            self.student_model.set_head_attr(**kwargs)
+
+    def fuse(self, verbose: bool = True):
+        """Fuse model layers for inference speedup."""
+        self.student_model.fuse(verbose)
+        return self
+
+    def load_from_module(self, weights: dict | nn.Module, strict: bool = False):
+        """Load distillation weights from a checkpoint dict or module."""
+        module = weights["model"] if isinstance(weights, dict) else weights
+        if not isinstance(module, nn.Module):
+            raise TypeError(f"Expected nn.Module or checkpoint dict, got {type(weights).__name__}")
+        incompatible = self.load_state_dict(module.float().state_dict(), strict=strict)
+        self._freeze_teacher()
+        return incompatible
+
+    def decouple_outputs(self, preds, shape_check=False, branch="one2one"):
+        """Decouple outputs for teacher/student models."""
+        if isinstance(preds, tuple):  # decouple for val mode
+            preds = preds[1]
+        if isinstance(preds, dict):
+            if branch in preds:
+                preds = preds[branch]
+            if shape_check:
+                preds = preds["boxes"]
+        return preds
