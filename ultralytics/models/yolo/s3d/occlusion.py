@@ -16,7 +16,7 @@ The algorithm works in two passes:
     1. First pass: Build depth line from bounding boxes
        - For each pixel column, track the depth of the closest (frontmost) object
        - This creates a 1D array representing visible depth across the image width
-    
+
     2. Second pass: Classify occlusion by boundary visibility
        - For each object, check if its left and right boundaries are visible
        - An object is occluded if BOTH boundaries are hidden by closer objects
@@ -33,81 +33,78 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any
 
 import numpy as np
 
 
-def _build_depth_line(
-    detections: List[Dict[str, Any]],
-    image_width: int = 1242,
-) -> np.ndarray:
+def _build_depth_line(detections: List[Dict[str, Any]], image_width: int = 1242) -> np.ndarray:
     """Build depth line from bounding boxes (Algorithm 1, First Pass).
-    
+
     The depth line is a 1D array where each element represents the depth of the
     closest (frontmost) object at that horizontal pixel position. This serves as
     a visibility buffer for occlusion classification.
-    
+
     Paper Reference: Algorithm 1, lines 1-7
         "For each column j from 0 to image_width:
             depth_line[j] = depth of closest object covering column j"
-    
+
     Args:
         detections: List of detection dicts with keys:
             - bbox_2d: (x1, y1, x2, y2) 2D bounding box coordinates
             - center_3d: (x, y, z) 3D center where z is depth
         image_width: Width of the image in pixels (default: 1242 for KITTI).
-    
+
     Returns:
         np.ndarray: Depth line array of shape (image_width,) where each element
             contains the depth of the closest object at that column. Zero values
             indicate no object coverage at that position.
-    
+
     Note:
         - Objects with invalid bbox_2d or center_3d are skipped
         - Depth blending is used when multiple objects overlap at similar depths
     """
     # Initialize depth line with zeros (no objects)
     depth_line = np.zeros(image_width, dtype=np.float32)
-    
+
     # Process each detection
     for det in detections:
         # Extract bounding box
         bbox_2d = det.get("bbox_2d")
         if bbox_2d is None:
             continue
-        
+
         # Handle different bbox_2d formats
-        if hasattr(bbox_2d, '__iter__') and not isinstance(bbox_2d, str):
+        if hasattr(bbox_2d, "__iter__") and not isinstance(bbox_2d, str):
             if len(bbox_2d) >= 4:
                 x1, y1, x2, y2 = bbox_2d[:4]
             else:
                 continue
         else:
             continue
-        
+
         # Get depth (z coordinate)
         center_3d = det.get("center_3d")
         if center_3d is None:
             continue
-        
-        if hasattr(center_3d, '__iter__') and len(center_3d) >= 3:
+
+        if hasattr(center_3d, "__iter__") and len(center_3d) >= 3:
             z = center_3d[2]  # depth is the third coordinate
         else:
             continue
-        
+
         # Skip invalid depths
         if z <= 0:
             continue
-        
+
         # Clamp bounding box to image bounds
         x1 = max(0, min(int(x1), image_width - 1))
         x2 = max(0, min(int(x2), image_width))
-        
+
         # Skip if box is outside image or has zero width
         if x1 >= x2:
             continue
-        
+
         # Update depth line for this object's horizontal extent
         for j in range(x1, x2):
             if depth_line[j] == 0:
@@ -119,7 +116,7 @@ def _build_depth_line(
                 depth_line[j] = (z + depth_line[j]) / 2.0
             # If z >= depth_line[j], the existing object is closer or same depth
             # so we keep the current depth_line value unchanged
-    
+
     return depth_line
 
 
@@ -130,17 +127,17 @@ def _classify_by_boundary_visibility(
     depth_tolerance: float = 1.0,
 ) -> Tuple[List[int], List[int]]:
     """Classify objects by boundary visibility (Algorithm 1, Second Pass).
-    
+
     Determines which objects are occluded by checking if their left and right
     boundaries are visible in the depth line. An object is considered occluded
     if BOTH boundaries are hidden by closer objects.
-    
+
     Paper Reference: Algorithm 1, lines 8-14
         "For each object k:
             Check if left boundary (x1) is visible: depth_line[x1] >= z_k
             Check if right boundary (x2) is visible: depth_line[x2] >= z_k
             If both hidden -> occluded, else -> unoccluded"
-    
+
     Args:
         detections: List of detection dicts with bbox_2d and center_3d keys.
         depth_line: Pre-computed depth line array from _build_depth_line().
@@ -148,19 +145,19 @@ def _classify_by_boundary_visibility(
         depth_tolerance: Tolerance in meters for depth comparison. Objects within
             this tolerance of the depth line value are considered visible.
             Default is 1.0 meter to handle depth estimation errors.
-    
+
     Returns:
         Tuple of (occluded_indices, unoccluded_indices):
             - occluded_indices: List of detection indices that are occluded
             - unoccluded_indices: List of detection indices that are unoccluded
-    
+
     Note:
         - Objects with zero or missing depth_line coverage are treated as visible
         - The depth_tolerance helps handle noisy depth estimates
     """
     occluded = []
     unoccluded = []
-    
+
     for k, det in enumerate(detections):
         # Extract bounding box
         bbox_2d = det.get("bbox_2d")
@@ -168,9 +165,9 @@ def _classify_by_boundary_visibility(
             # No bbox, treat as unoccluded (can't determine occlusion)
             unoccluded.append(k)
             continue
-        
+
         # Handle different bbox_2d formats
-        if hasattr(bbox_2d, '__iter__') and not isinstance(bbox_2d, str):
+        if hasattr(bbox_2d, "__iter__") and not isinstance(bbox_2d, str):
             if len(bbox_2d) >= 4:
                 x1, y1, x2, y2 = bbox_2d[:4]
             else:
@@ -179,52 +176,49 @@ def _classify_by_boundary_visibility(
         else:
             unoccluded.append(k)
             continue
-        
+
         # Get depth (z coordinate)
         center_3d = det.get("center_3d")
         if center_3d is None:
             unoccluded.append(k)
             continue
-        
-        if hasattr(center_3d, '__iter__') and len(center_3d) >= 3:
+
+        if hasattr(center_3d, "__iter__") and len(center_3d) >= 3:
             z = center_3d[2]
         else:
             unoccluded.append(k)
             continue
-        
+
         # Skip invalid depths
         if z <= 0:
             unoccluded.append(k)
             continue
-        
+
         # Get boundary positions (clamped to image bounds)
         x1_clamped = max(0, min(int(x1), image_width - 1))
         x2_clamped = max(0, min(int(x2) - 1, image_width - 1))  # x2 is exclusive
-        
+
         # Ensure x2_clamped >= x1_clamped
         if x2_clamped < x1_clamped:
             x2_clamped = x1_clamped
-        
+
         # Check if boundaries are visible
         # A boundary is visible if:
         #   1. The depth_line at that position is zero (no coverage), OR
         #   2. The depth_line value is >= object depth (within tolerance)
-        
+
         depth_at_left = depth_line[x1_clamped]
         depth_at_right = depth_line[x2_clamped]
-        
+
         # Left boundary visible?
         left_visible = (
-            depth_at_left == 0 or  # No coverage means visible
-            depth_at_left >= z - depth_tolerance  # Object is at or in front of depth line
+            depth_at_left == 0  # No coverage means visible
+            or depth_at_left >= z - depth_tolerance  # Object is at or in front of depth line
         )
-        
+
         # Right boundary visible?
-        right_visible = (
-            depth_at_right == 0 or
-            depth_at_right >= z - depth_tolerance
-        )
-        
+        right_visible = depth_at_right == 0 or depth_at_right >= z - depth_tolerance
+
         # Classify based on boundary visibility
         if not left_visible and not right_visible:
             # Both boundaries hidden -> heavily occluded
@@ -232,29 +226,27 @@ def _classify_by_boundary_visibility(
         else:
             # At least one boundary visible -> not occluded (or partially occluded)
             unoccluded.append(k)
-    
+
     return occluded, unoccluded
 
 
 def classify_occlusion(
-    detections: List[Dict[str, Any]],
-    image_width: int = 1242,
-    depth_tolerance: float = 1.0,
+    detections: List[Dict[str, Any]], image_width: int = 1242, depth_tolerance: float = 1.0
 ) -> Tuple[List[int], List[int]]:
     """Classify objects as occluded or unoccluded using depth-line algorithm.
-    
+
     This is the main entry point for occlusion classification. It implements
     Algorithm 1 from the Stereo CenterNet paper using a two-pass approach:
-    
+
     1. First pass: Build a depth line that tracks the closest object at each
        horizontal pixel position across the image width.
-    
+
     2. Second pass: For each object, check if its left and right boundaries
        are visible in the depth line. Objects with both boundaries hidden
        are classified as occluded.
-    
+
     Paper Reference: Algorithm 1 "3D Object Classification Strategy"
-    
+
     Args:
         detections: List of detection dicts, each containing:
             - bbox_2d: (x1, y1, x2, y2) 2D bounding box coordinates in pixels.
@@ -265,14 +257,14 @@ def classify_occlusion(
         depth_tolerance: Tolerance in meters for depth visibility comparison.
             Objects within this tolerance of the depth line are considered visible.
             Default is 1.0 meter to handle depth estimation uncertainty.
-    
+
     Returns:
         Tuple[List[int], List[int]]: Two lists of detection indices:
             - occluded_indices: Indices of detections that are heavily occluded
               (both boundaries hidden by closer objects)
             - unoccluded_indices: Indices of detections that are not occluded
               (at least one boundary is visible)
-    
+
     Example:
         >>> detections = [
         ...     {"bbox_2d": (100, 50, 200, 150), "center_3d": (1.0, 1.0, 20.0)},
@@ -280,7 +272,7 @@ def classify_occlusion(
         ... ]
         >>> occluded, unoccluded = classify_occlusion(detections)
         >>> print(f"Occluded: {occluded}, Unoccluded: {unoccluded}")
-    
+
     Note:
         - Empty detection lists return ([], [])
         - Detections with missing or invalid data are classified as unoccluded
@@ -288,7 +280,7 @@ def classify_occlusion(
     """
     if len(detections) == 0:
         return [], []
-    
+
     # Normalize detections to dict format (handle Box3D objects)
     normalized_detections = []
     for det in detections:
@@ -303,10 +295,10 @@ def classify_occlusion(
             if hasattr(det, "bbox_2d"):
                 norm_det["bbox_2d"] = det.bbox_2d
             normalized_detections.append(norm_det)
-    
+
     # First pass: Build depth line
     depth_line = _build_depth_line(normalized_detections, image_width)
-    
+
     # Second pass: Classify by boundary visibility
     occluded, unoccluded = _classify_by_boundary_visibility(
         normalized_detections,
@@ -314,30 +306,27 @@ def classify_occlusion(
         image_width,
         depth_tolerance,
     )
-    
+
     return occluded, unoccluded
 
 
-def should_skip_dense_alignment(
-    detection_idx: int,
-    occluded_indices: List[int],
-) -> bool:
+def should_skip_dense_alignment(detection_idx: int, occluded_indices: List[int]) -> bool:
     """Check if dense alignment should be skipped for a detection.
-    
+
     Dense photometric alignment can produce incorrect results for heavily occluded
     objects because the occluding object's appearance will contaminate the
     photometric error measurement. This helper function determines whether
     to skip dense alignment based on occlusion classification.
-    
+
     Args:
         detection_idx: Index of the detection to check.
         occluded_indices: List of detection indices classified as occluded
             (typically from classify_occlusion()).
-    
+
     Returns:
         bool: True if dense alignment should be skipped for this detection
             (i.e., the detection is heavily occluded), False otherwise.
-    
+
     Example:
         >>> occluded, unoccluded = classify_occlusion(detections)
         >>> for i, det in enumerate(detections):
@@ -347,11 +336,9 @@ def should_skip_dense_alignment(
         ...     else:
         ...         # Apply dense photometric alignment
         ...         refined_depth = aligner.refine_depth(...)
-    
+
     Note:
         This is a simple lookup function. The main occlusion classification
         logic is in classify_occlusion().
     """
     return detection_idx in occluded_indices
-
-

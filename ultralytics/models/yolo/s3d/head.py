@@ -26,7 +26,6 @@ class DepthDFL(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Decode bin logits [B, n_bins, HW] → log-depth [B, 1, HW]."""
-        b, _, a = x.shape
         weights = x.softmax(dim=1)  # [B, n_bins, HW]
         return (weights * self.bin_values.view(1, -1, 1)).sum(dim=1, keepdim=True)  # [B, 1, HW]
 

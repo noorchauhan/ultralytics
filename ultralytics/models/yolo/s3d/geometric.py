@@ -192,7 +192,6 @@ class GeometricConstruction:
         """
         self._total_solves += 1
 
-        l, w, h = dimensions
         fx, fy, cx, cy, b = calib
 
         # Initialize depth from simple triangulation if not provided
@@ -347,7 +346,6 @@ class GeometricConstruction:
 
         # Project corner to image
         up_pred = fx * x_corner / z_corner + cx
-        vp_pred = fy * y_corner / z_corner + cy
 
         # Compute residuals (observed - predicted)
         residuals = np.array(

@@ -162,7 +162,9 @@ class Stereo3DDetMetrics(SimpleClass, DataExportMixin):
             gt_ignored_indices = [
                 i
                 for i, box in enumerate(gt_boxes)
-                if box.class_id == cls_id and i < len(gt_difficulties) and not (0 <= gt_difficulties[i] <= max_difficulty)
+                if box.class_id == cls_id
+                and i < len(gt_difficulties)
+                and not (0 <= gt_difficulties[i] <= max_difficulty)
             ]
 
             # Filter pred: class match AND min 25px height
@@ -186,11 +188,13 @@ class Stereo3DDetMetrics(SimpleClass, DataExportMixin):
             else:
                 sub_iou_ignored = np.zeros((len(pred_indices), len(gt_ignored_indices)))
 
-            per_image_data.append({
-                "sub_iou_eval": sub_iou_eval,
-                "sub_iou_ignored": sub_iou_ignored,
-                "matched_gt": set(),
-            })
+            per_image_data.append(
+                {
+                    "sub_iou_eval": sub_iou_eval,
+                    "sub_iou_ignored": sub_iou_ignored,
+                    "matched_gt": set(),
+                }
+            )
 
             # Collect predictions with global image index
             for local_idx, pred_idx in enumerate(pred_indices):
@@ -295,7 +299,7 @@ class Stereo3DDetMetrics(SimpleClass, DataExportMixin):
         keys = []
         for iou_str in ["50", "70"]:
             for diff_str in DIFFICULTY_NAMES:
-                for cls_id, cls_name in sorted(self.names.items()):
+                for _, cls_name in sorted(self.names.items()):
                     if cls_name.startswith("Aux_"):
                         continue
                     keys.append(f"AP3D_{cls_name}_{diff_str}_{iou_str}")

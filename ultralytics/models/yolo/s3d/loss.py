@@ -8,8 +8,6 @@ import torch.nn.functional as F
 from ultralytics.utils.loss import DFLoss, v8DetectionLoss
 
 
-
-
 class Stereo3DDetLoss(v8DetectionLoss):
     """Multi-scale loss for stereo 3D detection using YOLO-style bbox assignment.
 
@@ -95,7 +93,7 @@ class Stereo3DDetLoss(v8DetectionLoss):
             fg_mask: [B, HW_total] — boolean foreground mask.
             aux_weights: [npos, 1] — per-anchor weight (pseudo-label curriculum).
         """
-        bs, c, n = pred_map.shape
+        c = pred_map.shape[1]
         pred_flat = pred_map.permute(0, 2, 1)  # [B, HW_total, C]
 
         if aux_gt.shape[1] == 0:
@@ -150,7 +148,11 @@ class Stereo3DDetLoss(v8DetectionLoss):
             aux_gt = aux_targets[k].to(self.device)
             if k == "depth" and "depth_bins" in aux_preds:
                 aux_losses[k] = self._depth_bin_loss(
-                    aux_preds["depth_bins"], aux_gt, target_gt_idx, fg_mask, aux_weights,
+                    aux_preds["depth_bins"],
+                    aux_gt,
+                    target_gt_idx,
+                    fg_mask,
+                    aux_weights,
                 )
             elif k in aux_preds:
                 aux_losses[k] = self._aux_loss(aux_preds[k], aux_gt, target_gt_idx, fg_mask, aux_weights)
@@ -212,9 +214,7 @@ class Stereo3DDetLoss(v8DetectionLoss):
         loss = torch.zeros(6, device=self.device)  # box, cls, lr_dist, depth, dims, orient
 
         # Get detection losses + TAL assignment results
-        (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor), det_loss, _ = (
-            self.get_assigned_targets_and_loss(preds, batch)
-        )
+        (fg_mask, target_gt_idx, _, _, _), det_loss, _ = self.get_assigned_targets_and_loss(preds, batch)
 
         if self.use_bbox_loss:
             loss[0] = det_loss[0]  # box (already scaled by hyp.box)
