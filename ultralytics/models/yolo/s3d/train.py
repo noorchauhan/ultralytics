@@ -429,7 +429,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             grid = canvas_list[0]
             for c in canvas_list[1:]:
                 grid = np.concatenate([grid, c], axis=0)
-            out = self.save_dir / f"stereo_train_batch{ni}.jpg"
+            out = self.save_dir / f"train_batch{ni}.jpg"
             cv2.imwrite(str(out), grid)
 
     def plot_training_labels(self) -> None:
