@@ -369,8 +369,14 @@ class BaseTrainer:
             self._setup_ddp()
         self._setup_train()
 
+        def _warmup_iters(n_batches: int) -> int:
+            """Return warmup iterations, preferring explicit warmup_iter when provided."""
+            if self.args.warmup_iter > 0:
+                return int(self.args.warmup_iter)
+            return max(round(self.args.warmup_epochs * n_batches), 100) if self.args.warmup_epochs > 0 else -1
+
         nb = len(self.train_loader)  # number of batches
-        nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1  # warmup iterations
+        nw = _warmup_iters(nb)  # warmup iterations
         last_opt_step = -1
         self.epoch_time = None
         self.epoch_time_start = time.time()
@@ -461,7 +467,7 @@ class BaseTrainer:
                     self._build_train_pipeline()  # rebuild dataloaders, optimizer, scheduler
                     self.scheduler.last_epoch = self.start_epoch - 1
                     nb = len(self.train_loader)
-                    nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1
+                    nw = _warmup_iters(nb)
                     last_opt_step = -1
                     self.optimizer.zero_grad()
                     break  # restart epoch loop with reduced batch size
