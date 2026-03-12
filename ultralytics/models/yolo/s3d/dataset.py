@@ -200,7 +200,7 @@ class Stereo3DDetDataset(BaseDataset):
         # Get all left image files
         left_files = super().get_img_files(img_path)  # This returns list of left image files as strings
         # Filter by image_ids
-        im_files = [str(f) for f in left_files if f.stem in self.image_ids]
+        im_files = [f for f in left_files if Path(f).stem in self.image_ids]
         return im_files
 
     def load_image(self, i: int, rect_mode: bool = True) -> tuple[np.ndarray, tuple[int, int], tuple[int, int]]:

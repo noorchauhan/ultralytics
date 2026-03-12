@@ -385,7 +385,8 @@ class Stereo3DDetValidator(BaseValidator):
 
             # Convert labels to Box3D. Use data_names (all classes) for from_label since
             # label dicts carry dataset class IDs, then remap to model class IDs.
-            gt_boxes = _labels_to_box3d_list(labels, calib, names)
+            data_names = self.data.get("names") if hasattr(self, "data") and self.data else self.names
+            gt_boxes = _labels_to_box3d_list(labels, calib, data_names)
 
             # Remap GT class IDs from dataset space to model space and drop unmapped classes
             if self._dataset_to_model_cls:
