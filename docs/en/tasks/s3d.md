@@ -63,7 +63,7 @@ Train a YOLO26 stereo 3D detection model on the KITTI Stereo dataset.
         # Quick-start with mini dataset (auto-downloads ~12 MB)
         yolo s3d train data=kitti-stereo8.yaml model=yolo26s-s3d.yaml epochs=5 imgsz=384,1248
 
-        # Full training on KITTI Stereo dataset (~12 GB download)
+        # Full training on KITTI Stereo dataset (~1.9 GB download)
         yolo s3d train data=kitti-stereo.yaml model=yolo26s-s3d.pt epochs=1000 imgsz=384,1248 optimizer=SGD lr0=0.01 cos_lr=True
         ```
 
