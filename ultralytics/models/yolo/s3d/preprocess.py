@@ -32,6 +32,7 @@ from ultralytics.utils.nms import non_max_suppression
 # Configuration Defaults
 # =============================================================================
 
+
 def get_geometric_config() -> dict:
     """Get geometric construction configuration."""
     return {
@@ -58,6 +59,7 @@ def get_dense_alignment_config() -> dict:
 # =============================================================================
 # Letterbox Utilities
 # =============================================================================
+
 
 def compute_letterbox_params(
     ori_h: int, ori_w: int, imgsz: int | tuple[int, int] | list[int]
@@ -92,7 +94,6 @@ def compute_letterbox_params(
 # =============================================================================
 # Decoding Functions
 # =============================================================================
-
 
 
 def decode_stereo3d_outputs(
@@ -292,6 +293,7 @@ def decode_stereo3d_outputs(
 # Preprocessing Functions
 # =============================================================================
 
+
 def preprocess_stereo_batch(
     batch: dict[str, Any],
     device: torch.device,
@@ -387,6 +389,7 @@ def preprocess_stereo_images(
 # =============================================================================
 # Postprocessing Functions
 # =============================================================================
+
 
 def decode_and_refine_predictions(
     preds: dict[str, torch.Tensor],
@@ -633,13 +636,8 @@ def _apply_dense_alignment(
     Returns:
         Results with refined depth values.
     """
-    from ultralytics.models.yolo.s3d.dense_align_optimized import (
-        create_dense_alignment_optimized,
-    )
-    from ultralytics.models.yolo.s3d.occlusion import (
-        classify_occlusion,
-        should_skip_dense_alignment,
-    )
+    from ultralytics.models.yolo.s3d.dense_align_optimized import create_dense_alignment_optimized
+    from ultralytics.models.yolo.s3d.occlusion import classify_occlusion
 
     if not config.get("enabled", True):
         return results
@@ -700,7 +698,7 @@ def _apply_dense_alignment(
             refined_boxes = []
             for i, box in enumerate(boxes):
                 # Skip dense alignment for heavily occluded objects
-                if skip_occluded and should_skip_dense_alignment(i, occluded_indices):
+                if skip_occluded and i in occluded_indices:
                     refined_boxes.append(box)
                     continue
 

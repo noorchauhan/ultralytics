@@ -308,37 +308,3 @@ def classify_occlusion(
     )
 
     return occluded, unoccluded
-
-
-def should_skip_dense_alignment(detection_idx: int, occluded_indices: List[int]) -> bool:
-    """Check if dense alignment should be skipped for a detection.
-
-    Dense photometric alignment can produce incorrect results for heavily occluded
-    objects because the occluding object's appearance will contaminate the
-    photometric error measurement. This helper function determines whether
-    to skip dense alignment based on occlusion classification.
-
-    Args:
-        detection_idx: Index of the detection to check.
-        occluded_indices: List of detection indices classified as occluded
-            (typically from classify_occlusion()).
-
-    Returns:
-        bool: True if dense alignment should be skipped for this detection
-            (i.e., the detection is heavily occluded), False otherwise.
-
-    Example:
-        >>> occluded, unoccluded = classify_occlusion(detections)
-        >>> for i, det in enumerate(detections):
-        ...     if should_skip_dense_alignment(i, occluded):
-        ...         # Use geometric construction depth only
-        ...         refined_depth = det["center_3d"][2]
-        ...     else:
-        ...         # Apply dense photometric alignment
-        ...         refined_depth = aligner.refine_depth(...)
-
-    Note:
-        This is a simple lookup function. The main occlusion classification
-        logic is in classify_occlusion().
-    """
-    return detection_idx in occluded_indices
