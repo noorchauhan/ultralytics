@@ -6,7 +6,13 @@ keywords: KITTI stereo, 3D object detection, stereo vision, YOLO 3D format, data
 
 # KITTI Stereo 3D Detection Dataset Format
 
+<img width="1024" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/kitti-stereo-sample.avif" alt="KITTI stereo dataset sample showing annotated left image and right image pair">
+
 The YOLO 3D Stereo format is a specialized dataset format for training stereo-based 3D object detection models. This format extends the standard YOLO format to include stereo image pairs, 3D bounding box annotations, and camera calibration data.
+
+## Sample Images
+
+The image above shows a KITTI stereo pair: the **left image** (top) with 2D bounding box annotations for Cars, and the **right image** (bottom) from the same timestamp. The horizontal offset between objects in left and right views encodes depth — closer objects have larger disparity.
 
 ## Dataset Structure
 

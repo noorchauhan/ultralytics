@@ -6,6 +6,8 @@ keywords: stereo 3D detection, YOLO26, Ultralytics, 3D object detection, KITTI, 
 
 # Stereo 3D Detection
 
+<img width="1024" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/s3d-examples.avif" alt="YOLO26 stereo 3D detection with 3D wireframe bounding boxes on KITTI driving scenes">
+
 Stereo 3D detection is a computer vision task that estimates full 3D bounding boxes — including depth, dimensions, and orientation — from calibrated stereo image pairs. Unlike standard 2D detection which only produces flat bounding boxes, stereo 3D detection recovers the spatial geometry of objects in the scene by leveraging the disparity between left and right camera views.
 
 The output of a stereo 3D detection model includes a 3D center location `[x, y, z]` in camera coordinates, physical dimensions `[height, width, length]` in meters, and a rotation angle around the vertical axis. This makes it essential for autonomous driving and robotics applications where precise spatial understanding is required.
@@ -26,9 +28,11 @@ Ultralytics YOLO26 pretrained Stereo 3D Detection models are shown here. All mod
 | [YOLO26s-s3d](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-s3d.yaml) | 11.6M | 48.3% | 29.4% |
 | [YOLO26m-s3d](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-s3d.yaml) | 26.8M | 49.0% | 29.1% |
 | [YOLO26l-s3d](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-s3d.yaml) | 31.2M | 50.9% | 31.6% |
+| [YOLO26x-s3d](https://github.com/ultralytics/ultralytics/tree/main/ultralytics/cfg/models/26/yolo26-s3d.yaml) | 69.9M | 43.4% | 24.5% |
 
 - **AP3D** values are KITTI R40 Moderate mean across Car/Pedestrian/Cyclist classes.
 - All models trained with `imgsz=[384, 1248]`, SGD optimizer, cosine LR schedule for 1000 epochs.
+- YOLO26l achieves the best accuracy. The x-size model overfits on KITTI's relatively small training set (3712 images).
 
 ## Train
 
@@ -140,6 +144,48 @@ Use a trained stereo 3D detection model to predict 3D bounding boxes from stereo
 
 Stereo prediction requires paired left/right images. In Python, pass a list of `(left_path, right_path)` tuples. In the CLI, use comma-separated paths.
 
+## Export
+
+Export a stereo 3D detection model to ONNX or TensorRT format. The exported model has **two inputs** (`left_img`, `right_img`) each with shape `[B, 3, H, W]`, and a single output tensor containing both 2D detections and 3D auxiliary predictions.
+
+!!! example
+
+    === "Python"
+
+        ```python
+        from ultralytics import YOLO
+
+        # Load a model
+        model = YOLO("yolo26s-s3d.pt")  # load a pretrained model
+        model = YOLO("path/to/best.pt")  # load a custom model
+
+        # Export to ONNX
+        model.export(format="onnx", imgsz=[384, 1248])
+
+        # Export to TensorRT (requires CUDA)
+        model.export(format="engine", imgsz=[384, 1248])
+        ```
+
+    === "CLI"
+
+        ```bash
+        yolo s3d export model=yolo26s-s3d.pt format=onnx imgsz=384,1248
+        yolo s3d export model=path/to/best.pt format=engine imgsz=384,1248
+        ```
+
+The exported ONNX model can be used directly with ONNX Runtime:
+
+```python
+import numpy as np
+import onnxruntime as ort
+
+sess = ort.InferenceSession("yolo26s-s3d.onnx")
+left = np.random.randn(1, 3, 384, 1248).astype(np.float32)
+right = np.random.randn(1, 3, 384, 1248).astype(np.float32)
+output = sess.run(None, {"left_img": left, "right_img": right})[0]
+# output shape: [1, nc+4+22, anchors] where 22 = 1(lr_dist) + 3(dims) + 2(orient) + 16(depth_bins)
+```
+
 ## Auto-Labeling
 
 Stereo 3D detection benefits from multi-class training data to prevent depth feature collapse. When training on datasets with only one annotated class (e.g., Car-only), the auto-labeling tool generates pseudo-labels for additional classes using a pretrained 2D YOLO detector.
@@ -195,4 +241,4 @@ When training with only one object class, the backbone learns spatial shortcuts 
 
 ### What pretrained stereo 3D detection models are available?
 
-Four YOLO26 siamese models are available in sizes n/s/m/l, ranging from 3.6M to 31.2M parameters. The largest model (YOLO26l) achieves 50.9% AP3D@0.5 and 31.6% AP3D@0.7 on KITTI Moderate. See the [Models section](#models) for the full comparison table.
+Five YOLO26 siamese models are available in sizes n/s/m/l/x, ranging from 3.6M to 69.9M parameters. The best-performing model is YOLO26l (31.2M params) achieving 50.9% AP3D@0.5 and 31.6% AP3D@0.7 on KITTI Moderate. The x-size model has diminishing returns due to overfitting on KITTI's small training set. See the [Models section](#models) for the full comparison table.
