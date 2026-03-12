@@ -19,7 +19,7 @@ from ultralytics.models.yolo.s3d.visualize import labels_to_box3d
 from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
 
 from ultralytics.utils.plotting import Annotator, VisualizationConfig, colors, plot_labels, plot_stereo3d_boxes
-from ultralytics.utils.torch_utils import intersect_dicts, unwrap_model
+from ultralytics.utils.torch_utils import unwrap_model
 
 
 def _rekey_dims(dims: dict | None, names: dict[int, str]) -> dict | None:
@@ -93,17 +93,17 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
 
     def progress_string(self):
         """Return a formatted string showing training progress with dynamically determined loss branches.
-        
+
         Follows DetectionTrainer pattern from detect/train.py:187-195.
         Format: ("\n" + "%11s" * (4 + len(self.loss_names))) % ("Epoch", "GPU_mem", *self.loss_names, "Instances", "Size")
-        
+
         Returns:
             str: Formatted progress string with column headers.
         """
         # Ensure loss_names is determined
         if not hasattr(self, "loss_names") or not self.loss_names:
             self._determine_loss_names()
-        
+
         return ("\n" + "%11s" * (4 + len(self.loss_names))) % (
             "Epoch",
             "GPU_mem",
@@ -122,13 +122,11 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             dict: Dataset dictionary with fields used by the trainer and model.
         """
 
-
         # Use check_det_dataset for path resolution, validation, and automatic download
         # This handles: finding default configs, executing download scripts, resolving paths
         from ultralytics.data.utils import check_det_dataset
-        data_cfg = check_det_dataset(self.args.data, autodownload=True)
 
-        channels = 6
+        data_cfg = check_det_dataset(self.args.data, autodownload=True)
 
         # Root path and splits
         root = Path(data_cfg["path"])
@@ -136,9 +134,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         train_split = data_cfg.get("train_split", "train")
         val_split = data_cfg.get("val_split", "val")
 
-        # Names/nc fallback - use paper classes (3 classes: Car, Pedestrian, Cyclist)
-        from ultralytics.models.yolo.s3d.utils import get_paper_class_names
-        names = data_cfg.get("names") or get_paper_class_names()  # {0: "Car", 1: "Pedestrian", 2: "Cyclist"}
+        names = data_cfg.get("names")  # {0: "Car", 1: "Pedestrian", 2: "Cyclist"}
         nc = data_cfg.get("nc", len(names))
 
         # Extract mean dimensions if present in dataset config
@@ -164,7 +160,8 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                     std_dims = {cid: std_dims[0] for cid in names}
                 LOGGER.info(
                     "s3d: auto-expanded nc=1 → nc=%d using label classes %s",
-                    nc, list(names.values()),
+                    nc,
+                    list(names.values()),
                 )
             else:
                 LOGGER.warning(
@@ -184,16 +181,13 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                 nc = max_id + 1
                 mean_dims = _rekey_dims(mean_dims, names)
                 std_dims = _rekey_dims(std_dims, names)
-                LOGGER.info(
-                    "s3d: auto-expanded nc=%d → nc=%d from label classes",
-                    n_real, nc,
-                )
+                LOGGER.info("s3d: auto-expanded nc=%d → nc=%d from label classes", n_real, nc)
 
         # Return a dict compatible with BaseTrainer expectations, plus stereo descriptors
         return {
             "yaml_file": str(self.args.data) if isinstance(self.args.data, (str, Path)) else None,
             "path": str(root),
-            "channels": channels,
+            "channels": 6,
             # Signal to our get_dataloader/build_dataset that this is a stereo dataset
             "train": {"type": "kitti_stereo", "root": str(root), "split": train_split},
             "val": {"type": "kitti_stereo", "root": str(root), "split": val_split},
@@ -220,7 +214,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                 imgsz_hw = (int(imgsz[0]), int(imgsz[1]))  # (H, W)
             else:
                 imgsz_hw = (int(imgsz), int(imgsz))  # square fallback
-            
+
             # Determine output_size from model if available, otherwise use default (8x downsampling)
             output_size = None
             if hasattr(self, "model") and self.model is not None:
@@ -234,7 +228,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                         if isinstance(feats, list) and len(feats) > 0:
                             _, _, output_h, output_w = feats[0].shape
                             output_size = (output_h, output_w)
-            
+
             # Get mean_dims from dataset config
             mean_dims = self.data.get("mean_dims")
             std_dims = self.data.get("std_dims")
@@ -288,9 +282,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         Returns:
             (Stereo3DDetModel): Initialized stereo 3D detection model.
         """
-        model = Stereo3DDetModel(
-            cfg, nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1
-        )
+        model = Stereo3DDetModel(cfg, nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1)
         if verbose and RANK == -1:
             LOGGER.info(
                 f"Initialized Stereo3DDetModel with {self.data['nc']} classes and {self.data['channels']} input channels"
@@ -324,7 +316,7 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         - Left column: LEFT image with 2D boxes
         - Right column: LEFT image with 3D wireframes (projected), not the right-camera image
         """
-        assert 'im_file' in batch, "im_file is required in batch"
+        assert "im_file" in batch, "im_file is required in batch"
         im_files = batch["im_file"]
         calibs = batch.get("calib", None)
         # Prepare up to 4 stereo previews per batch
