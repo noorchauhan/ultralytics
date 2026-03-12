@@ -50,16 +50,18 @@ def project_3d_box_to_2d(
 
     # Build 8 corners in object frame (KITTI: bottom-center origin, Y down)
     # Bottom 4 corners (Y=0), then top 4 corners (Y=-height)
-    corners_obj = np.array([
-        [-length / 2, 0, -width / 2],   # rear-left bottom
-        [length / 2, 0, -width / 2],    # front-left bottom
-        [length / 2, 0, width / 2],     # front-right bottom
-        [-length / 2, 0, width / 2],    # rear-right bottom
-        [-length / 2, -height, -width / 2],  # rear-left top
-        [length / 2, -height, -width / 2],   # front-left top
-        [length / 2, -height, width / 2],    # front-right top
-        [-length / 2, -height, width / 2],   # rear-right top
-    ])
+    corners_obj = np.array(
+        [
+            [-length / 2, 0, -width / 2],  # rear-left bottom
+            [length / 2, 0, -width / 2],  # front-left bottom
+            [length / 2, 0, width / 2],  # front-right bottom
+            [-length / 2, 0, width / 2],  # rear-right bottom
+            [-length / 2, -height, -width / 2],  # rear-left top
+            [length / 2, -height, -width / 2],  # front-left top
+            [length / 2, -height, width / 2],  # front-right top
+            [-length / 2, -height, width / 2],  # rear-right top
+        ]
+    )
 
     # Rotation matrix around Y axis
     cos_ry = np.cos(rotation_y)
@@ -139,30 +141,6 @@ def project_3d_boxes_to_2d(
     return boxes_2d
 
 
-@dataclass
-class StereoCalibration:
-    """Stereo camera calibration parameters."""
-
-    fx: float
-    fy: float
-    cx: float
-    cy: float
-    baseline: float
-    height: int
-    width: int
-
-    def to_dict(self) -> Dict:
-        return {
-            "fx": self.fx,
-            "fy": self.fy,
-            "cx": self.cx,
-            "cy": self.cy,
-            "baseline": self.baseline,
-            "height": self.height,
-            "width": self.width,
-        }
-
-
 class StereoLabels:
     """Container that synchronizes Instances and calibration during transforms.
 
@@ -178,7 +156,7 @@ class StereoLabels:
     Example:
         >>> labels = StereoLabels.from_labels(labels_dict)
         >>> labels.scale(0.5, 0.5)  # Scales both instances AND calibration
-        >>> labels.fliplr(width)    # Flips both instances AND calibration
+        >>> labels.fliplr(width)  # Flips both instances AND calibration
         >>> labels.to_labels(labels_dict)  # Write back to dict
     """
 
@@ -456,13 +434,9 @@ class StereoLabels:
         calib = self.calibration
 
         # Project to left camera (clip to image bounds)
-        left_boxes_px = project_3d_boxes_to_2d(
-            instances, calib, camera="left", clip=True, image_size=(w, h)
-        )
+        left_boxes_px = project_3d_boxes_to_2d(instances, calib, camera="left", clip=True, image_size=(w, h))
         # Project to right camera (don't clip - preserve truncated info)
-        right_boxes_px = project_3d_boxes_to_2d(
-            instances, calib, camera="right", clip=False, image_size=(w, h)
-        )
+        right_boxes_px = project_3d_boxes_to_2d(instances, calib, camera="right", clip=False, image_size=(w, h))
 
         # Convert to normalized xywh format if instances are normalized
         is_normalized = getattr(instances, "normalized", True)
@@ -476,8 +450,8 @@ class StereoLabels:
         left_xywh = np.zeros_like(left_boxes_px)
         left_xywh[:, 0] = (left_boxes_px[:, 0] + left_boxes_px[:, 2]) / 2  # cx
         left_xywh[:, 1] = (left_boxes_px[:, 1] + left_boxes_px[:, 3]) / 2  # cy
-        left_xywh[:, 2] = left_boxes_px[:, 2] - left_boxes_px[:, 0]        # w
-        left_xywh[:, 3] = left_boxes_px[:, 3] - left_boxes_px[:, 1]        # h
+        left_xywh[:, 2] = left_boxes_px[:, 2] - left_boxes_px[:, 0]  # w
+        left_xywh[:, 3] = left_boxes_px[:, 3] - left_boxes_px[:, 1]  # h
 
         right_xywh = np.zeros_like(right_boxes_px)
         right_xywh[:, 0] = (right_boxes_px[:, 0] + right_boxes_px[:, 2]) / 2
@@ -836,6 +810,6 @@ class StereoLetterBox:
         stereo.update_size(new_w, new_h)
 
         return stereo.to_labels(labels)
-    
+
     def __repr__(self) -> str:
         return f"StereoLetterBox(new_shape={self.new_shape}, scaleup={self.scaleup}, stride={self.stride})"

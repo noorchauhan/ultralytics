@@ -6,13 +6,11 @@ from typing import Any, Dict, List, Tuple
 import cv2
 import numpy as np
 import torch
-from torch.utils.data import Dataset
 
-from ultralytics.data.augment import Compose, Format, LetterBox
+from ultralytics.data.augment import Compose, Format
 from ultralytics.data.base import BaseDataset
 from ultralytics.data.utils import IMG_FORMATS, load_dataset_cache_file, save_dataset_cache_file
 from ultralytics.models.yolo.s3d.augment import (
-    StereoCalibration,
     StereoHFlip,
     StereoHSV,
     StereoScale,
@@ -22,6 +20,7 @@ from ultralytics.models.yolo.s3d.augment import (
 from ultralytics.utils import DEFAULT_CFG, LOGGER
 from ultralytics.data.stereo.target_improved import TargetGenerator, compute_dimension_offset
 import math
+
 
 def _to_hw(imgsz: int | tuple[int, int] | list[int]) -> tuple[int, int]:
     """Normalize imgsz to (H, W)."""
@@ -214,30 +213,30 @@ class Stereo3DDetDataset(BaseDataset):
 
     def load_image(self, i: int, rect_mode: bool = True) -> tuple[np.ndarray, tuple[int, int], tuple[int, int]]:
         """Load stereo image pair (left + right) from dataset index 'i'.
-        
+
         Overrides BaseDataset.load_image() to load both left and right images,
         resize them identically, and concatenate into a 6-channel stereo image.
         Supports caching (RAM and disk) like BaseDataset.
-        
+
         Args:
             i (int): Index of the image to load.
             rect_mode (bool): Whether to use rectangular resizing.
-            
+
         Returns:
             im (np.ndarray): 6-channel stereo image [H, W, 6] (left RGB + right RGB).
             hw_original (tuple[int, int]): Original image dimensions (height, width).
             hw_resized (tuple[int, int]): Resized image dimensions (height, width).
-            
+
         Raises:
             FileNotFoundError: If the image file is not found.
         """
         from ultralytics.utils.patches import imread
-        
+
         # TODO: We should also support cache for stereo images.
         # Check cache first
         im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i]
         h0, w0 = None, None  # Will be set when loading from files
-        
+
         if im is None:  # not cached in RAM
             if fn.exists():  # load npy
                 try:
@@ -250,13 +249,13 @@ class Stereo3DDetDataset(BaseDataset):
                     Path(fn).unlink(missing_ok=True)
                     # Fall through to load from file
                     im = None
-            
+
             if im is None:  # not loaded from cache, load from files
                 # Load left image
                 left_img = imread(f, flags=self.cv2_flag)  # BGR
                 if left_img is None:
                     raise FileNotFoundError(f"Image Not Found {f}")
-                
+
                 # Load right image
                 image_id = Path(f).stem
                 right_img_path = self.right_dir / Path(f).name
@@ -266,51 +265,56 @@ class Stereo3DDetDataset(BaseDataset):
                         right_img_path = self.right_dir / f"{image_id}{ext}"
                         if right_img_path.exists():
                             break
-                
+
                 right_img = imread(str(right_img_path), flags=self.cv2_flag)  # BGR
                 if right_img is None:
                     raise FileNotFoundError(f"Right image not found: {right_img_path}")
-                
+
                 # Get original shapes
                 left_h0, left_w0 = left_img.shape[:2]
                 right_h0, right_w0 = right_img.shape[:2]
                 h0, w0 = left_h0, left_w0  # Store for return
-                
+
                 # Apply resize logic (same as BaseDataset.load_image())
                 if rect_mode:  # resize long side to imgsz while maintaining aspect ratio
                     # Resize left image
                     r_left = self.imgsz / max(left_h0, left_w0)  # ratio
                     if r_left != 1:
-                        w, h = (min(math.ceil(left_w0 * r_left), self.imgsz), min(math.ceil(left_h0 * r_left), self.imgsz))
+                        w, h = (
+                            min(math.ceil(left_w0 * r_left), self.imgsz),
+                            min(math.ceil(left_h0 * r_left), self.imgsz),
+                        )
                         left_img = cv2.resize(left_img, (w, h), interpolation=cv2.INTER_LINEAR)
-                    
+
                     # Resize right image to match left's resized shape
-                    right_img = cv2.resize(right_img, (left_img.shape[1], left_img.shape[0]), interpolation=cv2.INTER_LINEAR)
+                    right_img = cv2.resize(
+                        right_img, (left_img.shape[1], left_img.shape[0]), interpolation=cv2.INTER_LINEAR
+                    )
                 elif not (left_h0 == left_w0 == self.imgsz):  # resize by stretching image to square imgsz
                     left_img = cv2.resize(left_img, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
                     right_img = cv2.resize(right_img, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
-                
+
                 # Handle grayscale
                 if left_img.ndim == 2:
                     left_img = left_img[..., None]
                 if right_img.ndim == 2:
                     right_img = right_img[..., None]
-                
+
                 # Convert BGR to RGB and concatenate to 6-channel stereo image
                 left_rgb = cv2.cvtColor(left_img, cv2.COLOR_BGR2RGB)
                 right_rgb = cv2.cvtColor(right_img, cv2.COLOR_BGR2RGB)
                 im = np.concatenate([left_rgb, right_rgb], axis=2)  # [H, W, 6]
-            
+
             if im is None:
                 raise FileNotFoundError(f"Failed to load stereo image pair for {f}")
-            
+
             # If we loaded from npy cache and don't have original shape, use resized shape as fallback
             if h0 is None or w0 is None:
                 h0, w0 = im.shape[:2]  # Fallback to resized shape
                 # Store it for future use
                 if self.im_hw0[i] is None:
                     self.im_hw0[i] = (h0, w0)
-            
+
             # Add to buffer if training with augmentations
             if self.augment:
                 self.ims[i], self.im_hw0[i], self.im_hw[i] = im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
@@ -319,9 +323,9 @@ class Stereo3DDetDataset(BaseDataset):
                     j = self.buffer.pop(0)
                     if self.cache != "ram":
                         self.ims[j], self.im_hw0[j], self.im_hw[j] = None, None, None
-            
+
             return im, (h0, w0), im.shape[:2]
-        
+
         # Return from cache
         cached_hw0 = self.im_hw0[i]
         cached_hw = self.im_hw[i]
@@ -334,9 +338,9 @@ class Stereo3DDetDataset(BaseDataset):
 
     def cache_images_to_disk(self, i: int) -> None:
         """Save stereo image pair (6-channel) as an *.npy file for faster loading.
-        
+
         Overrides BaseDataset.cache_images_to_disk() to handle 6-channel stereo images.
-        
+
         Args:
             i (int): Index of the image to cache.
         """
@@ -418,17 +422,19 @@ class Stereo3DDetDataset(BaseDataset):
         transforms = []
 
         if self.augment:
-            transforms.extend([
-                StereoHFlip(p=float(hyp.get("fliplr", 0.5))),
-                StereoScale(scale_range=(0.8, 1.2), p=float(hyp.get("scale", 0.5))),
-                StereoCrop(crop_h=0.9, crop_w=0.9, p=float(hyp.get("crop_fraction", 0.3))),
-                StereoHSV(
-                    hgain=float(hyp.get("hsv_h", 0.015)),
-                    sgain=float(hyp.get("hsv_s", 0.7)),
-                    vgain=float(hyp.get("hsv_v", 0.4)),
-                    p=0.5,
-                ),
-            ])
+            transforms.extend(
+                [
+                    StereoHFlip(p=float(hyp.get("fliplr", 0.5))),
+                    StereoScale(scale_range=(0.8, 1.2), p=float(hyp.get("scale", 0.5))),
+                    StereoCrop(crop_h=0.9, crop_w=0.9, p=float(hyp.get("crop_fraction", 0.3))),
+                    StereoHSV(
+                        hgain=float(hyp.get("hsv_h", 0.015)),
+                        sgain=float(hyp.get("hsv_s", 0.7)),
+                        vgain=float(hyp.get("hsv_v", 0.4)),
+                        p=0.5,
+                    ),
+                ]
+            )
 
         transforms.append(StereoLetterBox(new_shape=self.imgsz_tuple, scaleup=self.augment, stride=32))
         transforms.append(Format(normalize=True, return_stereo=True))
@@ -446,14 +452,12 @@ class Stereo3DDetDataset(BaseDataset):
             Updated label dict with Instances containing 3D data.
         """
         from ultralytics.utils.instance import Instances
-        
+
         stereo_img = label["img"]  # Already 6-channel from load_image()
-        
+
         n_ch = stereo_img.shape[-1]
         if n_ch != 6:
-            raise ValueError(
-                f"Expected 6 channel stereo image, got {n_ch}. Shape: {stereo_img.shape}"
-            )
+            raise ValueError(f"Expected 6 channel stereo image, got {n_ch}. Shape: {stereo_img.shape}")
 
         # Get labels and calibration from cached data (label IS self.labels[index] via deepcopy)
         label_list = label["labels"]  # List of dict objects
@@ -490,37 +494,54 @@ class Stereo3DDetDataset(BaseDataset):
             occluded = np.zeros((0,), dtype=np.int32)
         else:
             # Extract left boxes (normalized xywh) and class IDs
-            bboxes = np.array([
-                [obj["left_box"]["center_x"], obj["left_box"]["center_y"],
-                 obj["left_box"]["width"], obj["left_box"]["height"]]
-                for obj in label_list
-            ], dtype=np.float32)
+            bboxes = np.array(
+                [
+                    [
+                        obj["left_box"]["center_x"],
+                        obj["left_box"]["center_y"],
+                        obj["left_box"]["width"],
+                        obj["left_box"]["height"],
+                    ]
+                    for obj in label_list
+                ],
+                dtype=np.float32,
+            )
             cls = np.array([obj["class_id"] for obj in label_list], dtype=np.int64)
-            
+
             # Extract right boxes
-            right_bboxes = np.array([
-                [obj["right_box"]["center_x"], obj["right_box"]["center_y"],
-                 obj["right_box"]["width"], obj["right_box"]["height"]]
-                for obj in label_list
-            ], dtype=np.float32)
-            
+            right_bboxes = np.array(
+                [
+                    [
+                        obj["right_box"]["center_x"],
+                        obj["right_box"]["center_y"],
+                        obj["right_box"]["width"],
+                        obj["right_box"]["height"],
+                    ]
+                    for obj in label_list
+                ],
+                dtype=np.float32,
+            )
+
             # Extract 3D data
-            dimensions_3d = np.array([
-                [obj["dimensions"]["length"], obj["dimensions"]["width"], obj["dimensions"]["height"]]
-                for obj in label_list
-            ], dtype=np.float32)
-            
-            location_3d = np.array([
-                [obj["location_3d"]["x"], obj["location_3d"]["y"], obj["location_3d"]["z"]]
-                for obj in label_list
-            ], dtype=np.float32)
-            
+            dimensions_3d = np.array(
+                [
+                    [obj["dimensions"]["length"], obj["dimensions"]["width"], obj["dimensions"]["height"]]
+                    for obj in label_list
+                ],
+                dtype=np.float32,
+            )
+
+            location_3d = np.array(
+                [[obj["location_3d"]["x"], obj["location_3d"]["y"], obj["location_3d"]["z"]] for obj in label_list],
+                dtype=np.float32,
+            )
+
             rotation_y = np.array([obj["rotation_y"] for obj in label_list], dtype=np.float32)
-            
+
             # Extract additional metadata
             truncated = np.array([obj.get("truncated", 0.0) for obj in label_list], dtype=np.float32)
             occluded = np.array([obj.get("occluded", 0) for obj in label_list], dtype=np.int32)
-        
+
         # Create Instances with 3D data included (normalized xywh format)
         label["instances"] = Instances(
             bboxes=bboxes,
@@ -531,7 +552,7 @@ class Stereo3DDetDataset(BaseDataset):
             location_3d=location_3d,
             rotation_y=rotation_y,
         )
-        label["cls"] = cls        
+        label["cls"] = cls
         # Store additional metadata that's not part of Instances
         label["truncated"] = truncated
         label["occluded"] = occluded
@@ -699,19 +720,17 @@ class Stereo3DDetDataset(BaseDataset):
 
     def collate_fn(self, batch: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Collate function that generates targets for training/validation.
-        
+
         Args:
             batch: List of samples from __getitem__.
-            
+
         Returns:
             Dictionary with batched images, targets, and metadata.
         """
         imgs = torch.stack([b["img"] for b in batch], 0)  # (B,6,H,W)
 
-        assert imgs.shape[1] == 6, (
-            f"Stereo batch must have 6 channels, got shape {imgs.shape}."
-        )
-        
+        assert imgs.shape[1] == 6, f"Stereo batch must have 6 channels, got shape {imgs.shape}."
+
         # Extract from instances and stereo-specific keys
         calibs = [b.get("calibration", b.get("calib", {})) for b in batch]
         ori_shapes = [b.get("ori_shape", b.get("resized_shape", (0, 0))) for b in batch]
@@ -763,12 +782,32 @@ class Stereo3DDetDataset(BaseDataset):
                 n = len(bboxes_tensor)
                 bboxes_xywh = bboxes_tensor.numpy()
                 cls_array = cls_tensor.numpy() if cls_tensor is not None else np.zeros((n,), dtype=np.int64)
-                right_bboxes = right_bboxes_tensor.numpy() if right_bboxes_tensor is not None else np.zeros((n, 4), dtype=np.float32)
-                dimensions_3d = dimensions_3d_tensor.numpy() if dimensions_3d_tensor is not None else np.zeros((n, 3), dtype=np.float32)
-                location_3d = location_3d_tensor.numpy() if location_3d_tensor is not None else np.zeros((n, 3), dtype=np.float32)
-                rotation_y = rotation_y_tensor.numpy() if rotation_y_tensor is not None else np.zeros((n,), dtype=np.float32)
-                occluded = occluded_tensor.numpy().astype(np.int32) if occluded_tensor is not None else np.zeros((n,), dtype=np.int32)
-                truncated = truncated_tensor.numpy().astype(np.float32) if truncated_tensor is not None else np.zeros((n,), dtype=np.float32)
+                right_bboxes = (
+                    right_bboxes_tensor.numpy()
+                    if right_bboxes_tensor is not None
+                    else np.zeros((n, 4), dtype=np.float32)
+                )
+                dimensions_3d = (
+                    dimensions_3d_tensor.numpy()
+                    if dimensions_3d_tensor is not None
+                    else np.zeros((n, 3), dtype=np.float32)
+                )
+                location_3d = (
+                    location_3d_tensor.numpy() if location_3d_tensor is not None else np.zeros((n, 3), dtype=np.float32)
+                )
+                rotation_y = (
+                    rotation_y_tensor.numpy() if rotation_y_tensor is not None else np.zeros((n,), dtype=np.float32)
+                )
+                occluded = (
+                    occluded_tensor.numpy().astype(np.int32)
+                    if occluded_tensor is not None
+                    else np.zeros((n,), dtype=np.int32)
+                )
+                truncated = (
+                    truncated_tensor.numpy().astype(np.float32)
+                    if truncated_tensor is not None
+                    else np.zeros((n,), dtype=np.float32)
+                )
             else:
                 n = 0
                 bboxes_xywh = np.zeros((0, 4), dtype=np.float32)
@@ -802,29 +841,41 @@ class Stereo3DDetDataset(BaseDataset):
                             f"Image {i}: filtered {filtered_count}/{n + filtered_count} occluded objects "
                             f"(max_occlusion_level={self.max_occlusion_level})"
                         )
-            
+
             per_image_counts.append(n)
 
             # Build this sample's list-of-dicts for batch["labels"] from tensors (single source of truth)
             sample_labels = []
             for j in range(n):
-                cx, cy, bw, bh = float(bboxes_xywh[j, 0]), float(bboxes_xywh[j, 1]), float(bboxes_xywh[j, 2]), float(bboxes_xywh[j, 3])
+                cx, cy, bw, bh = (
+                    float(bboxes_xywh[j, 0]),
+                    float(bboxes_xywh[j, 1]),
+                    float(bboxes_xywh[j, 2]),
+                    float(bboxes_xywh[j, 3]),
+                )
                 right_cx = float(right_bboxes[j, 0])
                 right_cy = float(right_bboxes[j, 1])
                 right_bw = float(right_bboxes[j, 2])
                 right_bh = float(right_bboxes[j, 3])
                 dims = dimensions_3d[j]
                 loc_3d = location_3d[j]
-                sample_labels.append({
-                    "class_id": int(cls_array[j]),
-                    "left_box": {"center_x": cx, "center_y": cy, "width": bw, "height": bh},
-                    "right_box": {"center_x": right_cx, "center_y": right_cy, "width": right_bw, "height": right_bh},
-                    "dimensions": {"length": float(dims[0]), "width": float(dims[1]), "height": float(dims[2])},
-                    "location_3d": {"x": float(loc_3d[0]), "y": float(loc_3d[1]), "z": float(loc_3d[2])},
-                    "rotation_y": float(rotation_y[j]),
-                    "truncated": float(truncated[j]),
-                    "occluded": int(occluded[j]),
-                })
+                sample_labels.append(
+                    {
+                        "class_id": int(cls_array[j]),
+                        "left_box": {"center_x": cx, "center_y": cy, "width": bw, "height": bh},
+                        "right_box": {
+                            "center_x": right_cx,
+                            "center_y": right_cy,
+                            "width": right_bw,
+                            "height": right_bh,
+                        },
+                        "dimensions": {"length": float(dims[0]), "width": float(dims[1]), "height": float(dims[2])},
+                        "location_3d": {"x": float(loc_3d[0]), "y": float(loc_3d[1]), "z": float(loc_3d[2])},
+                        "rotation_y": float(rotation_y[j]),
+                        "truncated": float(truncated[j]),
+                        "occluded": int(occluded[j]),
+                    }
+                )
             labels_list.append(sample_labels)
 
             if n == 0:
