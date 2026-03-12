@@ -260,7 +260,6 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
     def set_model_attributes(self):
         """Set model attributes based on dataset information."""
         super().set_model_attributes()
-        self._determine_loss_names()
         # Pass pseudo-label config from dataset YAML to model for loss initialization
         self.model.pseudo_labels = self.data.get("pseudo_labels", {})
 
