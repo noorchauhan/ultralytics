@@ -15,46 +15,8 @@ from ultralytics.engine.results import Results
 from ultralytics.models.yolo.detect import DetectionPredictor
 
 from ultralytics.models.yolo.s3d.preprocess import decode_and_refine_predictions, preprocess_stereo_images
-from ultralytics.utils import LOGGER, YAML
+from ultralytics.utils import YAML
 from ultralytics.utils.checks import check_imgsz
-
-
-def load_stereo_pair(left_path: str | Path, right_path: str | Path) -> tuple[np.ndarray, np.ndarray]:
-    """Load stereo image pair (left and right images).
-
-    Args:
-        left_path: Path to left image file.
-        right_path: Path to right image file.
-
-    Returns:
-        tuple: (left_image, right_image) as numpy arrays in BGR format.
-
-    Raises:
-        FileNotFoundError: If either image file does not exist.
-        ValueError: If images cannot be loaded or have different sizes.
-    """
-    left_path = Path(left_path)
-    right_path = Path(right_path)
-
-    if not left_path.exists():
-        raise FileNotFoundError(f"Left image not found: {left_path}")
-    if not right_path.exists():
-        raise FileNotFoundError(f"Right image not found: {right_path}")
-
-    # Load images using OpenCV (BGR format)
-    left_img = cv2.imread(str(left_path))
-    right_img = cv2.imread(str(right_path))
-
-    if left_img is None:
-        raise ValueError(f"Failed to load left image: {left_path}")
-    if right_img is None:
-        raise ValueError(f"Failed to load right image: {right_path}")
-
-    # Verify images have the same size
-    if left_img.shape != right_img.shape:
-        raise ValueError(f"Image size mismatch: left {left_img.shape} vs right {right_img.shape}")
-
-    return left_img, right_img
 
 
 class Stereo3DDetPredictor(DetectionPredictor):
@@ -166,40 +128,27 @@ class Stereo3DDetPredictor(DetectionPredictor):
         else:
             raise ValueError(f"Invalid source type: {type(source)}")
 
-        # Load stereo pairs and create a dataset-like structure
+        # Load stereo pairs and calibrations
         self.stereo_pairs = []
         for left_path, right_path in stereo_pairs:
-            left_img, right_img = load_stereo_pair(left_path, right_path)
-            # Stack left and right to create 6-channel image
-            stereo_img = np.concatenate([left_img, right_img], axis=2)  # [H, W, 6]
+            # Load images
+            left_img = cv2.imread(str(left_path))
+            right_img = cv2.imread(str(right_path))
+            if left_img is None or right_img is None:
+                raise ValueError(f"Failed to load images: {left_path}, {right_path}")
+            stereo_img = np.concatenate([left_img, right_img], axis=2)
             self.stereo_pairs.append((stereo_img, str(left_path)))
 
-            # Try to load calibration from KITTI format
-            # Look for calib file in same directory as left image
-            left_path_obj = Path(left_path)
-            calib_path = left_path_obj.parent / f"{left_path_obj.stem}.txt"
+            # Load calibration with fallback to defaults
+            calib_path = Path(left_path).parent / f"{Path(left_path).stem}.txt"
             if not calib_path.exists():
-                # Try alternative: calib.txt in parent directory
-                calib_path = left_path_obj.parent / "calib.txt"
-            if calib_path.exists():
-                try:
-                    calib = load_kitti_calibration(calib_path)
-                    self.calib_params[str(left_path)] = calib
-                except Exception as e:
-                    LOGGER.warning(f"Failed to load calibration from {calib_path}: {e}")
-                    # Use default calibration
-                    self.calib_params[str(left_path)] = CalibrationParameters(
-                        fx=721.5377,
-                        fy=721.5377,
-                        cx=609.5593,
-                        cy=172.8540,
-                        baseline=0.54,
-                        image_width=stereo_img.shape[1],
-                        image_height=stereo_img.shape[0],
-                    )
-            else:
-                # Use default calibration
-                self.calib_params[str(left_path)] = CalibrationParameters(
+                calib_path = calib_path.parent / "calib.txt"
+            try:
+                calib = load_kitti_calibration(calib_path) if calib_path.exists() else None
+            except Exception:
+                calib = None
+            if calib is None:
+                calib = CalibrationParameters(
                     fx=721.5377,
                     fy=721.5377,
                     cx=609.5593,
@@ -208,6 +157,7 @@ class Stereo3DDetPredictor(DetectionPredictor):
                     image_width=stereo_img.shape[1],
                     image_height=stereo_img.shape[0],
                 )
+            self.calib_params[str(left_path)] = calib
 
         # Set up dataset-like structure for BasePredictor
         # BasePredictor expects dataset to yield (paths, im0s, s) tuples
