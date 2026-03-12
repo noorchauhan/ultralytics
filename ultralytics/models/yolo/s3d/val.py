@@ -29,8 +29,6 @@ from ultralytics.utils.plotting import plot_stereo3d_boxes
 from ultralytics.engine.validator import BaseValidator
 
 
-
-
 def _reverse_letterbox_calib(
     calib: dict | CalibrationParameters,
     letterbox_scale: float,
@@ -75,11 +73,7 @@ def _reverse_letterbox_calib(
     return calib
 
 
-def compute_3d_iou_batch(
-    pred_boxes: list[Box3D],
-    gt_boxes: list[Box3D],
-    eps: float = 1e-7,
-) -> np.ndarray:
+def compute_3d_iou_batch(pred_boxes: list[Box3D], gt_boxes: list[Box3D], eps: float = 1e-7) -> np.ndarray:
     """Compute 3D IoU matrix between prediction and ground truth boxes.
 
     Only computes IoU for boxes with matching class_id; others are set to 0.0.
@@ -113,10 +107,7 @@ def compute_3d_iou_batch(
 
 
 def _labels_to_box3d_list(
-    labels: list[dict[str, Any]],
-    calib: dict[str, float] | None = None,
-    names: dict[int, str] | None = None,
-    **kwargs,
+    labels: list[dict[str, Any]], calib: dict[str, float] | None = None, names: dict[int, str] | None = None
 ) -> list[Box3D]:
     """Convert label dictionaries to Box3D objects.
 
@@ -126,7 +117,6 @@ def _labels_to_box3d_list(
         labels: List of label dictionaries from dataset.
         calib: Calibration parameters dict.
         names: Class names mapping {class_id: class_name}.
-        **kwargs: Ignored (kept for backward compatibility with callers passing letterbox params).
 
     Returns:
         List of Box3D objects.
@@ -143,7 +133,11 @@ def _labels_to_box3d_list(
     else:
         image_hw = (375, 1242)
 
-    return [b for lab in labels if (b := Box3D.from_label(lab, calib_dict, class_names=names, image_hw=image_hw)) is not None]
+    return [
+        b
+        for lab in labels
+        if (b := Box3D.from_label(lab, calib_dict, class_names=names, image_hw=image_hw)) is not None
+    ]
 
 
 class Stereo3DDetValidator(BaseValidator):
@@ -153,9 +147,7 @@ class Stereo3DDetValidator(BaseValidator):
     Computes 3D IoU, matches predictions to ground truth, and calculates AP3D at IoU 0.5 and 0.7.
     """
 
-    def __init__(
-        self, dataloader=None, save_dir=None, args=None, _callbacks=None
-    ) -> None:
+    def __init__(self, dataloader=None, save_dir=None, args=None, _callbacks=None) -> None:
         """Initialize Stereo3DDetValidator.
 
         Args:
@@ -310,7 +302,7 @@ class Stereo3DDetValidator(BaseValidator):
                 l, w, h = dims  # YAML has [L, W, H]
                 # Find model class ID by name match
                 matched = False
-                for cid, cname in (self.names.items() if isinstance(self.names, dict) else enumerate(self.names)):
+                for cid, cname in self.names.items() if isinstance(self.names, dict) else enumerate(self.names):
                     if str(class_key) == str(cname) or (isinstance(class_key, int) and class_key == cid):
                         result[cid] = (h, w, l)  # Store as (H, W, L)
                         matched = True
@@ -341,11 +333,12 @@ class Stereo3DDetValidator(BaseValidator):
         # → remap {0:0, 3:1} so GT Pedestrian (dataset id=3) maps to model id=1.
         self._dataset_to_model_cls = None
         if data_names and model_names and len(data_names) != len(model_names):
-            model_name_to_id = {name: idx for idx, name in (
-                model_names.items() if isinstance(model_names, dict) else enumerate(model_names)
-            )}
+            model_name_to_id = {
+                name: idx
+                for idx, name in (model_names.items() if isinstance(model_names, dict) else enumerate(model_names))
+            }
             remap = {}
-            for did, dname in (data_names.items() if isinstance(data_names, dict) else enumerate(data_names)):
+            for did, dname in data_names.items() if isinstance(data_names, dict) else enumerate(data_names):
                 if dname in model_name_to_id:
                     remap[int(did)] = model_name_to_id[dname]
             if remap:
@@ -376,11 +369,7 @@ class Stereo3DDetValidator(BaseValidator):
             self.seen += 1
 
             # Get calibration for this sample
-            calib = (
-                calibs[si]
-                if si < len(calibs) and isinstance(calibs[si], dict)
-                else None
-            )
+            calib = calibs[si] if si < len(calibs) and isinstance(calibs[si], dict) else None
 
             # Convert labels to Box3D - need to reverse letterbox transformation on calibration
             # Labels use original image normalized coordinates, but calib is letterboxed
@@ -390,27 +379,13 @@ class Stereo3DDetValidator(BaseValidator):
                     actual_h, actual_w = ori_shape[0], ori_shape[1]
                     imgsz = getattr(self.args, "imgsz", 384)
 
-                    letterbox_scale, pad_left, pad_top = compute_letterbox_params(
-                        actual_h, actual_w, imgsz
-                    )
-                    calib = _reverse_letterbox_calib(
-                        calib, letterbox_scale, pad_left, pad_top, actual_w, actual_h
-                    )
+                    letterbox_scale, pad_left, pad_top = compute_letterbox_params(actual_h, actual_w, imgsz)
+                    calib = _reverse_letterbox_calib(calib, letterbox_scale, pad_left, pad_top, actual_w, actual_h)
                     in_h, in_w = (imgsz, imgsz) if isinstance(imgsz, int) else (int(imgsz[0]), int(imgsz[1]))
 
             # Convert labels to Box3D. Use data_names (all classes) for from_label since
             # label dicts carry dataset class IDs, then remap to model class IDs.
-            data_names = self.data.get("names") if hasattr(self, "data") and self.data else self.names
-            gt_boxes = _labels_to_box3d_list(
-                labels,
-                calib,
-                names=data_names,
-                letterbox_scale=letterbox_scale,
-                pad_left=pad_left,
-                pad_top=pad_top,
-                in_h=in_h,
-                in_w=in_w,
-            )
+            gt_boxes = _labels_to_box3d_list(labels, calib, names)
 
             # Remap GT class IDs from dataset space to model space and drop unmapped classes
             if self._dataset_to_model_cls:
@@ -419,7 +394,9 @@ class Stereo3DDetValidator(BaseValidator):
                     new_id = self._dataset_to_model_cls.get(box.class_id)
                     if new_id is not None:
                         box.class_id = new_id
-                        box.class_label = self.names.get(new_id, str(new_id)) if isinstance(self.names, dict) else str(new_id)
+                        box.class_label = (
+                            self.names.get(new_id, str(new_id)) if isinstance(self.names, dict) else str(new_id)
+                        )
                         remapped.append(box)
                 gt_boxes = remapped
 
@@ -444,17 +421,11 @@ class Stereo3DDetValidator(BaseValidator):
 
             # Use ori_shapes for inverse-letterbox.
             imgsz = getattr(self.args, "imgsz", 384)
-            if (
-                si < len(ori_shapes)
-                and isinstance(ori_shapes[si], (list, tuple))
-                and len(ori_shapes[si]) >= 2
-            ):
+            if si < len(ori_shapes) and isinstance(ori_shapes[si], (list, tuple)) and len(ori_shapes[si]) >= 2:
                 ori_h, ori_w = int(ori_shapes[si][0]), int(ori_shapes[si][1])
             else:
                 ori_h, ori_w = 375, 1242
-            letterbox_scale, pad_left, pad_top = compute_letterbox_params(
-                ori_h, ori_w, imgsz
-            )
+            letterbox_scale, pad_left, pad_top = compute_letterbox_params(ori_h, ori_w, imgsz)
             if isinstance(imgsz, int):
                 in_h, in_w = imgsz, imgsz
             else:
@@ -506,9 +477,7 @@ class Stereo3DDetValidator(BaseValidator):
                     else torch.zeros((0, 4), dtype=torch.float32)
                 )
                 gt_cls_t = (
-                    torch.tensor(gt_cls2d, dtype=torch.int64)
-                    if gt_cls2d
-                    else torch.zeros((0,), dtype=torch.int64)
+                    torch.tensor(gt_cls2d, dtype=torch.int64) if gt_cls2d else torch.zeros((0,), dtype=torch.int64)
                 )
 
                 if gt_boxes_t.shape[0] == 0:
@@ -521,11 +490,7 @@ class Stereo3DDetValidator(BaseValidator):
                     old_iouv = self.iouv
                     try:
                         self.iouv = self.det_iouv
-                        correct = (
-                            self.match_predictions(pred_cls_t, gt_cls_t, iou2d)
-                            .cpu()
-                            .numpy()
-                        )
+                        correct = self.match_predictions(pred_cls_t, gt_cls_t, iou2d).cpu().numpy()
                     finally:
                         self.iouv = old_iouv
                     tp2d = correct
@@ -582,11 +547,7 @@ class Stereo3DDetValidator(BaseValidator):
             )
 
             # Update progress bar with intermediate metrics (every batch for real-time feedback)
-        if (
-            hasattr(self, "_progress_bar")
-            and self._progress_bar is not None
-            and RANK in {-1, 0}
-        ):
+        if hasattr(self, "_progress_bar") and self._progress_bar is not None and RANK in {-1, 0}:
             # Update progress bar periodically to avoid performance impact
             if hasattr(self, "_batch_count"):
                 self._batch_count += 1
@@ -595,8 +556,7 @@ class Stereo3DDetValidator(BaseValidator):
 
             # Update every 5 batches or if we're near the end (more frequent than before)
             if self._batch_count % 5 == 0 or (
-                hasattr(self, "_total_batches")
-                and self._batch_count >= self._total_batches - 1
+                hasattr(self, "_total_batches") and self._batch_count >= self._total_batches - 1
             ):
                 metrics_str = self._format_progress_metrics()
                 if metrics_str:
@@ -609,12 +569,7 @@ class Stereo3DDetValidator(BaseValidator):
         # Default to 3 batches (matching Detect task style), but can be overridden via `max_plot_batches`.
         # Additionally cap samples per batch (default=1) via `max_plot_samples`.
         max_plot_batches = getattr(self.args, "max_plot_batches", 3)
-        if (
-            self.args.plots
-            and hasattr(self, "batch_i")
-            and self.batch_i < max_plot_batches
-            and RANK in {-1, 0}
-        ):
+        if self.args.plots and hasattr(self, "batch_i") and self.batch_i < max_plot_batches and RANK in {-1, 0}:
             self.plot_validation_samples(batch, preds, self.batch_i)
 
     def get_desc(self) -> str:
@@ -644,13 +599,9 @@ class Stereo3DDetValidator(BaseValidator):
         Returns:
             Dictionary containing metrics results.
         """
-        self.metrics.process(
-            save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot
-        )
+        self.metrics.process(save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot)
         try:
-            self.det_metrics.process(
-                save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot
-            )
+            self.det_metrics.process(save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot)
         except (KeyError, IndexError):
             # 2D det metrics are auxiliary — plotting can fail when model nc != dataset nc
             self.det_metrics.process(save_dir=self.save_dir, plot=False)
@@ -703,9 +654,7 @@ class Stereo3DDetValidator(BaseValidator):
             # Load original images from file paths
             left_path = Path(im_file)
             if not left_path.exists():
-                LOGGER.debug(
-                    "Left image not found: %s, skipping visualization", left_path
-                )
+                LOGGER.debug("Left image not found: %s, skipping visualization", left_path)
                 continue
 
             # Get right image path (same filename, different directory)
@@ -713,9 +662,7 @@ class Stereo3DDetValidator(BaseValidator):
             # right path: images/{split}/right/{image_id}.png
             right_path = left_path.parent.parent / "right" / left_path.name
             if not right_path.exists():
-                LOGGER.debug(
-                    "Right image not found: %s, skipping visualization", right_path
-                )
+                LOGGER.debug("Right image not found: %s, skipping visualization", right_path)
                 continue
 
             # Load original images (BGR format from OpenCV)
@@ -729,11 +676,7 @@ class Stereo3DDetValidator(BaseValidator):
             # Get predictions and ground truth for this sample
             pred_boxes = pred_boxes3d[si] if si < len(pred_boxes3d) else []
             labels = labels_list[si] if si < len(labels_list) else []
-            calib = (
-                calibs[si]
-                if si < len(calibs) and isinstance(calibs[si], dict)
-                else None
-            )
+            calib = calibs[si] if si < len(calibs) and isinstance(calibs[si], dict) else None
 
             # Skip visualization if no calibration available
             if calib is None:
@@ -743,37 +686,20 @@ class Stereo3DDetValidator(BaseValidator):
             actual_h, actual_w = left_img.shape[:2]
             imgsz = getattr(self.args, "imgsz", 384)
 
-            letterbox_scale, pad_left, pad_top = compute_letterbox_params(
-                actual_h, actual_w, imgsz
-            )
-            calib_orig = _reverse_letterbox_calib(
-                calib, letterbox_scale, pad_left, pad_top, actual_w, actual_h
-            )
-            in_h, in_w = (imgsz, imgsz) if isinstance(imgsz, int) else (int(imgsz[0]), int(imgsz[1]))
+            letterbox_scale, pad_left, pad_top = compute_letterbox_params(actual_h, actual_w, imgsz)
+            calib_orig = _reverse_letterbox_calib(calib, letterbox_scale, pad_left, pad_top, actual_w, actual_h)
 
             # Convert labels to Box3D for ground truth
             # Use original calibration, pass letterbox parameters for bbox_2d conversion
             gt_boxes = []
             if labels:
-                gt_boxes = _labels_to_box3d_list(
-                    labels,
-                    calib_orig,
-                    names=self.names,
-                    letterbox_scale=letterbox_scale,
-                    pad_left=pad_left,
-                    pad_top=pad_top,
-                    in_h=in_h,
-                    in_w=in_w,
-                )
+                gt_boxes = _labels_to_box3d_list(labels, calib_orig, self.names)
 
             # Filter out predictions with confidence == 0 or below threshold before visualization
             if pred_boxes:
                 conf_threshold = self.args.conf
                 pred_boxes = [
-                    box
-                    for box in pred_boxes
-                    if hasattr(box, "confidence")
-                    and box.confidence > conf_threshold
+                    box for box in pred_boxes if hasattr(box, "confidence") and box.confidence > conf_threshold
                 ]
 
             # Generate visualization with predictions only (top image)
@@ -822,9 +748,7 @@ class Stereo3DDetValidator(BaseValidator):
                 (stacked.shape[0] + label_height * 2, stacked.shape[1], 3),
                 dtype=np.uint8,
             )
-            stacked_with_labels[
-                label_height : label_height + stacked.shape[0], :, :
-            ] = stacked
+            stacked_with_labels[label_height : label_height + stacked.shape[0], :, :] = stacked
 
             # Add text labels
             cv2.putText(
@@ -848,9 +772,7 @@ class Stereo3DDetValidator(BaseValidator):
 
             # Save individual image (one file per sample)
             image_id = left_path.stem
-            save_path = (
-                self.save_dir / f"val_batch{batch_idx}_sample{si}_{image_id}.jpg"
-            )
+            save_path = self.save_dir / f"val_batch{batch_idx}_sample{si}_{image_id}.jpg"
             cv2.imwrite(str(save_path), stacked_with_labels)
             if self.on_plot:
                 self.on_plot(save_path)
@@ -859,9 +781,7 @@ class Stereo3DDetValidator(BaseValidator):
         """Print training/validation set metrics per class with KITTI difficulty splits."""
 
         if not self.metrics.stats:
-            LOGGER.warning(
-                f"no labels found in {self.args.task} set, can not compute metrics without labels"
-            )
+            LOGGER.warning(f"no labels found in {self.args.task} set, can not compute metrics without labels")
             return
 
         # Count ground truth objects per class from raw stats
@@ -878,14 +798,11 @@ class Stereo3DDetValidator(BaseValidator):
 
         total_gt = int(nt_per_class.sum())
         if total_gt == 0:
-            LOGGER.warning(
-                f"no labels found in {self.args.task} set, can not compute metrics without labels"
-            )
+            LOGGER.warning(f"no labels found in {self.args.task} set, can not compute metrics without labels")
             return
 
         # Get per-difficulty AP values
         ap3d = self.metrics.ap3d
-        diffs = [DIFFICULTY_EASY, DIFFICULTY_MODERATE, DIFFICULTY_HARD]
 
         def mean_ap_diff(iou_t, diff):
             """Mean AP across classes for given IoU and difficulty."""
@@ -968,10 +885,7 @@ class Stereo3DDetValidator(BaseValidator):
         )
 
     def build_dataset(
-        self,
-        img_path: str | dict[str, Any],
-        mode: str = "val",
-        batch: int | None = None,
+        self, img_path: str | dict[str, Any], mode: str = "val", batch: int | None = None
     ) -> torch.utils.data.Dataset:
         """Build Stereo3DDetDataset for validation.
 
@@ -1012,9 +926,7 @@ class Stereo3DDetValidator(BaseValidator):
             filter_occluded=False,
         )
 
-    def get_dataloader(
-        self, dataset_path: str | dict[str, Any], batch_size: int
-    ) -> torch.utils.data.DataLoader:
+    def get_dataloader(self, dataset_path: str | dict[str, Any], batch_size: int) -> torch.utils.data.DataLoader:
         """Construct and return dataloader for validation.
 
         Args:
