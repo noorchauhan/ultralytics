@@ -28,7 +28,7 @@ def onnx2deepx(
         (Path): Path to the exported DeepX model directory.
     """
     try:
-        import dx_com    
+        import dx_com
     except ImportError:
         check_requirements("dx_com")
 
