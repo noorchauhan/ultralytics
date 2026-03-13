@@ -18,9 +18,40 @@ from ultralytics.models.yolo.s3d.augment import (
     StereoLetterBox,
 )
 from ultralytics.utils import DEFAULT_CFG, LOGGER
-from ultralytics.data.stereo.target_improved import TargetGenerator, compute_dimension_offset
 from ultralytics.utils.checks import check_imgsz
 import math
+
+
+def compute_dimension_offset(
+    dims: tuple[float, float, float],
+    class_id: int,
+    mean_dims: dict,
+    std_dims: dict,
+) -> torch.Tensor:
+    """Compute normalized dimension offset [ΔH, ΔW, ΔL] for 3D detection.
+
+    The offset is computed as (dim - mean) / std for each dimension,
+    following the paper's approach for stable training.
+
+    Args:
+        dims: Object dimensions as (length, width, height) in meters.
+        class_id: Integer class ID for looking up mean/std values.
+        mean_dims: Dict mapping class_id -> [mean_L, mean_W, mean_H].
+        std_dims: Dict mapping class_id -> [std_L, std_W, std_H].
+
+    Returns:
+        Tensor of shape [3] with normalized offsets [ΔH, ΔW, ΔL].
+    """
+    mean_dim = mean_dims.get(class_id, [1.0, 1.0, 1.0])
+    std_dim = std_dims.get(class_id, [0.2, 0.2, 0.5])
+    return torch.tensor(
+        [
+            (dims[2] - mean_dim[2]) / std_dim[2],  # height
+            (dims[1] - mean_dim[1]) / std_dim[1],  # width
+            (dims[0] - mean_dim[0]) / std_dim[0],  # length
+        ],
+        dtype=torch.float32,
+    )
 
 
 class Stereo3DDetDataset(BaseDataset):
@@ -153,16 +184,10 @@ class Stereo3DDetDataset(BaseDataset):
         self.output_size = output_size
 
         # Get number of classes
-        num_classes = len(self.names) if self.names else 3
-
-        # Initialize target generator
-        self.target_generator = TargetGenerator(
-            output_size=output_size,
-            num_classes=num_classes,
-            mean_dims=mean_dims,
-            std_dims=std_dims,  # std_dims will be loaded from dataset YAML if available
-            class_names=self.names,  # Pass class names mapping for dataset-agnostic operation
-        )
+        assert mean_dims is not None, "mean_dims must be provided"
+        assert std_dims is not None, "std_dims must be provided"
+        self.mean_dims = mean_dims
+        self.std_dims = std_dims
 
     def _get_image_ids(self) -> list[str]:
         """Return image ids that exist in left/right dirs AND have required metadata files.
@@ -750,9 +775,6 @@ class Stereo3DDetDataset(BaseDataset):
             "is_pseudo": [],  # 0=real, 1=stereo-pseudo (occ>=10), 2=mono-pseudo (occ>=20)
         }
 
-        # Reuse mean_dims and std_dims mapping from TargetGenerator for dimension offset computation.
-        mean_dims = self.target_generator.mean_dims
-        std_dims = self.target_generator.std_dims
         per_image_counts: list[int] = []
         labels_list: list[list[dict[str, Any]]] = []
 
@@ -899,7 +921,7 @@ class Stereo3DDetDataset(BaseDataset):
 
                 # Dimension offset: normalized (dim - mean) / std, shape [3]
                 dims = dimensions_3d[j]  # [length, width, height] in meters
-                dim_list.append(compute_dimension_offset(tuple(dims), cls_i, mean_dims, std_dims))
+                dim_list.append(compute_dimension_offset(tuple(dims), cls_i, self.mean_dims, self.std_dims))
 
                 # Orientation: encode alpha as [sin(alpha), cos(alpha)]
                 # alpha = rotation_y - ray_angle, where ray_angle = atan2(x_3d, z_3d)
