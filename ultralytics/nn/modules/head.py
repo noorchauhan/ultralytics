@@ -2000,19 +2000,6 @@ class AnomalyDetection(Detect):
         self.conf = conf
         self.max_det = max_det
 
-    def postprocess(self, preds: torch.Tensor) -> torch.Tensor:
-        """Postprocess end2end predictions using actual score-channel count.
-
-        Reads the number of score channels from the tensor itself instead of
-        `self.nc`, so it stays correct regardless of when set_anomaly_mode() is
-        called relative to the forward pass.
-        """
-        nc_actual = preds.shape[-1] - 4  # preds: [B, N, 4+nc]
-        boxes, scores = preds.split([4, nc_actual], dim=-1)
-        scores, conf, idx = self.get_topk_index(scores, self.max_det)
-        boxes = boxes.gather(dim=1, index=idx.repeat(1, 1, 4))
-        return torch.cat([boxes, scores, conf], dim=-1)
-
     def set_anomaly_mode(self, anomaly_mode: bool) -> None:
         """Switch between anomaly scoring (nc=1) and original classification (nc=original_nc).
 
@@ -2035,52 +2022,34 @@ class AnomalyDetection(Detect):
     def forward(self, x: list[torch.Tensor]) -> torch.Tensor | tuple:
         """Run anomaly detection forward pass.
 
-        End2end models: sparse filtered output → postprocess (top-k).
-        Non-end2end models: dense output for all anchors → NMS in predictor.
+        Sparse filtered output via memory-bank cosine-similarity scoring.
+        End2end models apply postprocess (top-k); non-end2end uses predictor NMS.
         """
         assert self.adhead is not None, "Call build_adhead() before forward()."
 
         bs = x[0].shape[0]
+        cv2 = self.one2one_cv2 if self.end2end else self.cv2
+        cv3 = self.one2one_cv3 if self.end2end else self.cv3
 
+        boxes, scores, index = [], [], []
+        for i in range(self.nl):
+            cls_feat = cv3[i](x[i])
+            loc_feat = cv2[i](x[i])
+            box, score, idx = self.adhead[i](
+                cls_feat,
+                loc_feat,
+                0 if self.export and not self.dynamic else getattr(self, "conf", 0.001),
+            )
+            boxes.append(box.view(bs, self.reg_max * 4, -1))
+            scores.append(score)
+            index.append(idx)
+
+        preds = dict(boxes=torch.cat(boxes, 2), scores=torch.cat(scores, 2), feats=x, index=torch.cat(index))
+        self.nc = preds["scores"].shape[1] # Update number of classes based on scores
+        y = self._inference(preds)
         if self.end2end:
-            # ── End2end path (e.g. yolo26, yolov8 e2e) ────────────────────────
-            # adhead pre-filters anchor positions; postprocess handles top-k.
-            boxes, scores, index = [], [], []
-            for i in range(self.nl):
-                cls_feat = self.one2one_cv3[i](x[i])
-                loc_feat = self.one2one_cv2[i](x[i])
-                box, score, idx = self.adhead[i](
-                    cls_feat, loc_feat,
-                    0 if self.export and not self.dynamic else getattr(self, "conf", 0.001),
-                )
-                boxes.append(box.view(bs, self.reg_max * 4, -1))
-                scores.append(score)
-                index.append(idx)
-            preds = dict(boxes=torch.cat(boxes, 2), scores=torch.cat(scores, 2),
-                         feats=x, index=torch.cat(index))
-            y = self._inference(preds)
             y = self.postprocess(y.permute(0, 2, 1))
-            return y if self.export else (y, preds)
-
-        else:
-            # ── Non-end2end path (e.g. yolo11n-seg) ───────────────────────────
-            # Mirror the end2end path: call adhead[i] for sparse filtered output.
-            # NMS in the predictor handles final top-k; postprocess() is not called.
-            boxes, scores, index = [], [], []
-            for i in range(self.nl):
-                cls_feat = self.cv3[i](x[i])
-                loc_feat = self.cv2[i](x[i])
-                box, score, idx = self.adhead[i](
-                    cls_feat, loc_feat,
-                    0 if self.export and not self.dynamic else getattr(self, "conf", 0.001),
-                )
-                boxes.append(box.view(bs, self.reg_max * 4, -1))
-                scores.append(score)
-                index.append(idx)
-            preds = dict(boxes=torch.cat(boxes, 2), scores=torch.cat(scores, 2),
-                         feats=x, index=torch.cat(index))
-            y = self._inference(preds)  # [B, 4+nc, total_selected]
-            return y if self.export else (y, preds)
+        return y if self.export else (y, preds)
     
 
         
