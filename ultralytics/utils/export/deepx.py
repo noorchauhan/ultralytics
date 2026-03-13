@@ -35,7 +35,7 @@ def onnx2deepx(
     export_path = Path(f"{onnx_file.stem}_deepx_model")
     export_path.mkdir(exist_ok=True)
     config_path = export_path / "config.json"
-    
+
     config = {
         "inputs": {"images": [1, 3, imgsz[0], imgsz[1]]},
         "calibration_num": 100,
@@ -46,7 +46,7 @@ def onnx2deepx(
             "dataset_path": dataset.dataset.img_path,
             "file_extensions": ["jpeg", "jpg", "png", "JPEG"],
             "preprocessings": [
-                {"resize": {"mode": "pad","size": 640,"pad_location": "edge","pad_value": [114,114,114]}},
+                {"resize": {"mode": "pad", "size": 640, "pad_location": "edge", "pad_value": [114, 114, 114]}},
                 {"div": {"x": 255.0}},
                 {"convertColor": {"form": "BGR2RGB"}},
                 {"transpose": {"axis": [2, 0, 1]}},
