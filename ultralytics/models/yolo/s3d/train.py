@@ -246,6 +246,23 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         super().set_model_attributes()
         # Pass pseudo-label config from dataset YAML to model for loss initialization
         self.model.pseudo_labels = self.data.get("pseudo_labels", {})
+        # Store mean/std dims on model so predictor can read them without the data YAML.
+        # Reorder from YAML [L,W,H] to decode format {int_id: (H,W,L)}.
+        self.model.mean_dims = self._reorder_dims(self.data.get("mean_dims"))
+        self.model.std_dims = self._reorder_dims(self.data.get("std_dims"))
+
+    @staticmethod
+    def _reorder_dims(raw_dims):
+        """Convert YAML dims {key: [L,W,H]} to decode format {int_id: (H,W,L)}."""
+        if raw_dims is None:
+            return None
+        result = {}
+        for i, (key, dims) in enumerate(raw_dims.items()):
+            if isinstance(dims, (list, tuple)) and len(dims) == 3:
+                l, w, h = dims
+                cid = key if isinstance(key, int) else i
+                result[cid] = (h, w, l)
+        return result if result else None
 
     def preprocess_batch(self, batch):
         """Normalize 6-channel images to float [0,1] and move targets to device.

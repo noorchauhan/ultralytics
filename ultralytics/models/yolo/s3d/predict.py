@@ -15,7 +15,6 @@ from ultralytics.engine.results import Results
 from ultralytics.models.yolo.detect import DetectionPredictor
 
 from ultralytics.models.yolo.s3d.preprocess import decode_and_refine_predictions, preprocess_stereo_images
-from ultralytics.utils import YAML
 from ultralytics.utils.checks import check_imgsz
 
 
@@ -55,34 +54,16 @@ class Stereo3DDetPredictor(DetectionPredictor):
         # Will be updated in setup_source when imgsz is checked
         self._letterbox = None
 
-        # Mean and std dimensions for decoding (from dataset config)
-        # Falls back to built-in defaults when data YAML is unavailable (e.g. predict on a different machine)
-        data_cfg = {}
-        if isinstance(self.data, dict):
-            data_cfg = self.data
-        elif isinstance(self.data, (str, Path)):
-            try:
-                from ultralytics.utils.checks import check_yaml
+        # Will be populated from model attributes in setup_model
+        self.mean_dims = None
+        self.std_dims = None
 
-                data_cfg = YAML.load(check_yaml(str(self.data)))
-            except FileNotFoundError:
-                pass
-        # YAML stores [L, W, H] but decode expects (H, W, L) — reorder to match validator
-        self.mean_dims = self._reorder_dims(data_cfg.get("mean_dims"))
-        self.std_dims = self._reorder_dims(data_cfg.get("std_dims"))
-
-    @staticmethod
-    def _reorder_dims(raw_dims):
-        """Convert YAML dims {key: [L,W,H]} to decode format {int_id: (H,W,L)}."""
-        if raw_dims is None:
-            return None
-        result = {}
-        for i, (key, dims) in enumerate(raw_dims.items()):
-            if isinstance(dims, (list, tuple)) and len(dims) == 3:
-                l, w, h = dims
-                cid = key if isinstance(key, int) else i
-                result[cid] = (h, w, l)
-        return result if result else None
+    def setup_model(self, model, verbose=True):
+        """Set up model and read mean/std dims stored during training (like classify's transforms)."""
+        super().setup_model(model, verbose)
+        # Prefer dims stored on the model (saved during training); fall back to data YAML
+        self.mean_dims = getattr(self.model.model, "mean_dims", None)
+        self.std_dims = getattr(self.model.model, "std_dims", None)
 
     def setup_source(self, source=None):
         """Set up input source for stereo prediction.
