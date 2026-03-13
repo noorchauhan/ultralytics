@@ -56,7 +56,7 @@ from ultralytics.nn.modules import (
     Index,
     LRPCHead,
     AnomalyDetection,
-    AnomalyDetectionLRPCHead,
+    ADMBHead,
     Pose,
     Pose26,
     RepC3,
@@ -1334,7 +1334,7 @@ class YOLOAnomalyModel(DetectionModel):
 
     Both YOLOE (YOLOEDetect/YOLOESegment) and plain YOLO (Detect) checkpoints are handled
     with a single unified structure: the detection head is always changed to AnomalyDetection
-    with AnomalyDetectionLRPCHead sub-heads.  For YOLOE checkpoints, text embeddings are
+    with ADMBHead sub-heads.  For YOLOE checkpoints, text embeddings are
     fused into the conv weights first so no cls_pe injection is needed at inference time.
 
     Methods:
@@ -1460,7 +1460,7 @@ class YOLOAnomalyModel(DetectionModel):
     # ── Anomaly detection setup ──────────────────────────────────────────────────
 
     def setup_anomaly_detection(self, names: list, conf: float = 0.1) -> None:
-        """Initialize anomaly detection using AnomalyDetection + AnomalyDetectionLRPCHead for all model types.
+        """Initialize anomaly detection using AnomalyDetection + ADMBHead for all model types.
 
         For YOLOE checkpoints: text embeddings are fused into cv3/one2one_cv3 weights first
         (via get_vocab), then the head class is changed to AnomalyDetection.  After fusing,
@@ -1470,7 +1470,7 @@ class YOLOAnomalyModel(DetectionModel):
 
         Both paths end up with the same structure:
             model[-1]  →  AnomalyDetection
-            model[-1].adhead  →  ModuleList[AnomalyDetectionLRPCHead × nl]
+            model[-1].adhead  →  ModuleList[ADMBHead × nl]
 
         Args:
             names (list[str]): Class names, e.g. ["anomaly"] or original class names.
@@ -1502,11 +1502,11 @@ class YOLOAnomalyModel(DetectionModel):
         self.names = {0: names[0] if names else "anomaly"}
 
     def _get_ad_heads(self) -> list:
-        """Return all AnomalyDetectionLRPCHead instances from the unified adhead ModuleList."""
+        """Return all ADMBHead instances from the unified adhead ModuleList."""
         head = self.model[-1]
         if not isinstance(head, AnomalyDetection) or head.adhead is None:
             raise RuntimeError("Call setup_anomaly_detection() first.")
-        return [h for h in head.adhead if isinstance(h, AnomalyDetectionLRPCHead)]
+        return [h for h in head.adhead if isinstance(h, ADMBHead)]
 
     def set_memory_update(self, update: bool) -> None:
         """Toggle memory bank accumulation for all anomaly detection heads."""

@@ -83,7 +83,7 @@ from .head import (
     Detect,
     LRPCHead,
     AnomalyDetection,
-    AnomalyDetectionLRPCHead,
+    ADMBHead,
     Pose,
     Pose26,
     RTDETRDecoder,

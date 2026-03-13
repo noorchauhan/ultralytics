@@ -25,26 +25,35 @@ import os
 from ultralytics.models.yolo.model import YOLOAnomaly
 from ultralytics.engine import model
 
+from ultra_ext.utils import open_in_vscode
+
 def test_leather_ad_func():
 
 	category="leather"
 	# category="grid"
 	# category="bottle"
-	category="cable"
+	# category="cable"
 	# category="carpet"
 	# category="toothbrush"
 	# category="metal_nut"
 	# category="pill"
 	train_dir=f"/Users/louis/workspace/public_datasets/mvtec_anomaly_detection/{category}/train/good"		
 	test_dir=f"/Users/louis/workspace/public_datasets/mvtec_anomaly_detection/{category}/test"
-	imgsz=640
+
 
 	# ── Build model ──────────────────────────────────────────────────────────
 	# model = YOLOAnomaly("yolo26x-seg.pt")
 	# model = YOLOAnomaly("yoloe-26x-seg.pt")
-	model = YOLOAnomaly("yolov8x.pt")
-	# model = YOLOAnomaly("yolo11n-seg.pt")
-	model.setup(["anomaly"], conf=0.0001)
+	# model = YOLOAnomaly("yolov8x.pt")
+
+
+	# model = YOLOAnomaly("yolo11n.pt")
+	# model_arg=dict(conf=0.00000001,iou=0.001, imgsz=640)
+
+	model = YOLOAnomaly("yolo26x-seg.pt")
+	model_arg=dict(conf=0.00000001,iou=0.001,max_det=3, imgsz=640)
+
+	model.setup(["anomaly"], conf=0.1)
 
 	# ── Populate memory bank from support set (normal images) ─────────────
 	support_images = [
@@ -52,7 +61,7 @@ def test_leather_ad_func():
 		for img in os.listdir(train_dir)
 		if img.endswith((".png", ".jpg", ".jpeg"))
 	][:10]
-	model.load_support_set(support_images, imgsz=imgsz)
+	model.load_support_set(support_images, imgsz=model_arg["imgsz"])
 
 	model.set_mode("anomaly")
 	# ── Pick a random test image ─────────────────────────────────────────
@@ -63,6 +72,7 @@ def test_leather_ad_func():
 			for file in files:
 				if file.endswith((".png", ".jpg", ".jpeg")):
 					all_files.append(os.path.join(root, file))
+		return all_files[1]
 		return random.choice(all_files)
 
 	test_img=get_random_one_from_dir(test_dir)
@@ -80,7 +90,7 @@ def test_leather_ad_func():
 
 
 	# ── Run anomaly detection ─────────────────────────────────────────────
-	res=model.predict(test_img, conf=0.00000001, imgsz=imgsz)[0]
+	res=model.predict(test_img, **model_arg)[0]
 
 	res.save("./runs/temp/res.png")
 	from ultra_ext.utils import keep_best_detection_per_class
@@ -176,6 +186,6 @@ def test_leather_ad_func():
 						  save_path="./runs/temp/concat.png", layout="grid", grid_cols=2)
 
 	# from ultra_ext.utils import open_in_vscode
-	# open_in_vscode("./runs/temp/concat.png")
+	open_in_vscode("./runs/temp/concat.png")
 
 test_leather_ad_func()
