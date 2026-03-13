@@ -8,7 +8,6 @@ from typing import Any
 
 import cv2
 import numpy as np
-import torch
 
 from ultralytics.data import build_dataloader
 from ultralytics.data.stereo.box3d import Box3D
@@ -178,20 +177,6 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
             else:
                 imgsz_hw = (int(imgsz), int(imgsz))  # square fallback
 
-            # Determine output_size from model if available, otherwise use default (8x downsampling)
-            output_size = None
-            if hasattr(self, "model") and self.model is not None:
-                with torch.no_grad():
-                    n_ch = self.data.get("channels", 6)
-                    dummy_img = torch.zeros(1, n_ch, imgsz_hw[0], imgsz_hw[1], device=self.device)
-                    dummy_output = self.model(dummy_img)
-                    # Training returns dict with "feats" (list of [B,C,H,W] feature maps)
-                    if isinstance(dummy_output, dict) and "feats" in dummy_output:
-                        feats = dummy_output["feats"]
-                        if isinstance(feats, list) and len(feats) > 0:
-                            _, _, output_h, output_w = feats[0].shape
-                            output_size = (output_h, output_w)
-
             # Get mean_dims from dataset config
             mean_dims = self.data.get("mean_dims")
             std_dims = self.data.get("std_dims")
@@ -200,7 +185,6 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
                 split=str(desc.get("split", "train")),
                 imgsz=imgsz_hw,
                 names=self.data.get("names"),
-                output_size=output_size,
                 mean_dims=mean_dims,
                 std_dims=std_dims,
                 augment=(mode == "train"),

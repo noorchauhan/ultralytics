@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import cv2
 import numpy as np
@@ -70,7 +70,6 @@ class Stereo3DDetDataset(BaseDataset):
         imgsz: int | tuple[int, int] | list[int],
         names: Dict[int, str] | List[str] | None = None,
         max_samples: int | None = None,
-        output_size: Tuple[int, int] | None = None,
         mean_dims: Dict[str, List[float]] | None = None,
         std_dims: Dict[str, List[float]] | None = None,
         filter_occluded: bool = False,
@@ -90,8 +89,6 @@ class Stereo3DDetDataset(BaseDataset):
             names (Dict[int, str] | List[str] | None): Class names mapping. If None, uses default.
             max_samples (int | None): Maximum number of samples to load. If None, loads all available samples.
                 If specified, only the first max_samples samples will be loaded. Defaults to None.
-            output_size (Tuple[int, int] | None): Output feature map size (H, W) for target generation.
-                If None, computed from imgsz assuming 8x downsampling (P3 architecture).
             mean_dims (Dict[str, List[float]] | None): Mean dimensions per class [L, W, H] in meters.
                 If None, uses default KITTI values.
             std_dims (Dict[str, List[float]] | None): Standard deviation of dimensions per class [L, W, H] in meters.
@@ -171,17 +168,6 @@ class Stereo3DDetDataset(BaseDataset):
             prefix=prefix,
             channels=3,  # RGB images
         )
-
-        # Keep imgsz as integer for BaseDataset operations
-        # Use imgsz_tuple when tuple format is needed (e.g., in transforms)
-
-        # Initialize target generator for generating training/validation targets
-        # Compute output_size if not provided (default to 8x downsampling for P3)
-        if output_size is None:
-            # Default to 8x downsampling (P3 architecture). This can be overridden by the trainer if model is known.
-            input_h, input_w = self.imgsz_tuple  # Use tuple format
-            output_size = (input_h // 8, input_w // 8)
-        self.output_size = output_size
 
         # Get number of classes
         assert mean_dims is not None, "mean_dims must be provided"
