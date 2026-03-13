@@ -202,144 +202,58 @@ class Stereo3DDetDataset(BaseDataset):
 
         return valid_files
 
-    def load_image(self, i: int, rect_mode: bool = True) -> tuple[np.ndarray, tuple[int, int], tuple[int, int]]:
-        """Load stereo image pair (left + right) from dataset index 'i'.
+    def _read_image(self, im_file: str) -> tuple[np.ndarray, tuple[int, int]]:
+        """Read stereo image pair (left + right) from disk for index 'i'.
 
-        Overrides BaseDataset.load_image() to load both left and right images,
-        resize them identically, and concatenate into a 6-channel stereo image.
-        Supports caching (RAM and disk) like BaseDataset.
+        Overrides BaseDataset._read_image() to load both left and right images,
+        convert them to RGB, and concatenate into a 6-channel stereo image.
 
         Args:
-            i (int): Index of the image to load.
-            rect_mode (bool): Whether to use rectangular resizing.
+            im_file (str): Path to the left image file.
 
         Returns:
             im (np.ndarray): 6-channel stereo image [H, W, 6] (left RGB + right RGB).
-            hw_original (tuple[int, int]): Original image dimensions (height, width).
-            hw_resized (tuple[int, int]): Resized image dimensions (height, width).
+            hw_original (tuple[int, int]): Original image dimensions (height, width) from left image.
 
         Raises:
-            FileNotFoundError: If the image file is not found.
+            FileNotFoundError: If either image file is not found.
         """
         from ultralytics.utils.patches import imread
 
-        # TODO: We should also support cache for stereo images.
-        # Check cache first
-        im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i]
-        h0, w0 = None, None  # Will be set when loading from filesdatasetp
+        # Load left image
+        left_img = imread(im_file, flags=self.cv2_flag)  # BGR
+        if left_img is None:
+            raise FileNotFoundError(f"Image Not Found {im_file}")
 
-        if im is None:  # not cached in RAM
-            if fn.exists():  # load npy
-                try:
-                    im = np.load(fn)
-                    # If we have cached original shape, use it; otherwise we'll need to load to get it
-                    if self.im_hw0[i] is not None:
-                        h0, w0 = self.im_hw0[i]
-                except (OSError, ValueError) as e:
-                    LOGGER.warning(f"{self.prefix}Removing corrupt *.npy image file {fn} due to: {e}")
-                    Path(fn).unlink(missing_ok=True)
-                    # Fall through to load from file
-                    im = None
+        # Load right image
+        image_id = Path(im_file).stem
+        right_img_path = self.right_dir / Path(im_file).name
+        if not right_img_path.exists():
+            # Try different extension
+            for ext in [".png", ".jpg", ".jpeg"]:
+                right_img_path = self.right_dir / f"{image_id}{ext}"
+                if right_img_path.exists():
+                    break
 
-            if im is None:  # not loaded from cache, load from files
-                # Load left image
-                left_img = imread(f, flags=self.cv2_flag)  # BGR
-                if left_img is None:
-                    raise FileNotFoundError(f"Image Not Found {f}")
+        right_img = imread(str(right_img_path), flags=self.cv2_flag)  # BGR
+        if right_img is None:
+            raise FileNotFoundError(f"Right image not found: {right_img_path}")
 
-                # Load right image
-                image_id = Path(f).stem
-                right_img_path = self.right_dir / Path(f).name
-                if not right_img_path.exists():
-                    # Try different extension
-                    for ext in [".png", ".jpg", ".jpeg"]:
-                        right_img_path = self.right_dir / f"{image_id}{ext}"
-                        if right_img_path.exists():
-                            break
+        # Get original shape from left image
+        h0, w0 = left_img.shape[:2]
 
-                right_img = imread(str(right_img_path), flags=self.cv2_flag)  # BGR
-                if right_img is None:
-                    raise FileNotFoundError(f"Right image not found: {right_img_path}")
+        # Handle grayscale
+        if left_img.ndim == 2:
+            left_img = left_img[..., None]
+        if right_img.ndim == 2:
+            right_img = right_img[..., None]
 
-                # Get original shapes
-                left_h0, left_w0 = left_img.shape[:2]
-                h0, w0 = left_h0, left_w0  # Store for return
+        # Convert BGR to RGB and concatenate to 6-channel stereo image
+        left_rgb = cv2.cvtColor(left_img, cv2.COLOR_BGR2RGB)
+        right_rgb = cv2.cvtColor(right_img, cv2.COLOR_BGR2RGB)
+        im = np.concatenate([left_rgb, right_rgb], axis=2)  # [H, W, 6]
 
-                # Apply resize logic (same as BaseDataset.load_image())
-                if rect_mode:  # resize long side to imgsz while maintaining aspect ratio
-                    # Resize left image
-                    r_left = self.imgsz / max(left_h0, left_w0)  # ratio
-                    if r_left != 1:
-                        w, h = (
-                            min(math.ceil(left_w0 * r_left), self.imgsz),
-                            min(math.ceil(left_h0 * r_left), self.imgsz),
-                        )
-                        left_img = cv2.resize(left_img, (w, h), interpolation=cv2.INTER_LINEAR)
-
-                    # Resize right image to match left's resized shape
-                    right_img = cv2.resize(
-                        right_img, (left_img.shape[1], left_img.shape[0]), interpolation=cv2.INTER_LINEAR
-                    )
-                elif not (left_h0 == left_w0 == self.imgsz):  # resize by stretching image to square imgsz
-                    left_img = cv2.resize(left_img, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
-                    right_img = cv2.resize(right_img, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
-
-                # Handle grayscale
-                if left_img.ndim == 2:
-                    left_img = left_img[..., None]
-                if right_img.ndim == 2:
-                    right_img = right_img[..., None]
-
-                # Convert BGR to RGB and concatenate to 6-channel stereo image
-                left_rgb = cv2.cvtColor(left_img, cv2.COLOR_BGR2RGB)
-                right_rgb = cv2.cvtColor(right_img, cv2.COLOR_BGR2RGB)
-                im = np.concatenate([left_rgb, right_rgb], axis=2)  # [H, W, 6]
-
-            if im is None:
-                raise FileNotFoundError(f"Failed to load stereo image pair for {f}")
-
-            # If we loaded from npy cache and don't have original shape, use resized shape as fallback
-            if h0 is None or w0 is None:
-                h0, w0 = im.shape[:2]  # Fallback to resized shape
-                # Store it for future use
-                if self.im_hw0[i] is None:
-                    self.im_hw0[i] = (h0, w0)
-
-            # Add to buffer if training with augmentations
-            if self.augment:
-                self.ims[i], self.im_hw0[i], self.im_hw[i] = im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
-                self.buffer.append(i)
-                if 1 < len(self.buffer) >= self.max_buffer_length:  # prevent empty buffer
-                    j = self.buffer.pop(0)
-                    if self.cache != "ram":
-                        self.ims[j], self.im_hw0[j], self.im_hw[j] = None, None, None
-
-            return im, (h0, w0), im.shape[:2]
-
-        # Return from cache
-        cached_hw0 = self.im_hw0[i]
-        cached_hw = self.im_hw[i]
-        # If cached original shape is missing, use resized shape as fallback
-        if cached_hw0 is None:
-            cached_hw0 = cached_hw if cached_hw is not None else im.shape[:2]
-        if cached_hw is None:
-            cached_hw = im.shape[:2]
-        return im, cached_hw0, cached_hw
-
-    def cache_images_to_disk(self, i: int) -> None:
-        """Save stereo image pair (6-channel) as an *.npy file for faster loading.
-
-        Overrides BaseDataset.cache_images_to_disk() to handle 6-channel stereo images.
-
-        Args:
-            i (int): Index of the image to cache.
-        """
-        f = self.npy_files[i]
-        if not f.exists():
-            # Load the stereo image pair using load_image (which returns 6-channel)
-            stereo_img, _, _ = self.load_image(i, rect_mode=True)
-            # Save the 6-channel stereo image
-            np.save(f.as_posix(), stereo_img, allow_pickle=False)
+        return im, (h0, w0)
 
     def get_labels(self) -> list[dict[str, Any]]:
         """Load and cache stereo 3D labels.

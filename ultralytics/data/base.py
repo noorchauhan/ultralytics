@@ -207,6 +207,50 @@ class BaseDataset(Dataset):
             if self.single_cls:
                 self.labels[i]["cls"][:, 0] = 0
 
+    def _read_image(self, im_file: str) -> tuple[np.ndarray, tuple[int, int]]:
+        """Read image from disk for index 'i'.
+
+        This method can be overridden by subclasses to support custom image reading logic,
+        such as loading multi-channel images or stereo pairs.
+
+        Args:
+            im_file (str): Path to the image file to read.
+
+        Returns:
+            im (np.ndarray): Loaded image as a NumPy array.
+            hw_original (tuple[int, int]): Original image dimensions (height, width).
+
+        Raises:
+            FileNotFoundError: If the image file is not found.
+        """
+        im = imread(im_file, flags=self.cv2_flag)  # BGR
+        if im is None:
+            raise FileNotFoundError(f"Image Not Found {im_file}")
+        h0, w0 = im.shape[:2]
+        return im, (h0, w0)
+
+    def _resize_image(self, im: np.ndarray, rect_mode: bool = True) -> np.ndarray:
+        """Resize image to target size.
+
+        Args:
+            im (np.ndarray): Image to resize.
+            rect_mode (bool): Whether to use rectangular resizing.
+
+        Returns:
+            np.ndarray: Resized image.
+        """
+        h0, w0 = im.shape[:2]
+        if rect_mode:  # resize long side to imgsz while maintaining aspect ratio
+            r = self.imgsz / max(h0, w0)  # ratio
+            if r != 1:  # if sizes are not equal
+                w, h = (min(math.ceil(w0 * r), self.imgsz), min(math.ceil(h0 * r), self.imgsz))
+                im = cv2.resize(im, (w, h), interpolation=cv2.INTER_LINEAR)
+        elif not (h0 == w0 == self.imgsz):  # resize by stretching image to square imgsz
+            im = cv2.resize(im, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
+        if im.ndim == 2:
+            im = im[..., None]
+        return im
+
     def load_image(self, i: int, rect_mode: bool = True) -> tuple[np.ndarray, tuple[int, int], tuple[int, int]]:
         """Load an image from dataset index 'i'.
 
@@ -230,22 +274,16 @@ class BaseDataset(Dataset):
                 except Exception as e:
                     LOGGER.warning(f"{self.prefix}Removing corrupt *.npy image file {fn} due to: {e}")
                     Path(fn).unlink(missing_ok=True)
-                    im = imread(f, flags=self.cv2_flag)  # BGR
-            else:  # read image
-                im = imread(f, flags=self.cv2_flag)  # BGR
-            if im is None:
-                raise FileNotFoundError(f"Image Not Found {f}")
+                    im = None
 
-            h0, w0 = im.shape[:2]  # orig hw
-            if rect_mode:  # resize long side to imgsz while maintaining aspect ratio
-                r = self.imgsz / max(h0, w0)  # ratio
-                if r != 1:  # if sizes are not equal
-                    w, h = (min(math.ceil(w0 * r), self.imgsz), min(math.ceil(h0 * r), self.imgsz))
-                    im = cv2.resize(im, (w, h), interpolation=cv2.INTER_LINEAR)
-            elif not (h0 == w0 == self.imgsz):  # resize by stretching image to square imgsz
-                im = cv2.resize(im, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
-            if im.ndim == 2:
-                im = im[..., None]
+            if im is None:  # not loaded from disk cache, read from disk
+                im, (h0, w0) = self._read_image(f)
+            else:
+                # Loaded from npy cache, get original shape from storage if available
+                h0, w0 = self.im_hw0[i] if self.im_hw0[i] is not None else im.shape[:2]
+
+            # Always apply resize (images from disk cache are raw and need resizing)
+            im = self._resize_image(im, rect_mode=rect_mode)
 
             # Add to buffer if training with augmentations
             if self.augment:
@@ -280,7 +318,8 @@ class BaseDataset(Dataset):
         """Save an image as an *.npy file for faster loading."""
         f = self.npy_files[i]
         if not f.exists():
-            np.save(f.as_posix(), imread(self.im_files[i], flags=self.cv2_flag), allow_pickle=False)
+            im, _ = self._read_image(i)
+            np.save(f.as_posix(), im, allow_pickle=False)
 
     def check_cache_disk(self, safety_margin: float = 0.5) -> bool:
         """Check if there's enough disk space for caching images.
