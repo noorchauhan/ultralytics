@@ -56,12 +56,17 @@ class Stereo3DDetPredictor(DetectionPredictor):
         self._letterbox = None
 
         # Mean and std dimensions for decoding (from dataset config)
-        if isinstance(self.data, (str, Path)):
-            from ultralytics.utils.checks import check_yaml
+        # Falls back to built-in defaults when data YAML is unavailable (e.g. predict on a different machine)
+        data_cfg = {}
+        if isinstance(self.data, dict):
+            data_cfg = self.data
+        elif isinstance(self.data, (str, Path)):
+            try:
+                from ultralytics.utils.checks import check_yaml
 
-            data_cfg = YAML.load(check_yaml(str(self.data)))
-        else:
-            data_cfg = self.data if isinstance(self.data, dict) else {}
+                data_cfg = YAML.load(check_yaml(str(self.data)))
+            except FileNotFoundError:
+                pass
         # YAML stores [L, W, H] but decode expects (H, W, L) — reorder to match validator
         self.mean_dims = self._reorder_dims(data_cfg.get("mean_dims"))
         self.std_dims = self._reorder_dims(data_cfg.get("std_dims"))
