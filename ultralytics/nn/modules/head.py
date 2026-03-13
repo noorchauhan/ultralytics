@@ -1809,6 +1809,7 @@ class ADMBHead(nn.Module):
         self.vocab_linear = self._conv2linear(vocab)
         self.loc = loc
         self.memory_bank: list[torch.Tensor] = []
+        self._memory_cache: torch.Tensor | None = None
         self.feature_dim: int | None = None
         self.update = True
         self.temperature = 3.0
@@ -1832,6 +1833,7 @@ class ADMBHead(nn.Module):
     def reset_memory_bank(self) -> None:
         """Discard all accumulated normal features."""
         self.memory_bank.clear()
+        self._memory_cache = None
         self.feature_dim = None
 
     def get_memory_bank_stats(self) -> dict:
@@ -1858,18 +1860,13 @@ class ADMBHead(nn.Module):
         device = next(self.parameters()).device
         embed_dim = self.feature_dim if self.feature_dim is not None else self.vocab_linear.in_features
 
-        # Keep a valid tensor in memory_bank at all times.
-        if self.memory_bank is None:
-            self.memory_bank = []
-
-        valid_chunks = [t for t in self.memory_bank if isinstance(t, torch.Tensor) and t.numel() > 0]
-        if not valid_chunks:
+        # Infer path uses cached tensor to avoid repeated cat operations.
+        if self._memory_cache is None:
             seed = torch.zeros((10, embed_dim), device=device)
             self.memory_bank = [seed]
+            self._memory_cache = seed
             return seed
-
-        self.memory_bank = valid_chunks
-        return torch.cat(self.memory_bank, dim=0)
+        return self._memory_cache
 
     def _accumulate(self, features: torch.Tensor, keep_mask: torch.Tensor | None = None) -> int:
         """Flatten, select, L2-normalise, and append features to the memory bank."""
@@ -1886,7 +1883,10 @@ class ADMBHead(nn.Module):
         if features.numel() == 0:
             return 0
         normed = F.normalize(features.view(-1, self.feature_dim), p=2, dim=1)
-        self.memory_bank.append(normed.detach())
+        normed = normed.detach()
+        self.memory_bank.append(normed)
+        mem = self._memory_tensor()
+        self._memory_cache = torch.cat((mem, normed), dim=0)
         return normed.shape[0]
 
     def _anomaly_scores(self, features: torch.Tensor, mem: torch.Tensor | None = None) -> torch.Tensor:
