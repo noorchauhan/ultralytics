@@ -400,7 +400,7 @@ class Exporter:
                 elif model.task in {"pose"}:
                     self.args.data = "coco8-pose.yaml"
                 elif model.task in {"obb"}:
-                    self.args.data = "dota8.yaml"
+                    self.args.data = "dota128.yaml"
                 else:
                     self.args.data = "coco128.yaml"
         if imx:
