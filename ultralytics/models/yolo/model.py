@@ -580,13 +580,31 @@ class YOLOAnomaly(Model):
         """
         from ultralytics.utils import LOGGER
 
+        def iter_support_sources(src):
+            """Yield support images one-by-one so memory updates happen incrementally."""
+            if isinstance(src, (list, tuple, set)):
+                for item in src:
+                    yield item
+                return
+
+            path = Path(src) if isinstance(src, (str, Path)) else None
+            if path and path.is_dir():
+                exts = {".bmp", ".dng", ".jpeg", ".jpg", ".mpo", ".png", ".tif", ".tiff", ".webp", ".pfm"}
+                for item in sorted(path.iterdir()):
+                    if item.is_file() and item.suffix.lower() in exts:
+                        yield str(item)
+                return
+
+            yield src
+
         assert isinstance(self.model, YOLOAnomalyModel), (
             "Call setup() before load_support_set()."
         )
         if verbose:
             LOGGER.info("YOLOAnomaly: building memory bank from support set...")
         self.model.set_memory_update(True)
-        self.predict(source=source, conf=conf, imgsz=imgsz, device=device, verbose=False, **kwargs)
+        for item in iter_support_sources(source):
+            self.predict(source=item, conf=conf, imgsz=imgsz, device=device, verbose=False, **kwargs)
         self.model.freeze_memory_bank()
         stats = self.model.get_memory_bank_stats()
         if verbose:

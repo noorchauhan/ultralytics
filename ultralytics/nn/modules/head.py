@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.init import constant_, xavier_uniform_
 
-from ultralytics.utils import NOT_MACOS14
+from ultralytics.utils import LOGGER, NOT_MACOS14
 from ultralytics.utils.tal import dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import TORCH_1_11, fuse_conv_and_bn, smart_inference_mode
 
@@ -1812,6 +1812,7 @@ class ADMBHead(nn.Module):
         self.feature_dim: int | None = None
         self.update = True
         self.temperature = 3.0
+        self.accumulate_thresh = 0.4
         self.anomaly_mode = True
 
     # ── configuration ────────────────────────────────────────────────────────
@@ -1823,6 +1824,10 @@ class ADMBHead(nn.Module):
     def set_temperature(self, temperature: float) -> None:
         """Set Noisy-OR temperature (lower = more sensitive to weak anomalies)."""
         self.temperature = temperature
+
+    def set_accumulate_thresh(self, threshold: float) -> None:
+        """Set novelty threshold for memory-bank accumulation during update."""
+        self.accumulate_thresh = threshold
 
     def reset_memory_bank(self) -> None:
         """Discard all accumulated normal features."""
@@ -1850,26 +1855,47 @@ class ADMBHead(nn.Module):
         return linear
 
     def _memory_tensor(self) -> torch.Tensor | None:
-        return torch.cat(self.memory_bank, dim=0) if self.memory_bank else None
+        device = next(self.parameters()).device
+        embed_dim = self.feature_dim if self.feature_dim is not None else self.vocab_linear.in_features
 
-    def _accumulate(self, features: torch.Tensor) -> None:
-        """Flatten, L2-normalise, and append features to the memory bank."""
+        # Keep a valid tensor in memory_bank at all times.
+        if self.memory_bank is None:
+            self.memory_bank = []
+
+        valid_chunks = [t for t in self.memory_bank if isinstance(t, torch.Tensor) and t.numel() > 0]
+        if not valid_chunks:
+            seed = torch.zeros((10, embed_dim), device=device)
+            self.memory_bank = [seed]
+            return seed
+
+        self.memory_bank = valid_chunks
+        return torch.cat(self.memory_bank, dim=0)
+
+    def _accumulate(self, features: torch.Tensor, keep_mask: torch.Tensor | None = None) -> int:
+        """Flatten, select, L2-normalise, and append features to the memory bank."""
         if features.dim() == 4:
             B, C, H, W = features.shape
             features = features.permute(0, 2, 3, 1).reshape(-1, C)
         if self.feature_dim is None:
             self.feature_dim = features.shape[-1]
+        if keep_mask is not None:
+            keep_mask = keep_mask.view(-1)
+            if keep_mask.shape[0] != features.shape[0]:
+                raise ValueError("keep_mask size must match flattened feature count.")
+            features = features[keep_mask]
+        if features.numel() == 0:
+            return 0
         normed = F.normalize(features.view(-1, self.feature_dim), p=2, dim=1)
         self.memory_bank.append(normed.detach())
+        return normed.shape[0]
 
-    def _anomaly_scores(self, features: torch.Tensor) -> torch.Tensor:
+    def _anomaly_scores(self, features: torch.Tensor, mem: torch.Tensor | None = None) -> torch.Tensor:
         """Return Noisy-OR anomaly scores ∈ [0, 1] for every spatial position.
 
         Shape: [B*H*W].  0 = normal, 1 = anomalous.
         Falls back to 0.5 (neutral) when the memory bank is empty.
         """
-        mem = self._memory_tensor()
-        if mem is None:
+        if mem is None or mem.numel() == 0 or mem.shape[0] == 0:
             n = features.numel() // features.shape[1] if features.dim() == 4 else features.shape[0]
             return torch.full((n,), 0.5, device=features.device)
         if features.dim() == 4:
@@ -1915,23 +1941,40 @@ class ADMBHead(nn.Module):
                     mask       bool [H*W])
         """
         B, C, H, W = cls_feat.shape
-
-        if self.update:
-            self._accumulate(cls_feat)
-            dummy_nc = 1 if self.anomaly_mode else self.vocab_linear.out_features
-            mask = torch.ones(H * W, device=cls_feat.device, dtype=torch.bool)
-            return self.loc(loc_feat), torch.zeros(B, dummy_nc, H * W, device=cls_feat.device), mask
-
-        scores_hw = self._anomaly_scores(cls_feat).view(B, -1).max(dim=0).values  # [H*W]
+        self.feature_dim=C
+        mem = self._memory_tensor()
+        scores_hw = self._anomaly_scores(cls_feat, mem=mem).view(B, -1).max(dim=0).values  # [H*W]
         mask = scores_hw > conf
 
         if self.anomaly_mode:
             p = scores_hw[mask].clamp(1e-6, 1 - 1e-6)
-            logits = torch.log(p / (1 - p)) # for 
+            logits = torch.log(p / (1 - p))
             cls_scores = logits.view(1, 1, -1).expand(B, 1, -1)                      # [B, 1, k]
         else:
             cls_flat = cls_feat.flatten(2).transpose(-1, -2)                          # [B, H*W, C]
             cls_scores = self.vocab_linear(cls_flat[:, mask]).transpose(-1, -2)       # [B, nc, k]
+
+        if self.update:
+            keep = scores_hw > self.accumulate_thresh
+            added = self._accumulate(cls_feat, keep_mask=keep.repeat(B))
+            total = B * H * W
+            discarded = total - added
+            kept_positions = int(keep.sum().item())
+            total_positions = H * W
+            mem_size = sum(chunk.shape[0] for chunk in self.memory_bank)
+            LOGGER.info(
+                "ADMB update: added=%d discarded=%d keep_pos=%d/%d(%.2f%%) infer_pos=%d/%d(%.2f%%) thresh=%.4f mem_size=%d",
+                added,
+                discarded,
+                kept_positions,
+                total_positions,
+                (100.0 * kept_positions / max(total_positions, 1)),
+                int(mask.sum().item()),
+                total_positions,
+                (100.0 * mask.sum().item() / max(total_positions, 1)),
+                self.accumulate_thresh,
+                mem_size,
+            )
 
         return self.loc(loc_feat), cls_scores, mask
 
