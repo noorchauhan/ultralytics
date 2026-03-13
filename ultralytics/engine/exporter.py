@@ -1360,11 +1360,6 @@ class Exporter:
         """Export YOLO model to DeepX format."""
         assert LINUX and not ARM64, "DeepX export only supported on non-aarch64 Linux"
 
-        try:
-            import dx_com
-        except ImportError:
-            check_requirements("dx_com")
-
         f = self.export_onnx()
         return onnx2deepx(
             onnx_file=f,
