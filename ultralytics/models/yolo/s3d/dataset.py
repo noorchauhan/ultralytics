@@ -9,7 +9,7 @@ import torch
 
 from ultralytics.data.augment import Compose, Format
 from ultralytics.data.base import BaseDataset
-from ultralytics.data.utils import IMG_FORMATS, load_dataset_cache_file, save_dataset_cache_file
+from ultralytics.data.utils import load_dataset_cache_file, save_dataset_cache_file
 from ultralytics.models.yolo.s3d.augment import (
     StereoHFlip,
     StereoHSV,
@@ -69,7 +69,6 @@ class Stereo3DDetDataset(BaseDataset):
         split: str,
         imgsz: int | tuple[int, int] | list[int],
         names: Dict[int, str] | List[str] | None = None,
-        max_samples: int | None = None,
         mean_dims: Dict[str, List[float]] | None = None,
         std_dims: Dict[str, List[float]] | None = None,
         filter_occluded: bool = False,
@@ -79,6 +78,7 @@ class Stereo3DDetDataset(BaseDataset):
         hyp: dict[str, Any] = DEFAULT_CFG,
         prefix: str = "",
         data: dict | None = None,
+        fraction: float = 1.0,
     ):
         """Initialize Stereo3DDetDataset.
 
@@ -87,8 +87,6 @@ class Stereo3DDetDataset(BaseDataset):
             split (str): Dataset split ('train' or 'val').
             imgsz (int): Target image size for letterboxing.
             names (Dict[int, str] | List[str] | None): Class names mapping. If None, uses default.
-            max_samples (int | None): Maximum number of samples to load. If None, loads all available samples.
-                If specified, only the first max_samples samples will be loaded. Defaults to None.
             mean_dims (Dict[str, List[float]] | None): Mean dimensions per class [L, W, H] in meters.
                 If None, uses default KITTI values.
             std_dims (Dict[str, List[float]] | None): Standard deviation of dimensions per class [L, W, H] in meters.
@@ -104,6 +102,7 @@ class Stereo3DDetDataset(BaseDataset):
             hyp: Hyperparameters dict.
             prefix: Prefix for log messages.
             data: Dataset configuration dict.
+            fraction (float): Fraction of dataset to utilize (0.0 to 1.0). Defaults to 1.0 (use all samples).
         """
         self.root = Path(root)
         self.split = split
@@ -136,19 +135,6 @@ class Stereo3DDetDataset(BaseDataset):
         if not self.label_dir.exists():
             raise FileNotFoundError(f"Label directory not found: {self.label_dir}")
 
-        # Get image IDs first (before calling super().__init__)
-        self.image_ids = self._get_image_ids()
-        if len(self.image_ids) == 0:
-            raise ValueError(f"No stereo pairs found in {self.left_dir} (missing/empty)")
-
-        if max_samples is not None:
-            if max_samples <= 0:
-                raise ValueError(f"max_samples must be > 0, got {max_samples}")
-            total = len(self.image_ids)
-            self.image_ids = self.image_ids[:max_samples]
-            if len(self.image_ids) < total:
-                LOGGER.info(f"Limited stereo dataset to {len(self.image_ids)} samples (from {total} total)")
-
         # Occlusion filtering settings
         if filter_occluded:
             LOGGER.info(
@@ -167,6 +153,7 @@ class Stereo3DDetDataset(BaseDataset):
             hyp=hyp,
             prefix=prefix,
             channels=3,  # RGB images
+            fraction=fraction,
         )
 
         # Get number of classes
@@ -175,44 +162,45 @@ class Stereo3DDetDataset(BaseDataset):
         self.mean_dims = mean_dims
         self.std_dims = std_dims
 
-    def _get_image_ids(self) -> list[str]:
-        """Return image ids that exist in left/right dirs AND have required metadata files.
+    def get_img_files(self, img_path: str | list[str]) -> list[str]:
+        """Override to return left image files that have matching right images, labels, and calibration.
 
-        This prevents runtime errors where an image exists but its calibration file is missing.
+        This method performs the validation check that all required files exist for each stereo pair,
+        eliminating the need for a separate image_ids list.
         """
-        left_files = sorted(f for f in self.left_dir.glob("*.*") if f.suffix[1:].lower() in IMG_FORMATS)
+        # Get all left image files from parent
+        left_files = super().get_img_files(img_path)
 
-        if not left_files:
-            raise FileNotFoundError(f"No image files found in {self.left_dir}")
+        # Filter to only include files that have all required matching files
+        valid_files = []
+        for f in left_files:
+            path = Path(f)
+            image_id = path.stem
 
-        image_ids: list[str] = []
-        for lf in left_files:
-            rf = self.right_dir / lf.name
-            image_id = lf.stem
-            if not rf.exists():
+            # Check for matching right image
+            right_path = self.right_dir / path.name
+            if not right_path.exists():
                 LOGGER.warning(f"Missing right image for {image_id}, skipping")
                 continue
 
+            # Check for calibration file
             calib_file = self.calib_dir / f"{image_id}.txt"
             if not calib_file.exists():
-                LOGGER.warning(f"Missing calibration for {image_id}, skipping: {calib_file}")
+                LOGGER.warning(f"Missing calibration for {image_id}, skipping")
                 continue
 
+            # Check for label file
             label_file = self.label_dir / f"{image_id}.txt"
             if not label_file.exists():
-                LOGGER.warning(f"Missing label file for {image_id}, skipping: {label_file}")
+                LOGGER.warning(f"Missing label file for {image_id}, skipping")
                 continue
 
-            image_ids.append(image_id)
-        return image_ids
+            valid_files.append(f)
 
-    def get_img_files(self, img_path: str | list[str]) -> list[str]:
-        """Override to return left image files filtered by image_ids."""
-        # Get all left image files
-        left_files = super().get_img_files(img_path)  # This returns list of left image files as strings
-        # Filter by image_ids
-        im_files = [f for f in left_files if Path(f).stem in self.image_ids]
-        return im_files
+        if not valid_files:
+            raise ValueError(f"No valid stereo pairs found in {self.left_dir} (all missing right/label/calib)")
+
+        return valid_files
 
     def load_image(self, i: int, rect_mode: bool = True) -> tuple[np.ndarray, tuple[int, int], tuple[int, int]]:
         """Load stereo image pair (left + right) from dataset index 'i'.
@@ -238,7 +226,7 @@ class Stereo3DDetDataset(BaseDataset):
         # TODO: We should also support cache for stereo images.
         # Check cache first
         im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i]
-        h0, w0 = None, None  # Will be set when loading from files
+        h0, w0 = None, None  # Will be set when loading from filesdatasetp
 
         if im is None:  # not cached in RAM
             if fn.exists():  # load npy
@@ -694,7 +682,8 @@ class Stereo3DDetDataset(BaseDataset):
         return labels
 
     def __len__(self) -> int:
-        return len(self.image_ids)
+        """Return the length of the labels list for the dataset."""
+        return len(self.labels)
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """Get item using BaseDataset's transform pipeline.

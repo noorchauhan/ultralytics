@@ -391,12 +391,12 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         if dataset is None:
             return
 
-        # Try to use the Stereo3DDetDataset API (label_dir + image_ids + _parse_labels).
+        # Try to use the Stereo3DDetDataset API (label_dir + im_files + _parse_labels).
         label_dir = getattr(dataset, "label_dir", None)
-        image_ids = getattr(dataset, "image_ids", None)
+        im_files = getattr(dataset, "im_files", None)
         parse_labels = getattr(dataset, "_parse_labels", None)
-        if label_dir is None or image_ids is None or parse_labels is None:
-            LOGGER.warning("s3d: plot_training_labels() skipped (dataset missing label_dir/image_ids/_parse_labels).")
+        if label_dir is None or im_files is None or parse_labels is None:
+            LOGGER.warning("s3d: plot_training_labels() skipped (dataset missing label_dir/im_files/_parse_labels).")
             return
 
         boxes_list: list[list[float]] = []
@@ -404,8 +404,8 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         neg_images = 0
         total_images = 0
 
-        for image_id in image_ids:
-            label_file = label_dir / f"{image_id}.txt"
+        for im_file in im_files:
+            label_file = label_dir / f"{Path(im_file).stem}.txt"
             try:
                 labels = parse_labels(label_file)
             except FileNotFoundError:
