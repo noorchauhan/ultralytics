@@ -1356,8 +1356,8 @@ class Exporter:
     @try_export
     def export_deepx(self, prefix=colorstr("DeepX:")):
         """Export YOLO model to DeepX format."""
-        assert LINUX and not ARM64, f"DeepX export only supported on non-aarch64 Linux"
-        
+        assert LINUX and not ARM64, "DeepX export only supported on non-aarch64 Linux"
+
         try:
             import dx_com
         except ImportError:

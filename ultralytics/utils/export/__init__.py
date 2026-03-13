@@ -1,13 +1,14 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
+from .deepx import onnx2deepx
 from .engine import onnx2engine, torch2onnx
 from .executorch import torch2executorch
 from .imx import torch2imx
 from .tensorflow import keras2pb, onnx2saved_model, pb2tfjs, tflite2edgetpu
-from .deepx import onnx2deepx
 
 __all__ = [
     "keras2pb",
+    "onnx2deepx",
     "onnx2engine",
     "onnx2saved_model",
     "pb2tfjs",
@@ -15,5 +16,4 @@ __all__ = [
     "torch2executorch",
     "torch2imx",
     "torch2onnx",
-    "onnx2deepx",
 ]
