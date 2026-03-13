@@ -486,6 +486,7 @@ nav:
       - Oriented Bounding Boxes (OBB):
           - datasets/obb/index.md
           - DOTA8: datasets/obb/dota8.md
+          - DOTA128: datasets/obb/dota128.md
           - DOTAv2: datasets/obb/dota-v2.md
       - Multi-Object Tracking:
           - datasets/track/index.md
@@ -808,6 +809,7 @@ nav:
           - events: reference/utils/events.md
           - export:
               - engine: reference/utils/export/engine.md
+              - executorch: reference/utils/export/executorch.md
               - imx: reference/utils/export/imx.md
               - tensorflow: reference/utils/export/tensorflow.md
           - files: reference/utils/files.md
