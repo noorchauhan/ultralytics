@@ -1877,18 +1877,25 @@ class ADMBHead(nn.Module):
             features = features.permute(0, 2, 3, 1).reshape(-1, C)
         q = F.normalize(features.view(-1, self.feature_dim), p=2, dim=1)
 
-        sim = q @ mem.t()             
-                    # [N, M]
-        sim=torch.where(sim>0, sim, torch.zeros_like(sim)) # relu to mitigate quantization noise
-        sim=sim.pow(self.temperature) 
-        k = min(9, sim.shape[1])
- 
-        topk_sim = sim.topk(k=k, dim=1).values                  # [N, k]
-        # Noisy-OR (uniform weights): P(anomaly) = Π(1 - sim_i)^(1/k)
-        w = topk_sim.new_ones(1, k) / k
+
+        # calculate cosine similarity between query features and memory bank features
+        sim = q @ mem.t()  # [N, M]
+
+        # ψ(x) = exp (−β(1 − x)), where x is the cosine similarity and β is the temperature hyperparameter. This transformation maps the cosine similarity to a value between 0 and 1, where higher similarity results in a value closer to 1, and lower similarity results in a value closer to 0. The temperature parameter β controls the sensitivity of the transformation, with higher values making it more sensitive to differences in similarity.
+        sim = torch.exp(-self.temperature * (1 - sim)) # [N, M], 
+
+        
+        # select top-k most similar features for each query position, where k is a hyperparameter that determines how many of the most similar features to consider when calculating the anomaly score. The topk function returns the k largest values along the specified dimension (in this case, dim=1) and their corresponding indices. By selecting only the top-k most similar features, we can focus on the most relevant information in the memory bank while reducing computational complexity.
+        k = min(15, sim.shape[1])
+        topk_sim = sim.topk(k=k, dim=1).values           
+
+
+        # Noisy-OR (uniform weights): P(anomaly) = Π(1 - sim_i)^(1/k). This formula maps the top-k similarity scores to an overall anomaly probability. 
         score=(1 - topk_sim).clamp(min=1e-8)
-        log_p = (w * torch.log(score)).sum(dim=1)
-        return torch.exp(log_p).clamp(0, 1)
+        log_prob = (topk_sim.new_ones(1, k) / k * torch.log(score)).sum(dim=1)
+        prob= torch.exp(log_prob).clamp(0, 1)
+
+        return prob
 
     # ── forward ───────────────────────────────────────────────────────────────
 
