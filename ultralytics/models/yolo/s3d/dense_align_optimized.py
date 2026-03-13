@@ -278,52 +278,6 @@ class DenseAlignmentOptimized:
 
         return patch
 
-    def _extract_patch_with_pad(
-        self, img: np.ndarray, roi: tuple[int, int, int, int], target_h: int, target_w: int
-    ) -> np.ndarray:
-        """Extract and resize patch to target size (for mismatched warped sizes)."""
-        x1, y1, x2, y2 = roi
-        h, w = img.shape[:2]
-
-        if x2 <= x1 or y2 <= y1:
-            if target_h == 0 and target_w == 0:
-                return np.array([], dtype=img.dtype).reshape(0, 0)
-            return np.zeros((target_h, target_w), dtype=img.dtype)
-
-        # Extract patch
-        src_x1 = max(0, x1)
-        src_y1 = max(0, y1)
-        src_x2 = min(w, x2)
-        src_y2 = min(h, y2)
-
-        if src_x2 <= src_x1 or src_y2 <= src_y1:
-            return np.zeros((target_h, target_w), dtype=img.dtype)
-
-        roi_h = y2 - y1
-        roi_w = x2 - x1
-
-        # Extract with manual slicing (preserves exact pixel values for photometric matching)
-        # Create output patch with zeros
-        if len(img.shape) == 3:
-            patch = np.zeros((roi_h, roi_w, img.shape[2]), dtype=img.dtype)
-        else:
-            patch = np.zeros((roi_h, roi_w), dtype=img.dtype)
-
-        # Compute destination coordinates in patch
-        dst_x1 = src_x1 - x1
-        dst_y1 = src_y1 - y1
-        dst_x2 = dst_x1 + (src_x2 - src_x1)
-        dst_y2 = dst_y1 + (src_y2 - src_y1)
-
-        # Copy valid region to patch
-        patch[dst_y1:dst_y2, dst_x1:dst_x2] = img[src_y1:src_y2, src_x1:src_x2]
-
-        # Resize to target size if needed
-        if patch.shape[:2] != (target_h, target_w):
-            patch = cv2.resize(patch, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-
-        return patch
-
     def _warp_right_to_left(
         self,
         right_img: np.ndarray,

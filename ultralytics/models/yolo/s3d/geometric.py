@@ -147,11 +147,6 @@ class GeometricConstruction:
             return 1.0  # No solves yet, assume success
         return self._converged_solves / self._total_solves
 
-    def reset_statistics(self) -> None:
-        """Reset convergence statistics."""
-        self._total_solves = 0
-        self._converged_solves = 0
-
     def solve(
         self,
         observations: GeometricObservations,
@@ -339,8 +334,6 @@ class GeometricConstruction:
         # Corner position
         x_corner = x + dx
         z_corner = z + dz
-        y_corner = y + h / 2  # Bottom corner (positive y is down)
-
         # Prevent division by zero for corner projection
         z_corner = max(z_corner, 0.1)
 

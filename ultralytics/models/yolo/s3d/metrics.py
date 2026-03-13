@@ -264,12 +264,6 @@ class Stereo3DDetMetrics(SimpleClass, DataExportMixin):
             return float(np.mean(list(diff_dict.values())))
         return float(np.mean([diff_dict.get(cid, 0.0) for cid in real_ids]))
 
-    def _ap_per_class(self, iou_thresh: float, difficulty: int) -> dict[int, float]:
-        """Get per-class AP for given IoU and difficulty."""
-        if not self.ap3d or iou_thresh not in self.ap3d:
-            return {}
-        return self.ap3d[iou_thresh].get(difficulty, {})
-
     @property
     def results_dict(self) -> dict[str, Any]:
         """Return results as flat dictionary for CSV logging."""

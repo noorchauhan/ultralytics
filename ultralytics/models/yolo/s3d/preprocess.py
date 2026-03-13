@@ -184,7 +184,6 @@ def decode_stereo3d_outputs(
 
         # Depth branch is predicted in letterbox-normalized space, keep depth scaling behavior unchanged.
         fx_depth = fx / letterbox_scale
-        fy_depth = fy / letterbox_scale
 
         boxes3d: list[Box3D] = []
         det_b = dets[b]
