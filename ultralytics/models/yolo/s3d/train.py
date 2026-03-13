@@ -387,37 +387,18 @@ class Stereo3DDetTrainer(yolo.detect.DetectionTrainer):
         Note: stereo datasets may include "negative" images (empty label files). We count those and overlay
         the summary onto the generated `labels.jpg`.
         """
-        dataset = getattr(self.train_loader, "dataset", None)
-        if dataset is None:
-            return
-
-        # Try to use the Stereo3DDetDataset API (label_dir + im_files + _parse_labels).
-        label_dir = getattr(dataset, "label_dir", None)
-        im_files = getattr(dataset, "im_files", None)
-        parse_labels = getattr(dataset, "_parse_labels", None)
-        if label_dir is None or im_files is None or parse_labels is None:
-            LOGGER.warning("s3d: plot_training_labels() skipped (dataset missing label_dir/im_files/_parse_labels).")
-            return
-
         boxes_list: list[list[float]] = []
         cls_list: list[int] = []
         neg_images = 0
         total_images = 0
-
-        for im_file in im_files:
-            label_file = label_dir / f"{Path(im_file).stem}.txt"
-            try:
-                labels = parse_labels(label_file)
-            except FileNotFoundError:
-                LOGGER.warning(f"s3d: missing label file, skipping: {label_file}")
-                continue
-
+        for label in self.train_loader.dataset.labels:
+            label = label["labels"]
             total_images += 1
-            if not labels:
+            if not label:
                 neg_images += 1
                 continue
 
-            for lab in labels:
+            for lab in label:
                 cls_list.append(int(lab["class_id"]))
                 lb = lab["left_box"]
                 boxes_list.append(
