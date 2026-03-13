@@ -1796,7 +1796,7 @@ class ADMBHead(nn.Module):
     Attributes:
         vocab_linear (nn.Linear): Linear classifier used in detect-mode scoring.
         loc (nn.Module): Box-regression (localization) module.
-        memory_bank (list[Tensor]): L2-normalised normal-image features.
+        memory_bank (Tensor): L2-normalised normal-image features [N, C].
         feature_dim (int | None): Channel depth, inferred on first accumulation.
         update (bool): Accumulate features when True; score positions when False.
         temperature (float): Noisy-OR temperature exponent (default 1.0).
@@ -1808,8 +1808,7 @@ class ADMBHead(nn.Module):
         super().__init__()
         self.vocab_linear = self._conv2linear(vocab)
         self.loc = loc
-        self.memory_bank: list[torch.Tensor] = []
-        self._memory_cache: torch.Tensor | None = None
+        self.register_buffer("memory_bank", torch.empty(0, 0), persistent=True)
         self.feature_dim: int | None = None
         self.update = True
         self.temperature = 3.0
@@ -1832,17 +1831,15 @@ class ADMBHead(nn.Module):
 
     def reset_memory_bank(self) -> None:
         """Discard all accumulated normal features."""
-        self.memory_bank.clear()
-        self._memory_cache = None
+        self.memory_bank = torch.empty((0, 0), device=self.memory_bank.device)
         self.feature_dim = None
 
     def get_memory_bank_stats(self) -> dict:
         """Return size and feature dimension of the current memory bank."""
         mem = self._memory_tensor()
         return {
-            "size": mem.shape[0] if mem is not None else 0,
+            "size": mem.shape[0],
             "feature_dim": self.feature_dim,
-            "num_batches": len(self.memory_bank),
         }
 
     # ── internals ─────────────────────────────────────────────────────────────
@@ -1856,17 +1853,13 @@ class ADMBHead(nn.Module):
         linear.bias.data = conv.bias.data
         return linear
 
-    def _memory_tensor(self) -> torch.Tensor | None:
-        device = next(self.parameters()).device
+    def _memory_tensor(self) -> torch.Tensor:
+        device = self.memory_bank.device
         embed_dim = self.feature_dim if self.feature_dim is not None else self.vocab_linear.in_features
 
-        # Infer path uses cached tensor to avoid repeated cat operations.
-        if self._memory_cache is None:
-            seed = torch.zeros((10, embed_dim), device=device)
-            self.memory_bank = [seed]
-            self._memory_cache = seed
-            return seed
-        return self._memory_cache
+        if self.memory_bank.dim() != 2 or self.memory_bank.shape[1] != embed_dim or self.memory_bank.shape[0] == 0:
+            self.memory_bank = torch.zeros((10, embed_dim), device=device)
+        return self.memory_bank
 
     def _accumulate(self, features: torch.Tensor, keep_mask: torch.Tensor | None = None) -> int:
         """Flatten, select, L2-normalise, and append features to the memory bank."""
@@ -1884,9 +1877,8 @@ class ADMBHead(nn.Module):
             return 0
         normed = F.normalize(features.view(-1, self.feature_dim), p=2, dim=1)
         normed = normed.detach()
-        self.memory_bank.append(normed)
         mem = self._memory_tensor()
-        self._memory_cache = torch.cat((mem, normed), dim=0)
+        self.memory_bank = torch.cat((mem, normed.to(mem.device, dtype=mem.dtype)), dim=0)
         return normed.shape[0]
 
     def _anomaly_scores(self, features: torch.Tensor, mem: torch.Tensor | None = None) -> torch.Tensor:
@@ -1961,7 +1953,7 @@ class ADMBHead(nn.Module):
             discarded = total - added
             kept_positions = int(keep.sum().item())
             total_positions = H * W
-            mem_size = sum(chunk.shape[0] for chunk in self.memory_bank)
+            mem_size = int(self.memory_bank.shape[0])
             LOGGER.info(
                 "ADMB update: added=%d discarded=%d keep_pos=%d/%d(%.2f%%) infer_pos=%d/%d(%.2f%%) thresh=%.4f mem_size=%d",
                 added,

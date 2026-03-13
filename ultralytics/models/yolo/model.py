@@ -626,7 +626,7 @@ class YOLOAnomaly(Model):
         Return memory bank statistics for all detection heads.
 
         Returns:
-            list[dict]: Per-head stats with keys 'size', 'feature_dim', 'num_batches'.
+            list[dict]: Per-head stats with keys 'size' and 'feature_dim'.
         """
         assert isinstance(self.model, YOLOAnomalyModel)
         return self.model.get_memory_bank_stats()
