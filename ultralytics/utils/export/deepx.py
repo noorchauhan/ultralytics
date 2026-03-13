@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from ultralytics.utils import LOGGER, YAML
-
+from ultralytics.utils.checks import check_requirements
 
 def onnx2deepx(
     onnx_file: str | Path,
