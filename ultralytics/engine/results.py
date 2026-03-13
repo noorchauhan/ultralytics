@@ -705,6 +705,11 @@ class Results(SimpleClass, DataExportMixin):
         if boxes:
             counts = boxes.cls.int().bincount()
             return "".join(f"{n} {self.names[i]}{'s' * (n > 1)}, " for i, n in enumerate(counts) if n > 0)
+        if self.boxes3d is not None and len(self.boxes3d) > 0:
+            from collections import Counter
+
+            counts = Counter(box.class_id for box in self.boxes3d)
+            return "".join(f"{n} {self.names[i]}{'s' * (n > 1)}, " for i, n in sorted(counts.items()) if n > 0)
 
         return ""
 

@@ -800,7 +800,7 @@ class Stereo3DDetValidator(BaseValidator):
         )
 
         # Print results per class
-        if self.args.verbose and self.metrics.nc > 1 and ap3d:
+        if self.args.verbose and not self.training and self.metrics.nc > 1 and ap3d:
             for class_id, class_name in self.metrics.names.items():
                 if class_name.startswith("Aux_"):
                     continue
