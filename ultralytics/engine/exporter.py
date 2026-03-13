@@ -398,8 +398,6 @@ class Exporter:
             if not self.args.int8:
                 LOGGER.warning("DeepX export requires int8=True, setting int8=True.")
                 self.args.int8 = True
-            if not self.args.data:
-                self.args.data = "coco128.yaml"  # DeepX default to coco128.yaml
 
         if axelera:
             if not IS_PYTHON_3_10:
