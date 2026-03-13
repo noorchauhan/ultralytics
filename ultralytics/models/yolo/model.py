@@ -467,6 +467,8 @@ class YOLOAnomaly(Model):
         task_map: Map tasks to model, validator, and predictor classes.
         setup: Configure anomaly detection with class names and threshold.
         load_support_set: Feed normal images to build the memory bank.
+        save_mb: Save memory-bank payload to disk.
+        load_mb: Load memory-bank payload from disk.
         reset_memory_bank: Clear the memory bank for reuse with a new support set.
         get_memory_bank_stats: Return memory bank statistics per detection head.
 
@@ -620,6 +622,86 @@ class YOLOAnomaly(Model):
         """
         assert isinstance(self.model, YOLOAnomalyModel)
         self.model.reset_memory_bank()
+
+    def save_mb(self, path: str | Path) -> Path:
+        """Save anomaly memory-bank payload for fast restore without rebuilding support set.
+
+        Args:
+            path (str | Path): Destination file path.
+
+        Returns:
+            Path: Saved file path.
+        """
+        assert isinstance(self.model, YOLOAnomalyModel), "Call setup() before save_mb()."
+        heads_payload = []
+        for h in self.model._get_ad_heads():
+            heads_payload.append(
+                {
+                    "memory_bank": h.memory_bank.detach().cpu(),
+                    "feature_dim": int(h.feature_dim) if h.feature_dim is not None else None,
+                }
+            )
+
+        save_path = Path(path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "format": "admb_cache_v1",
+            "heads": heads_payload,
+            "num_heads": len(heads_payload),
+            "names": dict(self.model.names) if getattr(self.model, "names", None) else None,
+        }
+        torch.save(payload, save_path)
+        return save_path
+
+    def load_mb(self, path: str | Path, freeze: bool = True, verbose: bool = True) -> list[dict]:
+        """Load anomaly memory-bank payload previously saved by save_mb().
+
+        Args:
+            path (str | Path): Cache file path.
+            freeze (bool): Freeze memory-bank updates after loading.
+            verbose (bool): Print loaded stats.
+
+        Returns:
+            list[dict]: Per-head memory stats after loading.
+
+        Raises:
+            FileNotFoundError: If path does not exist.
+            ValueError: If cache format is invalid or incompatible.
+        """
+        from ultralytics.utils import LOGGER
+
+        assert isinstance(self.model, YOLOAnomalyModel), "Call setup() before load_mb()."
+        load_path = Path(path)
+        if not load_path.exists():
+            raise FileNotFoundError(f"Memory-bank cache not found: {load_path}")
+
+        data = torch.load(load_path, map_location="cpu")
+        if not isinstance(data, dict) or data.get("format") != "admb_cache_v1" or "heads" not in data:
+            raise ValueError(f"Invalid memory-bank cache format in {load_path}")
+
+        heads = self.model._get_ad_heads()
+        if len(data["heads"]) != len(heads):
+            raise ValueError(
+                f"Memory-bank head count mismatch: cache={len(data['heads'])}, model={len(heads)}"
+            )
+
+        for h, hdata in zip(heads, data["heads"]):
+            mb = hdata.get("memory_bank", None)
+            if not isinstance(mb, torch.Tensor) or mb.dim() != 2:
+                raise ValueError("Invalid memory_bank tensor in cache payload.")
+            h.memory_bank = mb.to(h.memory_bank.device, dtype=h.memory_bank.dtype)
+            fd = hdata.get("feature_dim", None)
+            h.feature_dim = int(fd) if fd is not None else int(h.memory_bank.shape[1])
+
+        if freeze:
+            self.model.freeze_memory_bank()
+
+        stats = self.model.get_memory_bank_stats()
+        if verbose:
+            LOGGER.info(f"YOLOAnomaly: loaded memory bank cache from {load_path}")
+            for i, s in enumerate(stats):
+                LOGGER.info(f"  Head[{i}]: {s['size']} features, dim={s['feature_dim']}")
+        return stats
 
     def get_memory_bank_stats(self) -> list[dict]:
         """
