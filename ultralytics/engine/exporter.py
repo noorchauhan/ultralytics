@@ -108,9 +108,7 @@ from ultralytics.utils import (
     is_jetson,
 )
 from ultralytics.utils.checks import (
-    IS_PYTHON_3_9,
     IS_PYTHON_3_10,
-    IS_PYTHON_3_12,
     IS_PYTHON_MINIMUM_3_9,
     check_apt_requirements,
     check_executorch_requirements,
@@ -123,6 +121,7 @@ from ultralytics.utils.checks import (
 )
 from ultralytics.utils.export import (
     keras2pb,
+    onnx2deepx,
     onnx2engine,
     onnx2saved_model,
     pb2tfjs,
@@ -1354,50 +1353,24 @@ class Exporter:
             prefix=prefix,
         )
 
-    def export_deepx(self, prefix=colorstr("DeepX")):
+    @try_export
+    def export_deepx(self, prefix=colorstr("DeepX:")):
         """Export YOLO model to DeepX format."""
-        LOGGER.info(f"\n{prefix} starting export with DeepX...")
-        assert LINUX and not ARM64 and (IS_PYTHON_3_12 or IS_PYTHON_3_9), (
-            "DeepX export is only supported on Linux x86_64 architectures and Python 3.9 or 3.12."
-        )
-
-        if not check_requirements("dx_com", install=False):
-            raise Exception(
-                "dx_com executable not found. DeepX CLI tools are required but not installed. Please install manually by visiting: https://docs.ultralytics.com/integrations/deepx"
-            )
-
-        import dx_com
+        assert LINUX and not ARM64, f"DeepX export only supported on non-aarch64 Linux"
+        
+        try:
+            import dx_com
+        except ImportError:
+            check_requirements("dx_com")
 
         f = self.export_onnx()
-        export_path = Path(f"{Path(f).stem}_deepx_model")
-        export_path.mkdir(exist_ok=True)
-        config_path = export_path / "config.json"
-        data = self.get_int8_calibration_dataloader()
-
-        config = {
-            "inputs": {"images": [1, 3, data.dataset.imgsz, data.dataset.imgsz]},
-            "default_loader": {
-                "dataset_path": data.dataset.img_path,
-                "file_extensions": ["jpeg", "jpg", "png", "JPEG"],
-                "preprocessings": [
-                    {"resize": {"width": self.imgsz[0], "height": self.imgsz[1]}},
-                    {"convertColor": {"form": "BGR2RGB"}},
-                    {"div": {"x": 255.0}},
-                    {"transpose": {"axis": [2, 0, 1]}},
-                    {"expandDim": {"axis": 0}},
-                ],
-            },
-            "calibration_num": data.dataset.ni,
-            "calibration_method": "minmax",
-        }
-
-        with open(config_path, "w") as file:
-            json.dump(config, file)
-
-        dx_com.compile(model=f, output_dir=str(export_path), config=str(config_path))
-
-        YAML.save(export_path / "metadata.yaml", self.metadata)
-        return export_path
+        return onnx2deepx(
+            onnx_file=f,
+            imgsz=self.imgsz,
+            dataset=self.get_int8_calibration_dataloader(prefix),
+            metadata=self.metadata,
+            prefix=prefix,
+        )
 
     def _add_tflite_metadata(self, file):
         """Add metadata to *.tflite models per https://ai.google.dev/edge/litert/models/metadata."""
