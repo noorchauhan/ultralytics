@@ -43,7 +43,7 @@ def onnx2deepx(
         "train_batchsize": 32,
         "num_samples": 1024,
         "default_loader": {
-            "dataset_path": data.dataset.img_path,
+            "dataset_path": dataset.dataset.img_path,
             "file_extensions": ["jpeg", "jpg", "png", "JPEG"],
             "preprocessings": [
                 {"resize": {"mode": "pad","size": 640,"pad_location": "edge","pad_value": [114,114,114]}},
