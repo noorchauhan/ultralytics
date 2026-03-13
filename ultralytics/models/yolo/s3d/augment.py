@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Tuple, Any, Optional
+from typing import Any, Optional
 import cv2
 import numpy as np
 from ultralytics.utils.instance import Bboxes, Instances
@@ -15,10 +15,10 @@ def project_3d_box_to_2d(
     location_3d: np.ndarray,
     dimensions: np.ndarray,
     rotation_y: float,
-    calibration: Dict[str, float],
+    calibration: dict[str, float],
     camera: str = "left",
     clip: bool = True,
-    image_size: Optional[Tuple[int, int]] = None,
+    image_size: Optional[tuple[int, int]] = None,
 ) -> np.ndarray:
     """Project a 3D bounding box to 2D image coordinates.
 
@@ -101,10 +101,10 @@ def project_3d_box_to_2d(
 
 def project_3d_boxes_to_2d(
     instances: Instances,
-    calibration: Dict[str, float],
+    calibration: dict[str, float],
     camera: str = "left",
     clip: bool = True,
-    image_size: Optional[Tuple[int, int]] = None,
+    image_size: Optional[tuple[int, int]] = None,
 ) -> np.ndarray:
     """Project multiple 3D bboxes to 2D for a batch of instances.
 
@@ -150,7 +150,7 @@ class StereoLabels:
 
     Attributes:
         instances (Instances): Object annotations (bboxes, 3D attributes, etc.).
-        calibration (Dict[str, float]): Camera calibration parameters.
+        calibration (dict[str, float]): Camera calibration parameters.
 
     Example:
         >>> labels = StereoLabels.from_labels(labels_dict)
@@ -159,7 +159,7 @@ class StereoLabels:
         >>> labels.to_labels(labels_dict)  # Write back to dict
     """
 
-    def __init__(self, instances: Optional[Instances], calibration: Optional[Dict[str, Any]]):
+    def __init__(self, instances: Optional[Instances], calibration: Optional[dict[str, Any]]):
         """Initialize StereoLabels.
 
         Args:
@@ -170,7 +170,7 @@ class StereoLabels:
         self.calibration = calibration or {}
 
     @classmethod
-    def from_labels(cls, labels: Dict[str, Any]) -> "StereoLabels":
+    def from_labels(cls, labels: dict[str, Any]) -> "StereoLabels":
         """Create StereoLabels from a labels dict.
 
         Args:
@@ -184,7 +184,7 @@ class StereoLabels:
             calibration=labels.get("calibration"),
         )
 
-    def to_labels(self, labels: Dict[str, Any]) -> Dict[str, Any]:
+    def to_labels(self, labels: dict[str, Any]) -> dict[str, Any]:
         """Write instances and calibration back to labels dict.
 
         Args:
@@ -379,7 +379,7 @@ class StereoLabels:
             self.calibration["height"] = new_h
         return self
 
-    def regenerate_2d_bboxes_from_3d(self, image_size: Tuple[int, int]) -> "StereoLabels":
+    def regenerate_2d_bboxes_from_3d(self, image_size: tuple[int, int]) -> "StereoLabels":
         """Regenerate 2D bboxes by projecting 3D boxes to both cameras.
 
         This is useful after geometric transforms that modify 3D attributes
@@ -468,7 +468,7 @@ class StereoHSV:
         self.vgain = vgain
         self.p = p
 
-    def __call__(self, labels: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         """Apply HSV augmentation to stereo image.
 
         Args:
@@ -526,7 +526,7 @@ class StereoHFlip:
         """
         self.p = p
 
-    def __call__(self, labels: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         """Apply horizontal flip to stereo image and instances.
 
         Flips both images horizontally and swaps left/right views. For labels:
@@ -592,7 +592,7 @@ class StereoScale:
     since the scale operation preserves relative coordinates.
     """
 
-    def __init__(self, scale_range: Tuple[float, float] = (0.8, 1.2), p: float = 0.5):
+    def __init__(self, scale_range: tuple[float, float] = (0.8, 1.2), p: float = 0.5):
         """Initialize StereoScale.
 
         Args:
@@ -602,7 +602,7 @@ class StereoScale:
         self.scale_range = scale_range
         self.p = p
 
-    def __call__(self, labels: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         """Apply random scale to stereo image.
 
         Args:
@@ -652,7 +652,7 @@ class StereoCrop:
         self.crop_w = crop_w
         self.p = p
 
-    def __call__(self, labels: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         """Apply random crop to stereo image and update instances.
 
         Args:
@@ -705,7 +705,7 @@ class StereoLetterBox:
     Updates both instances and calibration via StereoLabels.
     """
 
-    def __init__(self, new_shape: Tuple[int, int] = (640, 640), scaleup: bool = True, stride: int = 32):
+    def __init__(self, new_shape: tuple[int, int] = (640, 640), scaleup: bool = True, stride: int = 32):
         """Initialize StereoLetterBox.
 
         Args:
@@ -717,7 +717,7 @@ class StereoLetterBox:
         self.scaleup = scaleup
         self.stride = stride
 
-    def __call__(self, labels: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         """Apply letterbox transform to stereo image.
 
         Args:

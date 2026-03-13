@@ -33,12 +33,12 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple, Any
+from typing import Any
 
 import numpy as np
 
 
-def _build_depth_line(detections: List[Dict[str, Any]], image_width: int = 1242) -> np.ndarray:
+def _build_depth_line(detections: list[dict[str, Any]], image_width: int = 1242) -> np.ndarray:
     """Build depth line from bounding boxes (Algorithm 1, First Pass).
 
     The depth line is a 1D array where each element represents the depth of the
@@ -121,11 +121,11 @@ def _build_depth_line(detections: List[Dict[str, Any]], image_width: int = 1242)
 
 
 def _classify_by_boundary_visibility(
-    detections: List[Dict[str, Any]],
+    detections: list[dict[str, Any]],
     depth_line: np.ndarray,
     image_width: int = 1242,
     depth_tolerance: float = 1.0,
-) -> Tuple[List[int], List[int]]:
+) -> tuple[list[int], list[int]]:
     """Classify objects by boundary visibility (Algorithm 1, Second Pass).
 
     Determines which objects are occluded by checking if their left and right
@@ -231,8 +231,8 @@ def _classify_by_boundary_visibility(
 
 
 def classify_occlusion(
-    detections: List[Dict[str, Any]], image_width: int = 1242, depth_tolerance: float = 1.0
-) -> Tuple[List[int], List[int]]:
+    detections: list[dict[str, Any]], image_width: int = 1242, depth_tolerance: float = 1.0
+) -> tuple[list[int], list[int]]:
     """Classify objects as occluded or unoccluded using depth-line algorithm.
 
     This is the main entry point for occlusion classification. It implements
@@ -259,7 +259,7 @@ def classify_occlusion(
             Default is 1.0 meter to handle depth estimation uncertainty.
 
     Returns:
-        Tuple[List[int], List[int]]: Two lists of detection indices:
+        tuple[list[int], list[int]]: Two lists of detection indices:
             - occluded_indices: Indices of detections that are heavily occluded
               (both boundaries hidden by closer objects)
             - unoccluded_indices: Indices of detections that are not occluded

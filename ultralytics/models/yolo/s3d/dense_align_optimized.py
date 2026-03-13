@@ -19,7 +19,7 @@ Paper Reference: Section 3.2 "Dense Alignment"
 
 from __future__ import annotations
 
-from typing import Literal, Tuple, Optional
+from typing import Literal, Optional
 
 import cv2
 import numpy as np
@@ -134,7 +134,7 @@ class DenseAlignmentOptimized:
         self,
         box3d: dict,
         camera: str = "left",
-    ) -> Tuple[int, int, int, int]:
+    ) -> tuple[int, int, int, int]:
         """Project 3D bounding box to 2D ROI in image coordinates.
 
         Returns (x1, y1, x2, y2) for patch extraction.
@@ -229,7 +229,7 @@ class DenseAlignmentOptimized:
 
         return (x1, y1, x2, y2)
 
-    def _extract_patch_cv2(self, img: np.ndarray, roi: Tuple[int, int, int, int]) -> np.ndarray:
+    def _extract_patch_cv2(self, img: np.ndarray, roi: tuple[int, int, int, int]) -> np.ndarray:
         """Extract image patch using manual slicing with boundary handling.
 
         Note: cv2.getRectSubPix uses bilinear interpolation which changes pixel values,
@@ -279,7 +279,7 @@ class DenseAlignmentOptimized:
         return patch
 
     def _extract_patch_with_pad(
-        self, img: np.ndarray, roi: Tuple[int, int, int, int], target_h: int, target_w: int
+        self, img: np.ndarray, roi: tuple[int, int, int, int], target_h: int, target_w: int
     ) -> np.ndarray:
         """Extract and resize patch to target size (for mismatched warped sizes)."""
         x1, y1, x2, y2 = roi
@@ -327,7 +327,7 @@ class DenseAlignmentOptimized:
     def _warp_right_to_left(
         self,
         right_img: np.ndarray,
-        roi_left: Tuple[int, int, int, int],
+        roi_left: tuple[int, int, int, int],
         disparity: float,
     ) -> np.ndarray:
         """Warp right image patch to left view at given disparity."""

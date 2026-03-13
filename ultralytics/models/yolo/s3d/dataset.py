@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import cv2
 import numpy as np
@@ -68,9 +68,9 @@ class Stereo3DDetDataset(BaseDataset):
         root: str | Path,
         split: str,
         imgsz: int | tuple[int, int] | list[int],
-        names: Dict[int, str] | List[str] | None = None,
-        mean_dims: Dict[str, List[float]] | None = None,
-        std_dims: Dict[str, List[float]] | None = None,
+        names: dict[int, str] | list[str] | None = None,
+        mean_dims: dict[str, list[float]] | None = None,
+        std_dims: dict[str, list[float]] | None = None,
         filter_occluded: bool = False,
         max_occlusion_level: int = 1,
         cache: bool | str = False,
@@ -86,10 +86,10 @@ class Stereo3DDetDataset(BaseDataset):
             root (str | Path): Root directory of the dataset.
             split (str): Dataset split ('train' or 'val').
             imgsz (int): Target image size for letterboxing.
-            names (Dict[int, str] | List[str] | None): Class names mapping. If None, uses default.
-            mean_dims (Dict[str, List[float]] | None): Mean dimensions per class [L, W, H] in meters.
+            names (dict[int, str] | list[str] | None): Class names mapping. If None, uses default.
+            mean_dims (dict[str, list[float]] | None): Mean dimensions per class [L, W, H] in meters.
                 If None, uses default KITTI values.
-            std_dims (Dict[str, List[float]] | None): Standard deviation of dimensions per class [L, W, H] in meters.
+            std_dims (dict[str, list[float]] | None): Standard deviation of dimensions per class [L, W, H] in meters.
                 Used for normalized offset prediction. If None, defaults to reasonable estimates.
             filter_occluded (bool): Whether to filter out heavily occluded objects during training.
                 If True, objects with occlusion level > max_occlusion_level are excluded from training.
@@ -599,7 +599,7 @@ class Stereo3DDetDataset(BaseDataset):
         """Return the length of the labels list for the dataset."""
         return len(self.labels)
 
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
+    def __getitem__(self, idx: int) -> dict[str, Any]:
         """Get item using BaseDataset's transform pipeline.
 
         BaseDataset.__getitem__ calls get_image_and_label() then applies transforms.
@@ -623,7 +623,7 @@ class Stereo3DDetDataset(BaseDataset):
 
         return result
 
-    def collate_fn(self, batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def collate_fn(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         """Collate function that generates targets for training/validation.
 
         Args:
