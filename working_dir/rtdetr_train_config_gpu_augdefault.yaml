@@ -69,8 +69,8 @@ plots: True
 resume: False
 
 # Advanced settings
-seed: 0
-deterministic: False
+seed: 42
+deterministic: True
 # dropout: 0.0  # Explicit dropout rate
 
 # Additional DETR-specific settings

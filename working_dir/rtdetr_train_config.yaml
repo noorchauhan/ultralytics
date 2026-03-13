@@ -82,5 +82,5 @@ resume: False
 
 # Advanced settings
 close_mosaic: 10
-seed: 0
+seed: 42
 deterministic: True

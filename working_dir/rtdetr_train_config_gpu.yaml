@@ -85,8 +85,8 @@ resume: False
 
 # Advanced settings
 close_mosaic: 0  # Set to 0 since mosaic is disabled
-seed: 0
-deterministic: False
+seed: 42
+deterministic: True
 # dropout: 0.0  # Explicit dropout rate
 
 # Additional DETR-specific settings
