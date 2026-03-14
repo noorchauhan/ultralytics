@@ -639,7 +639,7 @@ class AutoBackend(nn.Module):
                 from dx_engine import Configuration, InferenceEngine, InferenceOption
             except ImportError:
                 check_requirements("dx_engine")
-                from dx_engine import Configuration, InferenceEngine, InferenceOption
+                from dx_engine import InferenceEngine
 
             w = Path(w)
             if (found := next(w.rglob("*.dxnn"), None)) is None:
