@@ -881,7 +881,7 @@ class AutoBackend(nn.Module):
         # DeepX
         elif self.deepx:
             y = self.deepx_engine.run([im.cpu().numpy()])
-            
+
         # ExecuTorch
         elif self.pte:
             y = self.model.execute([im])
