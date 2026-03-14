@@ -632,6 +632,22 @@ class AutoBackend(nn.Module):
             ax_model = op.load(str(found))
             metadata = found.parent / "metadata.yaml"
 
+        # DeepX
+        elif deepx:
+            LOGGER.info(f"Loading {w} for DeepX inference...")
+            try:
+                from dx_engine import Configuration, InferenceEngine, InferenceOption
+            except ImportError:
+                check_requirements("dx_engine")
+                from dx_engine import Configuration, InferenceEngine, InferenceOption
+
+            w = Path(w)
+            if (found := next(w.rglob("*.dxnn"), None)) is None:
+                raise FileNotFoundError(f"No .dxnn file found in: {w}")
+
+            deepx_engine = InferenceEngine(str(found))
+            metadata = found.parent / "metadata.yaml"
+
         # ExecuTorch
         elif pte:
             LOGGER.info(f"Loading {w} for ExecuTorch inference...")
@@ -862,6 +878,10 @@ class AutoBackend(nn.Module):
         elif self.axelera:
             y = self.ax_model(im.cpu())
 
+        # DeepX
+        elif self.deepx:
+            y = self.deepx_engine.run([im.cpu().numpy()])
+            
         # ExecuTorch
         elif self.pte:
             y = self.model.execute([im])
