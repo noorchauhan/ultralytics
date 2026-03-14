@@ -22,6 +22,7 @@ IMX                     | `imx`                     | yolo26n_imx_model/
 RKNN                    | `rknn`                    | yolo26n_rknn_model/
 ExecuTorch              | `executorch`              | yolo26n_executorch_model/
 Axelera                 | `axelera`                 | yolo26n_axelera_model/
+DeepX                   | `deepx`                   | yolo26n_deepx_model/
 
 Requirements:
     $ pip install "ultralytics[export]"
@@ -52,6 +53,7 @@ Inference:
                          yolo26n_rknn_model         # RKNN
                          yolo26n_executorch_model   # ExecuTorch
                          yolo26n_axelera_model      # Axelera
+                         yolo26n_deepx_model        # DeepX
 
 TensorFlow.js:
     $ cd .. && git clone https://github.com/zldrobit/tfjs-yolov5-example.git && cd tfjs-yolov5-example
@@ -119,6 +121,7 @@ from ultralytics.utils.checks import (
 )
 from ultralytics.utils.export import (
     keras2pb,
+    onnx2deepx,
     onnx2engine,
     onnx2saved_model,
     pb2tfjs,
@@ -179,6 +182,7 @@ def export_formats():
         ["RKNN", "rknn", "_rknn_model", False, False, ["batch", "name"]],
         ["ExecuTorch", "executorch", "_executorch_model", True, False, ["batch"]],
         ["Axelera", "axelera", "_axelera_model", False, False, ["batch", "int8", "fraction"]],
+        ["Deepx", "deepx", "_deepx_model", False, False, ["batch", "int8", "fraction"]],
     ]
     return dict(zip(["Format", "Argument", "Suffix", "CPU", "GPU", "Arguments"], zip(*x)))
 
@@ -367,6 +371,7 @@ class Exporter:
             rknn,
             executorch,
             axelera,
+            deepx,
         ) = flags  # export booleans
 
         is_tf_format = any((saved_model, pb, tflite, edgetpu, tfjs))
@@ -389,6 +394,11 @@ class Exporter:
         # Argument compatibility checks
         fmt_keys = fmts_dict["Arguments"][flags.index(True) + 1]
         validate_args(fmt, self.args, fmt_keys)
+        if deepx:
+            if not self.args.int8:
+                LOGGER.warning("DeepX export requires int8=True, setting int8=True.")
+                self.args.int8 = True
+
         if axelera:
             if not IS_PYTHON_3_10:
                 raise SystemError("Axelera export only supported on Python 3.10.")
@@ -631,6 +641,8 @@ class Exporter:
             f[15] = self.export_executorch()
         if axelera:
             f[16] = self.export_axelera()
+        if deepx:
+            f[17] = self.export_deepx()
 
         # Finish
         f = [str(x) for x in f if x]  # filter out '' and None
@@ -1338,6 +1350,20 @@ class Exporter:
             self.args.max_det,
             metadata=self.metadata,
             dataset=self.get_int8_calibration_dataloader(prefix),
+            prefix=prefix,
+        )
+
+    @try_export
+    def export_deepx(self, prefix=colorstr("DeepX:")):
+        """Export YOLO model to DeepX format."""
+        assert LINUX and not ARM64, "DeepX export only supported on non-aarch64 Linux"
+
+        f = self.export_onnx()
+        return onnx2deepx(
+            onnx_file=f,
+            imgsz=self.imgsz,
+            dataset=self.get_int8_calibration_dataloader(prefix),
+            metadata=self.metadata,
             prefix=prefix,
         )
 
