@@ -191,12 +191,14 @@ class BasePredictor:
             (list[np.ndarray]): List of transformed images.
         """
         same_shapes = len({x.shape for x in im}) == 1
+        border_pad = max(int(getattr(self.args, "border_pad", 0)), 0)
         letterbox = LetterBox(
             self.imgsz,
             auto=same_shapes
             and self.args.rect
             and (self.model.pt or (getattr(self.model, "dynamic", False) and not self.model.imx)),
             stride=self.model.stride,
+            border_pad=border_pad
         )
         return [letterbox(image=x) for x in im]
 

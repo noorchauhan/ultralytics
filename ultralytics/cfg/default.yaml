@@ -67,6 +67,7 @@ augment: False # (bool) apply test-time augmentation during prediction
 agnostic_nms: False # (bool) class-agnostic NMS
 classes: # (int | list[int], optional) filter by class id(s), e.g. 0 or [0,2,3]
 retina_masks: False # (bool) use high-resolution segmentation masks (segment)
+border_pad: 0 # (int) fixed border padding pixels per side for predict/val letterbox; disabled when 0
 embed: # (list[int], optional) return feature embeddings from given layer indices
 
 # Visualize settings ---------------------------------------------------------------------------------------------------

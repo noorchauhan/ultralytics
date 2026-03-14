@@ -118,5 +118,15 @@ class DetectionPredictor(BasePredictor):
         Returns:
             (Results): Results object containing the original image, image path, class names, and scaled bounding boxes.
         """
-        pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
+        pred[:, :4] = self._to_original_boxes(pred[:, :4], img.shape[2:], orig_img.shape)
         return Results(orig_img, path=img_path, names=self.model.names, boxes=pred[:, :6])
+
+    def _to_original_boxes(self, boxes, img_shape, orig_shape):
+        """Map boxes from model-input space back to original image space."""
+        pad = max(int(getattr(self.args, "border_pad", 0)), 0)
+        if pad > 0:
+            boxes[..., [0, 2]] -= pad
+            boxes[..., [1, 3]] -= pad
+            inner_shape = (img_shape[0] - pad * 2, img_shape[1] - pad * 2)
+            return ops.scale_boxes(inner_shape, boxes, orig_shape)
+        return ops.scale_boxes(img_shape, boxes, orig_shape)

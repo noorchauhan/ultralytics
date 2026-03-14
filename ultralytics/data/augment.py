@@ -1551,6 +1551,7 @@ class LetterBox:
         stride: int = 32,
         padding_value: int = 114,
         interpolation: int = cv2.INTER_LINEAR,
+        border_pad: int = 0,
     ):
         """Initialize LetterBox object for resizing and padding images.
 
@@ -1575,6 +1576,7 @@ class LetterBox:
         self.center = center  # Put the image in the middle or top-left
         self.padding_value = padding_value
         self.interpolation = interpolation
+        self.border_pad = border_pad
 
     def __call__(self, labels: dict[str, Any] | None = None, image: np.ndarray = None) -> dict[str, Any] | np.ndarray:
         """Resize and pad an image for object detection, instance segmentation, or pose estimation tasks.
@@ -1605,6 +1607,13 @@ class LetterBox:
         new_shape = labels.pop("rect_shape", self.new_shape)
         if isinstance(new_shape, int):
             new_shape = (new_shape, new_shape)
+        if self.border_pad > 0:
+            new_shape = tuple(s - self.border_pad * 2 for s in new_shape)
+            if new_shape[0] <= 0 or new_shape[1] <= 0:
+                raise ValueError(
+                    f"Invalid LetterBox border_pad={self.border_pad} for new_shape={self.new_shape}. "
+                    "Expected border_pad*2 < min(new_shape)."
+                )
 
         # Scale ratio (new / old)
         r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
@@ -1633,6 +1642,11 @@ class LetterBox:
 
         top, bottom = round(dh - 0.1) if self.center else 0, round(dh + 0.1)
         left, right = round(dw - 0.1) if self.center else 0, round(dw + 0.1)
+        if self.border_pad > 0:
+            top += self.border_pad
+            bottom += self.border_pad
+            left += self.border_pad
+            right += self.border_pad
         h, w, c = img.shape
         if c == 3:
             img = cv2.copyMakeBorder(
@@ -1644,7 +1658,12 @@ class LetterBox:
             img = pad_img
 
         if labels.get("ratio_pad"):
-            labels["ratio_pad"] = (labels["ratio_pad"], (left, top))  # for evaluation
+            prev_ratio = (
+                labels["ratio_pad"][0]
+                if isinstance(labels["ratio_pad"][0], (tuple, list))
+                else labels["ratio_pad"]
+            )
+            labels["ratio_pad"] = ((prev_ratio[0] * ratio[1], prev_ratio[1] * ratio[0]), (left, top))
 
         if len(labels):
             labels = self._update_labels(labels, ratio, left, top)

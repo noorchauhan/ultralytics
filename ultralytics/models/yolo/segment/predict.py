@@ -3,6 +3,7 @@
 from ultralytics.engine.results import Results
 from ultralytics.models.yolo.detect.predict import DetectionPredictor
 from ultralytics.utils import DEFAULT_CFG, ops
+import torch.nn.functional as F
 
 
 class SegmentationPredictor(DetectionPredictor):
@@ -94,16 +95,46 @@ class SegmentationPredictor(DetectionPredictor):
         Returns:
             (Results): Result object containing the original image, image path, class names, bounding boxes, and masks.
         """
+        is_padded = max(int(getattr(self.args, "border_pad", 0)), 0) > 0
         if pred.shape[0] == 0:  # save empty boxes
             masks = None
-        elif self.args.retina_masks:
-            pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
-            masks = ops.process_mask_native(proto, pred[:, 6:], pred[:, :4], orig_img.shape[:2])  # NHW
         else:
-            masks = ops.process_mask(proto, pred[:, 6:], pred[:, :4], img.shape[2:], upsample=True)  # NHW
-            pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
+            if is_padded:
+                pred_boxes = pred[:, :4].clone()
+                pred[:, :4] = self._to_original_boxes(pred[:, :4], img.shape[2:], orig_img.shape)
+                if self.args.retina_masks:
+                    masks = self._process_mask_native_with_padding(
+                        proto, pred[:, 6:], pred[:, :4], img.shape[2:], orig_img.shape[:2]
+                    )
+                else:
+                    masks = ops.process_mask(proto, pred[:, 6:], pred_boxes, img.shape[2:], upsample=True)  # NHW@imgsz
+                    masks = self._clip_padded_masks_to_original(masks)
+            elif self.args.retina_masks:
+                pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
+                masks = ops.process_mask_native(proto, pred[:, 6:], pred[:, :4], orig_img.shape[:2])  # NHW
+            else:
+                masks = ops.process_mask(proto, pred[:, 6:], pred[:, :4], img.shape[2:], upsample=True)  # NHW
+                pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
         if masks is not None:
             keep = masks.amax((-2, -1)) > 0  # only keep predictions with masks
             if not all(keep):  # most predictions have masks
                 pred, masks = pred[keep], masks[keep]  # indexing is slow
         return Results(orig_img, path=img_path, names=self.model.names, boxes=pred[:, :6], masks=masks)
+
+    def _process_mask_native_with_padding(self, protos, masks_in, bboxes, img_hw: tuple[int, int], orig_hw: tuple[int, int]):
+        """Retina-mask path for custom resize+pad preprocess."""
+        c, mh, mw = protos.shape  # CHW
+        masks = (masks_in @ protos.float().view(c, -1)).view(-1, mh, mw)
+        masks = F.interpolate(masks[None], img_hw, mode="bilinear")[0]  # NHW@img
+        masks = self._clip_padded_masks_to_original(masks)
+        masks = ops.scale_masks(masks[None], orig_hw)[0]
+        masks = ops.crop_mask(masks, bboxes)  # NHW@orig
+        return masks.gt_(0.0).byte()
+
+    def _clip_padded_masks_to_original(self, masks):
+        """Map custom-preprocessed binary masks back to original image space."""
+        pad = max(int(getattr(self.args, "border_pad", 0)), 0)
+        masks = masks.float()
+        if pad:
+            masks = masks[:, pad:-pad, pad:-pad]
+        return masks

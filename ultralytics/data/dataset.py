@@ -218,7 +218,8 @@ class YOLODataset(BaseDataset):
             hyp.cutmix = hyp.cutmix if self.augment and not self.rect else 0.0
             transforms = v8_transforms(self, self.imgsz, hyp)
         else:
-            transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)])
+            border_pad = max(int(getattr(hyp, "border_pad", 0)), 0)
+            transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False, border_pad=border_pad)])
         transforms.append(
             Format(
                 bbox_format="xywh",
