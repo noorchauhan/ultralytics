@@ -305,7 +305,7 @@ class DistillationModel(nn.Module):
 
         loss_distill_detach = (loss_distill_cls + loss_distill_box + loss_distill_feature).detach()
         batch_size = batch["img"].shape[0]
-        loss_distill = loss_distill_cls + loss_distill_box + loss_distill_feature
+        loss_distill = (loss_distill_cls + loss_distill_box + loss_distill_feature) * batch_size
         return torch.cat([regular_loss, loss_distill]), torch.cat([regular_loss_detach, loss_distill_detach])
 
     def loss_cosine(self, student_feat, teacher_feat):
