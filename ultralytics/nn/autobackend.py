@@ -636,7 +636,7 @@ class AutoBackend(nn.Module):
         elif deepx:
             LOGGER.info(f"Loading {w} for DeepX inference...")
             try:
-                from dx_engine import Configuration, InferenceEngine, InferenceOption
+                from dx_engine import InferenceEngine
             except ImportError:
                 check_requirements("dx_engine")
                 from dx_engine import InferenceEngine
@@ -881,7 +881,6 @@ class AutoBackend(nn.Module):
         # DeepX
         elif self.deepx:
             y = self.deepx_engine.run([im.cpu().numpy()])
-
         # ExecuTorch
         elif self.pte:
             y = self.model.execute([im])
