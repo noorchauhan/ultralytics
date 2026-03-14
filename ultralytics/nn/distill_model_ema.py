@@ -47,6 +47,8 @@ class DistillationModel(nn.Module):
         self.distill_feature = self.student_model.args.distill_feature
         self.cur_epoch = 0
         self.total_epochs = max(int(getattr(self.student_model.args, "epochs", 1) or 1), 1)
+        self.cur_iter = 0
+        self.total_iters = 1
         if self.distill_feature_loss:
             projectors = []
             for student_out in student_output:
@@ -111,6 +113,11 @@ class DistillationModel(nn.Module):
         self.cur_epoch = int(cur_epoch)
         self.total_epochs = max(int(total_epochs), 1)
 
+    def _set_iter_progress(self, cur_iter: int, total_iters: int):
+        """Update cached iteration progress for distillation scheduling."""
+        self.cur_iter = int(cur_iter)
+        self.total_iters = max(int(total_iters), 1)
+
     @property
     def teacher_model(self):
         """Expose currently bound EMA teacher (if any)."""
@@ -144,6 +151,10 @@ class DistillationModel(nn.Module):
         super().__setstate__(state)
         if "_teacher_model_ref" not in self.__dict__:
             self._teacher_model_ref = None
+        if "cur_iter" not in self.__dict__:
+            self.cur_iter = 0
+        if "total_iters" not in self.__dict__:
+            self.total_iters = 1
 
     def _freeze_teacher(self):
         """Keep teacher fixed for distillation."""
@@ -166,6 +177,20 @@ class DistillationModel(nn.Module):
         epoch = max(int(self.total_epochs), 1)
         cur_epoch = min(max(int(self.cur_epoch), 0), epoch)
         return ((1 - math.cos(cur_epoch * math.pi / epoch)) / 2) * (0.1 - 1) + 1
+
+    def _rampup_epoch(self) -> float:
+        epoch = max(int(self.total_epochs), 1)
+        rampup_length = 0.5 * epoch
+        current = min(max(int(self.cur_epoch), 0), rampup_length)
+        phase = 1.0 - current / rampup_length
+        return math.exp(-5.0 * phase * phase)
+
+    def _rampup_iter(self) -> float:
+        total_iters = max(int(self.total_iters), 1)
+        rampup_length = 0.5 * total_iters
+        current = min(max(int(self.cur_iter), 0), rampup_length)
+        phase = 1.0 - current / rampup_length
+        return math.exp(-5.0 * phase * phase)
 
     def loss_kl(self, student_logits, teacher_logits, temperature: float = 5.0):
         """The KL divergence loss for knowledge distillation."""
@@ -348,7 +373,7 @@ class DistillationModel(nn.Module):
                         else:
                             continue
                     if self.distill_feature_loss == "sl2" or self.distill_feature_loss == "scosine":
-                        loss_distill_feature += self.feature_kd_loss(student_feat, teacher_feat, feat_idx=i, teacher_scores=teacher_scores) * feature_weight
+                        loss_distill_feature += self.feature_kd_loss(student_feat, teacher_feat, feat_idx=i, teacher_scores=teacher_scores) * feature_weight * self._rampup_iter()
                     else:
                         loss_distill_feature += self.feature_kd_loss(student_feat, teacher_feat, feat_idx=i) * feature_weight
 
@@ -403,8 +428,8 @@ class DistillationModel(nn.Module):
         N, C, H, W = student_feat.shape
         student_feat = student_feat.view(N, C, -1).float()
         teacher_feat = teacher_feat.view(N, C, -1).float()
-        student_feat = F.normalize(student_feat, p=2, dim=1)
-        teacher_feat = F.normalize(teacher_feat, p=2, dim=1)
+        # student_feat = F.normalize(student_feat, p=2, dim=1)
+        # teacher_feat = F.normalize(teacher_feat, p=2, dim=1)
         dis_loss = F.mse_loss(student_feat, teacher_feat, reduction='none')
         dis_loss = torch.nan_to_num(dis_loss, nan=0.0, posinf=0.0, neginf=0.0)
         dis_loss = dis_loss * teacher_score
