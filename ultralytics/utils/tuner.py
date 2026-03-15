@@ -12,6 +12,7 @@ def run_ray_tune(
     grace_period: int = 10,
     gpu_per_trial: int | None = None,
     max_samples: int = 10,
+    search_alg=None,
     **train_args,
 ):
     """
@@ -23,6 +24,7 @@ def run_ray_tune(
         grace_period (int, optional): The grace period in epochs of the ASHA scheduler.
         gpu_per_trial (int, optional): The number of GPUs to allocate per trial.
         max_samples (int, optional): The maximum number of trials to run.
+        search_alg (ray.tune.search.Searcher, optional): Search algorithm to use. If None, uses random search.
         **train_args (Any): Additional arguments to pass to the `train()` method.
 
     Returns:
@@ -141,6 +143,7 @@ def run_ray_tune(
             trainable_with_resources,
             param_space=space,
             tune_config=tune.TuneConfig(
+                search_alg=search_alg,
                 scheduler=asha_scheduler,
                 num_samples=max_samples,
                 trial_name_creator=lambda trial: f"{trial.trainable_name}_{trial.trial_id}",
