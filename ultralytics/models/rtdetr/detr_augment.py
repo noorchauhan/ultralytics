@@ -138,6 +138,33 @@ class _RTDETRRandomIoUCrop:
         return self.transform(labels)
 
 
+def compute_deim_scheduled_prob(base_prob: float, epoch: int, stop_epoch: int) -> float:
+    """Linearly decay an augmentation probability to zero by the no-aug stage boundary."""
+    base_prob = float(base_prob)
+    if base_prob <= 0.0 or stop_epoch <= 0:
+        return 0.0
+    if epoch >= stop_epoch:
+        return 0.0
+    return base_prob * max(0.0, 1.0 - (float(epoch) / float(stop_epoch)))
+
+
+def resolve_deim_aug_scheduler(hyp: IterableSimpleNamespace | Any) -> str:
+    """Resolve DEIM augmentation scheduler mode from config."""
+    mode = str(hyp.deim_aug_scheduler).strip().lower()
+    aliases = {
+        "legacy": "legacy",
+        "stage": "legacy",
+        "staged": "legacy",
+        "default": "legacy",
+        "decay": "decay",
+        "linear": "decay",
+        "linear_decay": "decay",
+    }
+    if mode not in aliases:
+        raise ValueError(f"Unsupported deim_aug_scheduler={mode!r}. Expected one of: legacy, decay.")
+    return aliases[mode]
+
+
 def rtdetr_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bool = False):
     """Apply a series of image transformations for RT-DETR training."""
     del dataset, stretch  # Unused, kept for API compatibility with existing transform builders.
@@ -162,16 +189,7 @@ def rtdetr_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch
 
 
 class _RTDETRDEIMPolicy:
-    """Epoch-aware DEIM 4-stage transform policy.
-
-    Stages with 0-based epoch indexing:
-      1) [0, start): disable policy ops
-      2) [start, mid): per-sample branch by mosaic_prob
-         - branch A: Mosaic + Photometric
-         - branch B: Photometric + ZoomOut + IoUCrop
-      3) [mid, stop): Photometric + ZoomOut + IoUCrop
-      4) [stop, +inf): disable policy ops
-    """
+    """Epoch-aware DEIM transform policy with selectable staged or decay scheduling."""
 
     def __init__(
         self,
@@ -180,6 +198,7 @@ class _RTDETRDEIMPolicy:
         fliplr: float,
         policy_epochs: tuple[int, int, int],
         mosaic_prob: float,
+        scheduler_mode: str = "legacy",
         normalize_input: bool = False,
         mosaic_use_cache: bool = False,
         mosaic_max_cached_images: int = 50,
@@ -207,13 +226,20 @@ class _RTDETRDEIMPolicy:
         self.from_tv = _RTDETRFromTvTensors(scale_float=True, normalize=normalize_input)
 
         self.policy_epochs = policy_epochs
-        self.mosaic_prob = mosaic_prob
+        self.scheduler_mode = str(scheduler_mode)
+        self.base_mosaic_prob = float(mosaic_prob)
+        self.mosaic_prob = self.base_mosaic_prob
         self.epoch = 0
         self.post_transforms = []
 
     def set_epoch(self, epoch: int) -> None:
         """Set current epoch (0-based) for stage scheduling."""
         self.epoch = epoch
+        _, _, stop = self.policy_epochs
+        if self.scheduler_mode == "decay":
+            self.mosaic_prob = compute_deim_scheduled_prob(self.base_mosaic_prob, epoch, stop)
+        else:
+            self.mosaic_prob = self.base_mosaic_prob
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         start, mid, stop = self.policy_epochs
@@ -232,7 +258,6 @@ class _RTDETRDEIMPolicy:
             labels = self.zoomout(labels)
             labels = self.ioucrop(labels)
         else:
-            # first and last stages: no DEIM policy ops
             labels = self.to_tv(labels)
 
         # Always-on ops
@@ -463,12 +488,14 @@ def rtdetr_deim_transforms(
     mosaic_use_cache = bool(hyp.mosaic_use_cache)
     mosaic_max_cached_images = 50
     mosaic_random_pop = True
+    scheduler_mode = resolve_deim_aug_scheduler(hyp)
     return _RTDETRDEIMPolicy(
         dataset=dataset,
         imgsz=imgsz,
         fliplr=fliplr,
         policy_epochs=policy_epochs,
         mosaic_prob=float(mosaic_prob),
+        scheduler_mode=scheduler_mode,
         normalize_input=normalize_input,
         mosaic_use_cache=mosaic_use_cache,
         mosaic_max_cached_images=mosaic_max_cached_images,

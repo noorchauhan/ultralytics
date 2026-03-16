@@ -18,7 +18,12 @@ from ultralytics.nn.tasks import load_checkpoint
 from ultralytics.utils import LOGGER, RANK, colorstr
 from ultralytics.utils.torch_utils import one_cycle, strip_optimizer, unwrap_model
 
-from .detr_augment import compute_policy_epochs, rtdetr_deim_transforms
+from .detr_augment import (
+    compute_deim_scheduled_prob,
+    compute_policy_epochs,
+    resolve_deim_aug_scheduler,
+    rtdetr_deim_transforms,
+)
 from .train import RTDETRTrainer
 from .val import RTDETRDataset, RTDETRValidator
 
@@ -26,7 +31,7 @@ __all__ = ("RTDETRDEIMDataset", "RTDETRDEIMValidator", "RTDETRDEIMTrainer", "RTD
 
 
 class _RTDETRDEIMBatchAugment:
-    """Batch-level DEIM augmentations (MixUp + CopyBlend) applied in collate_fn."""
+    """Batch-level DEIM augmentations (MixUp + CopyBlend) with selectable scheduler mode."""
 
     _COPYBLEND_AREA_THRESHOLD = 100.0
     _COPYBLEND_NUM_OBJECTS = 3
@@ -41,26 +46,41 @@ class _RTDETRDEIMBatchAugment:
         mixup_epochs: tuple[int, int],
         copyblend_prob: float,
         copyblend_epochs: tuple[int, int],
+        scheduler_mode: str = "legacy",
     ) -> None:
-        self.mixup_prob = mixup_prob
+        self.base_mixup_prob = float(mixup_prob)
         self.mixup_epochs = mixup_epochs
-        self.copyblend_prob = copyblend_prob
+        self.base_copyblend_prob = float(copyblend_prob)
         self.copyblend_epochs = copyblend_epochs
+        self.scheduler_mode = str(scheduler_mode)
+        self.mixup_prob = self.base_mixup_prob
+        self.copyblend_prob = self.base_copyblend_prob
         self.epoch = 0
 
     def set_epoch(self, epoch: int) -> None:
         """Update current epoch for DEIM batch augmentation scheduling."""
         self.epoch = epoch
+        _, mixup_stop = self.mixup_epochs
+        _, copyblend_stop = self.copyblend_epochs
+        if self.scheduler_mode == "decay":
+            self.mixup_prob = compute_deim_scheduled_prob(self.base_mixup_prob, epoch, mixup_stop)
+            self.copyblend_prob = compute_deim_scheduled_prob(self.base_copyblend_prob, epoch, copyblend_stop)
+        else:
+            self.mixup_prob = self.base_mixup_prob
+            self.copyblend_prob = self.base_copyblend_prob
 
     def __call__(self, batch: list[dict]) -> dict:
         new_batch = YOLODataset.collate_fn(batch)
         mixup_start, mixup_stop = self.mixup_epochs
         copyblend_start, copyblend_stop = self.copyblend_epochs
+        # Preserve the original precedence: try MixUp first, then CopyBlend.
         if mixup_start <= self.epoch < mixup_stop and random.random() < self.mixup_prob:
-            new_batch = self._apply_mixup(new_batch)
-        # DEIMv2 applies either MixUp or CopyBlend for a batch, not both.
-        elif copyblend_start <= self.epoch < copyblend_stop and random.random() < self.copyblend_prob:
-            new_batch = self._apply_copyblend(new_batch)
+            return self._apply_mixup(new_batch)
+        if (
+            copyblend_start <= self.epoch < copyblend_stop
+            and random.random() < self.copyblend_prob
+        ):
+            return self._apply_copyblend(new_batch)
         return new_batch
 
     @staticmethod
@@ -316,6 +336,7 @@ class RTDETRDEIMDataset(RTDETRDataset):
 
     def __init__(self, *args, data=None, **kwargs):
         hyp = kwargs["hyp"]
+        self.deim_aug_scheduler = resolve_deim_aug_scheduler(hyp)
         self.policy_epochs, self.mixup_epochs, self.copyblend_epochs = self._compute_deim_schedule(hyp)
         self.mosaic_prob = float(hyp.mosaic)
         self.mixup_prob = float(hyp.mixup)
@@ -328,14 +349,21 @@ class RTDETRDEIMDataset(RTDETRDataset):
                     mixup_epochs=self.mixup_epochs,
                     copyblend_prob=self.copyblend_prob,
                     copyblend_epochs=self.copyblend_epochs,
+                    scheduler_mode=self.deim_aug_scheduler,
                 )
             self.set_epoch(0)
 
     def _compute_deim_schedule(self, hyp) -> tuple[tuple[int, int, int], tuple[int, int], tuple[int, int]]:
-        """Compute DEIM stage boundaries from epochs only."""
+        """Compute DEIM stage boundaries for the selected scheduler mode."""
         policy_epochs = compute_policy_epochs(hyp)
-        mixup_epochs = policy_epochs[:2]
-        copyblend_epochs = (policy_epochs[0], policy_epochs[2])
+        if self.deim_aug_scheduler == "decay":
+            stop = policy_epochs[2]
+            policy_epochs = (0, stop, stop)
+            mixup_epochs = (0, stop)
+            copyblend_epochs = (0, stop)
+        else:
+            mixup_epochs = policy_epochs[:2]
+            copyblend_epochs = (policy_epochs[0], policy_epochs[2])
         return policy_epochs, mixup_epochs, copyblend_epochs
 
     def build_transforms(self, hyp=None):
