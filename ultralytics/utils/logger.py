@@ -8,8 +8,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import pynvml
-
 from ultralytics.utils import LOGGER, MACOS, RANK
 
 
@@ -293,6 +291,7 @@ class SystemLogger:
     performance monitoring and analysis.
 
     Attributes:
+        pynvml: NVIDIA pynvml module instance if successfully imported, None otherwise.
         nvidia_initialized (bool): Whether NVIDIA GPU monitoring is available and initialized.
         net_start: Initial network I/O counters for calculating cumulative usage.
         disk_start: Initial disk I/O counters for calculating cumulative usage.
@@ -318,6 +317,7 @@ class SystemLogger:
         """Initialize the system logger."""
         import psutil  # scoped as slow import
 
+        self.pynvml = None
         self.nvidia_initialized = self._init_nvidia()
         self.net_start = psutil.net_io_counters()
         self.disk_start = psutil.disk_io_counters()
@@ -333,6 +333,9 @@ class SystemLogger:
             return False
 
         try:
+            import pynvml  # scoped as slow import
+
+            self.pynvml = pynvml
             pynvml.nvmlInit()
             return True
         except Exception as e:
@@ -440,16 +443,16 @@ class SystemLogger:
     def _get_nvidia_metrics(self):
         """Get NVIDIA GPU metrics including utilization, memory, temperature, and power."""
         gpus = {}
-        if not self.nvidia_initialized:
+        if not self.nvidia_initialized or not self.pynvml:
             return gpus
         try:
-            device_count = pynvml.nvmlDeviceGetCount()
+            device_count = self.pynvml.nvmlDeviceGetCount()
             for i in range(device_count):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-                power = pynvml.nvmlDeviceGetPowerUsage(handle) // 1000
+                handle = self.pynvml.nvmlDeviceGetHandleByIndex(i)
+                util = self.pynvml.nvmlDeviceGetUtilizationRates(handle)
+                memory = self.pynvml.nvmlDeviceGetMemoryInfo(handle)
+                temp = self.pynvml.nvmlDeviceGetTemperature(handle, self.pynvml.NVML_TEMPERATURE_GPU)
+                power = self.pynvml.nvmlDeviceGetPowerUsage(handle) // 1000
 
                 gpus[str(i)] = {
                     "usage": round(util.gpu, 3),

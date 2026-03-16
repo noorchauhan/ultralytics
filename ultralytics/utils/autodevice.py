@@ -19,6 +19,7 @@ class GPUInfo:
     selection. Manages NVML initialization and shutdown internally.
 
     Attributes:
+        pynvml (module | None): The `pynvml` module if successfully imported and initialized, otherwise `None`.
         nvml_available (bool): Indicates if `pynvml` is ready for use. True if `nvmlInit()` succeeded, False otherwise.
         gpu_stats (list[dict[str, Any]]): A list of dictionaries, each holding stats for one GPU, populated on
         initialization and by `refresh_stats()`. Keys include: 'index', 'name', 'utilization' (%), 'memory_used' (MiB),
@@ -85,9 +86,9 @@ class GPUInfo:
 
     def _get_device_stats(self, index: int) -> dict[str, Any]:
         """Get stats for a single GPU device."""
-        handle = pynvml.nvmlDeviceGetHandleByIndex(index)
-        memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+        handle = self.pynvml.nvmlDeviceGetHandleByIndex(index)
+        memory = self.pynvml.nvmlDeviceGetMemoryInfo(handle)
+        util = self.pynvml.nvmlDeviceGetUtilizationRates(handle)
 
         def safe_get(func, *args, default=-1, divisor=1):
             try:
@@ -96,18 +97,18 @@ class GPUInfo:
             except Exception:
                 return default
 
-        temp_type = getattr(pynvml, "NVML_TEMPERATURE_GPU", -1)
+        temp_type = getattr(self.pynvml, "NVML_TEMPERATURE_GPU", -1)
 
         return {
             "index": index,
-            "name": pynvml.nvmlDeviceGetName(handle),
+            "name": self.pynvml.nvmlDeviceGetName(handle),
             "utilization": util.gpu if util else -1,
             "memory_used": memory.used >> 20 if memory else -1,  # Convert bytes to MiB
             "memory_total": memory.total >> 20 if memory else -1,
             "memory_free": memory.free >> 20 if memory else -1,
-            "temperature": safe_get(pynvml.nvmlDeviceGetTemperature, handle, temp_type),
-            "power_draw": safe_get(pynvml.nvmlDeviceGetPowerUsage, handle, divisor=1000),  # Convert mW to W
-            "power_limit": safe_get(pynvml.nvmlDeviceGetEnforcedPowerLimit, handle, divisor=1000),
+            "temperature": safe_get(self.pynvml.nvmlDeviceGetTemperature, handle, temp_type),
+            "power_draw": safe_get(self.pynvml.nvmlDeviceGetPowerUsage, handle, divisor=1000),  # Convert mW to W
+            "power_limit": safe_get(self.pynvml.nvmlDeviceGetEnforcedPowerLimit, handle, divisor=1000),
         }
 
     def print_status(self):
