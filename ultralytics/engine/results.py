@@ -760,8 +760,8 @@ class Results(SimpleClass, DataExportMixin):
         Args:
             normalize (bool): Whether to normalize bounding box coordinates by image dimensions.
             decimals (int): Number of decimal places to round the output values to.
-            as_numpy (bool): Whether to return numpy arrays instead of Python lists for segments and keypoints.
-                When True, skips .tolist() conversion for faster serialization with orjson. Default is False.
+            as_numpy (bool): Whether to return numpy arrays instead of Python lists for segments and keypoints. When
+                True, skips .tolist() conversion for faster serialization with orjson. Default is False.
 
         Returns:
             (list[dict[str, Any]]): A list of dictionaries, each containing summarized information for a single
