@@ -7,6 +7,7 @@ import shutil
 import subprocess
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -250,7 +251,7 @@ def add_tflite_metadata(file: str | Path, metadata: dict) -> None:
 def torch2saved_model(
     f_onnx: str,
     file: Path,
-    args,
+    args: SimpleNamespace,
     metadata: dict,
     images: np.ndarray | None = None,
     prefix: str = "",

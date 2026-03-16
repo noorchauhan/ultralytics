@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import torch
 
@@ -14,7 +15,7 @@ def torch2torchscript(
     model: torch.nn.Module,
     im: torch.Tensor,
     file: Path | str,
-    args,
+    args: SimpleNamespace,
     metadata: dict | None = None,
     prefix: str = "",
 ) -> Path:
@@ -24,7 +25,7 @@ def torch2torchscript(
         model (torch.nn.Module): The PyTorch model to export (may be NMS-wrapped).
         im (torch.Tensor): Example input tensor for tracing.
         file (Path | str): Source model file path used to derive output path.
-        args: Export arguments with ``optimize`` attribute.
+        args (SimpleNamespace): Export arguments with ``optimize`` attribute.
         metadata (dict | None): Optional metadata to embed in the TorchScript archive.
         prefix (str): Prefix for log messages.
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -45,11 +47,11 @@ class IOSDetectModel(nn.Module):
 
 
 def _pipeline_coreml(
-    model,
+    model: Any,
     output_shape: tuple,
     metadata: dict,
-    args,
-    weights_dir=None,
+    args: SimpleNamespace,
+    weights_dir: Path | str | None = None,
     prefix: str = "",
 ):
     """Create CoreML pipeline with NMS for YOLO detection models.
@@ -161,7 +163,7 @@ def torch2coreml(
     model: nn.Module,
     im: torch.Tensor,
     file: Path | str,
-    args,
+    args: SimpleNamespace,
     output_shape: tuple,
     metadata: dict | None = None,
     imgsz: list | None = None,
@@ -173,7 +175,7 @@ def torch2coreml(
         model (nn.Module): The PyTorch model to export.
         im (torch.Tensor): Example input tensor.
         file (Path | str): Source model path used to derive the output path.
-        args: Export arguments (``format``, ``batch``, ``dynamic``, ``nms``, ``int8``, ``half``).
+        args(SimpleNamespace): Export arguments (``format``, ``batch``, ``dynamic``, ``nms``, ``int8``, ``half``).
         output_shape (tuple): Model output shape used by the NMS pipeline.
         metadata (dict | None): Metadata to embed in the CoreML model.
         imgsz (list | None): Image size ``[h, w]``.

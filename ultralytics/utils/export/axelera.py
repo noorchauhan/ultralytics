@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Callable
 
 from ultralytics.utils import YAML
 
@@ -10,10 +12,10 @@ from ultralytics.utils import YAML
 def torch2axelera(
     f_onnx: str,
     model_str: str,
-    args,
+    args: SimpleNamespace,
     metadata: dict | None = None,
-    calibration_dataset=None,
-    transform_fn=None,
+    calibration_dataset: Any | None = None,
+    transform_fn: Callable | None = None,
     prefix: str = "",
 ):
     """Export an ONNX model to Axelera format.

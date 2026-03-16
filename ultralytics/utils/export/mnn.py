@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from ultralytics.utils import LOGGER
 
@@ -11,7 +12,7 @@ from ultralytics.utils import LOGGER
 def onnx2mnn(
     f_onnx: str,
     file: Path | str,
-    args,
+    args: SimpleNamespace,
     metadata: dict | None = None,
     prefix: str = "",
 ) -> str:
@@ -20,7 +21,7 @@ def onnx2mnn(
     Args:
         f_onnx (str): Path to the source ONNX file.
         file (Path | str): Source model path used to derive the output ``.mnn`` path.
-        args: Export arguments with ``int8`` and ``half`` attributes.
+        args(SimpleNamespace): Export arguments with ``int8`` and ``half`` attributes.
         metadata (dict | None): Optional metadata embedded via ``--bizCode``.
         prefix (str): Prefix for log messages.
 

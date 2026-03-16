@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Callable
 
 import torch
 
@@ -14,12 +16,12 @@ def torch2openvino(
     model: torch.nn.Module,
     im: torch.Tensor,
     file: Path | str,
-    args,
+    args: SimpleNamespace,
     metadata: dict | None = None,
     task: str = "detect",
     model_names: dict | None = None,
-    calibration_dataset=None,
-    transform_fn=None,
+    calibration_dataset: Any | None = None,
+    transform_fn: Callable | None = None,
     ignored_scope_args: dict | None = None,
     prefix: str = "",
 ) -> str:
@@ -29,7 +31,7 @@ def torch2openvino(
         model (torch.nn.Module): The model to export (may be NMS-wrapped).
         im (torch.Tensor): Example input tensor.
         file (Path | str): Source model path used to derive output directory.
-        args: Export arguments (``dynamic``, ``half``, ``int8``, ``iou``, ``format``).
+        args (SimpleNamespace): Export arguments (``dynamic``, ``half``, ``int8``, ``iou``, ``format``).
         metadata (dict | None): Metadata saved as ``metadata.yaml``.
         task (str): Model task (``"detect"``, ``"segment"``, etc.).
         model_names (dict | None): Class names dict for RT info labels.

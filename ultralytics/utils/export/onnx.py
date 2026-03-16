@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import types
 from pathlib import Path
+from types import SimpleNamespace
 
 import torch
 
@@ -10,7 +12,7 @@ from ultralytics.utils import LOGGER, TORCH_VERSION
 from ultralytics.utils.torch_utils import TORCH_2_4, TORCH_2_9
 
 
-def best_onnx_opset(onnx, cuda: bool = False) -> int:
+def best_onnx_opset(onnx: types.ModuleType, cuda: bool = False) -> int:
     """Return max ONNX opset for this torch version with ONNX fallback.
 
     Args:
@@ -52,7 +54,7 @@ def export_onnx_model(
     model: torch.nn.Module,
     im: torch.Tensor,
     file: Path | str,
-    args,
+    args: SimpleNamespace,
     metadata: dict | None = None,
     device: torch.device | None = None,
     task: str = "detect",
@@ -64,7 +66,7 @@ def export_onnx_model(
         model (torch.nn.Module): The model to export (may be NMS-wrapped).
         im (torch.Tensor): Example input tensor.
         file (Path | str): Source model path used to derive the ``.onnx`` output path.
-        args: Export arguments (``dynamic``, ``nms``, ``opset``, ``simplify``, ``half``, ``format``).
+        args (SimpleNamespace): Export arguments (``dynamic``, ``nms``, ``opset``, ``simplify``, ``half``, ``format``).
         metadata (dict | None): Key-value metadata to embed in the ONNX file.
         device (torch.device | None): Device the model lives on.
         task (str): Model task, e.g. ``"detect"``, ``"segment"``.
