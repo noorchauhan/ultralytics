@@ -1861,26 +1861,6 @@ class ADMBHead(nn.Module):
             self.memory_bank = torch.zeros((10, embed_dim), device=device)
         return self.memory_bank
 
-    def _accumulate(self, features: torch.Tensor, keep_mask: torch.Tensor | None = None) -> int:
-        """Flatten, select, L2-normalise, and append features to the memory bank."""
-        if features.dim() == 4:
-            B, C, H, W = features.shape
-            features = features.permute(0, 2, 3, 1).reshape(-1, C)
-        if self.feature_dim is None:
-            self.feature_dim = features.shape[-1]
-        if keep_mask is not None:
-            keep_mask = keep_mask.view(-1)
-            if keep_mask.shape[0] != features.shape[0]:
-                raise ValueError("keep_mask size must match flattened feature count.")
-            features = features[keep_mask]
-        if features.numel() == 0:
-            return 0
-        normed = F.normalize(features.view(-1, self.feature_dim), p=2, dim=1)
-        normed = normed.detach()
-        mem = self._memory_tensor()
-        self.memory_bank = torch.cat((mem, normed.to(mem.device, dtype=mem.dtype)), dim=0)
-        return normed.shape[0]
-
     def _anomaly_scores(self, features: torch.Tensor, mem: torch.Tensor | None = None) -> torch.Tensor:
         """Return Noisy-OR anomaly scores ∈ [0, 1] for every spatial position.
 
@@ -1915,6 +1895,44 @@ class ADMBHead(nn.Module):
 
         return prob
 
+    def _online_bootstrapped_memory_accumulation(
+        self,
+        cls_feat: torch.Tensor,
+        scores_hw: torch.Tensor,
+        B: int,
+        H: int,
+        W: int,
+        infer_conf: float,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Online Bootstrapped Memory Accumulation (OBMA).
+
+        Selects positions above ``accumulate_thresh`` as high-confidence normal
+        samples, L2-normalises and appends their features to the memory bank
+        (only when ``self.update`` is True).  Decouples *what gets stored*
+        (``accumulate_thresh``) from *what gets detected* (``infer_conf``).
+
+        Returns:
+            mask:   bool [H*W] — positions selected for inference output.
+            logits: float [k]  — anomaly logits for masked positions;
+                                 sigmoid(logits) restores the anomaly probability.
+        """
+        accumulate_mask = scores_hw > infer_conf
+
+        keep = scores_hw > self.accumulate_thresh  # bootstrap selection mask
+        feats = cls_feat.permute(0, 2, 3, 1).reshape(-1, self.feature_dim)
+        normed = F.normalize(feats[keep.repeat(B)].detach(), p=2, dim=1)
+        mem = self._memory_tensor()
+        self.memory_bank = torch.cat((mem, normed.to(mem.device, dtype=mem.dtype)), dim=0)
+        LOGGER.info(
+            "OBMA: added=%d/%d keep=%.1f%% infer=%.1f%% mem_size=%d",
+            normed.shape[0], B * H * W,
+            100.0 * keep.sum() / max(H * W, 1),
+            100.0 * accumulate_mask.sum() / max(H * W, 1),
+            self.memory_bank.shape[0],
+        )
+
+        return accumulate_mask
+
     # ── forward ───────────────────────────────────────────────────────────────
 
     def forward(self, cls_feat: torch.Tensor, loc_feat: torch.Tensor, conf: float = 0.5) -> tuple:
@@ -1933,42 +1951,30 @@ class ADMBHead(nn.Module):
                     mask       bool [H*W])
         """
         B, C, H, W = cls_feat.shape
-        self.feature_dim=C
-        mem = self._memory_tensor()
-        scores_hw = self._anomaly_scores(cls_feat, mem=mem).view(B, -1).max(dim=0).values  # [H*W]
-        mask = scores_hw > conf
+        if self.feature_dim is None:
+            self.feature_dim=C
 
+        # compute anomaly score
+        scores_hw = self._anomaly_scores(cls_feat, mem=self._memory_tensor()).view(B, -1).max(dim=0).values  # [H*W]
+
+        # accumulate high-confidence normal features into the memory bank (only when self.update is True)
+        if self.update:
+            accumulate_mask = self._online_bootstrapped_memory_accumulation(cls_feat,
+                                                                             scores_hw,
+                                                                               B, H, W, 
+                                                                               self.accumulate_thresh)
+
+        # infer flow
+        mask= scores_hw> conf
         if self.anomaly_mode:
-            p = scores_hw[mask].clamp(1e-6, 1 - 1e-6)
-            # Convert anomaly probability p in (0,1) to logit space so sigmoid(logits)=p.
-            # Cancel out the follow-up sigmoid operation, so the final output is the anomaly score.
-            logits = torch.log(p / (1 - p))
+            # Convert anomaly probability p -> logit space so downstream sigmoid(logits) = p
+            logits = torch.log((scores_hw[mask].clamp(1e-6, 1 - 1e-6)) /
+                            (1 - scores_hw[mask].clamp(1e-6, 1 - 1e-6)))
             cls_scores = logits.view(1, 1, -1).expand(B, 1, -1)                      # [B, 1, k]
         else:
             cls_flat = cls_feat.flatten(2).transpose(-1, -2)                          # [B, H*W, C]
             cls_scores = self.vocab_linear(cls_flat[:, mask]).transpose(-1, -2)       # [B, nc, k]
 
-        if self.update:
-            keep = scores_hw > self.accumulate_thresh
-            added = self._accumulate(cls_feat, keep_mask=keep.repeat(B))
-            total = B * H * W
-            discarded = total - added
-            kept_positions = int(keep.sum().item())
-            total_positions = H * W
-            mem_size = int(self.memory_bank.shape[0])
-            LOGGER.info(
-                "ADMB update: added=%d discarded=%d keep_pos=%d/%d(%.2f%%) infer_pos=%d/%d(%.2f%%) thresh=%.4f mem_size=%d",
-                added,
-                discarded,
-                kept_positions,
-                total_positions,
-                (100.0 * kept_positions / max(total_positions, 1)),
-                int(mask.sum().item()),
-                total_positions,
-                (100.0 * mask.sum().item() / max(total_positions, 1)),
-                self.accumulate_thresh,
-                mem_size,
-            )
 
         return self.loc(loc_feat), cls_scores, mask
 
