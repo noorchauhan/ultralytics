@@ -63,8 +63,7 @@ class WorldTrainerFromScratch(WorldTrainer):
         Args:
             cfg (dict): Configuration dictionary with default parameters for model training.
             overrides (dict, optional): Dictionary of parameter overrides to customize the configuration.
-            _callbacks (dict, optional): Dictionary of callback functions to be executed during different stages of
-                training.
+            _callbacks (dict, optional): Dictionary of callback functions to run during different stages of training.
         """
         if overrides is None:
             overrides = {}
