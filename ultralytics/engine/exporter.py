@@ -62,6 +62,8 @@ TensorFlow.js:
     $ npm start
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -314,7 +316,7 @@ class Exporter:
         >>> exporter(model="yolo26n.pt")
     """
 
-    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
+    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks: dict | None = None):
         """Initialize the Exporter class.
 
         Args:
