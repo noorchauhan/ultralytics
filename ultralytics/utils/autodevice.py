@@ -6,7 +6,6 @@ import random
 from typing import Any
 
 from ultralytics.utils import LOGGER
-from ultralytics.utils.checks import check_requirements
 
 
 class GPUInfo:
@@ -20,9 +19,7 @@ class GPUInfo:
     selection. Manages NVML initialization and shutdown internally.
 
     Attributes:
-        pynvml (module | None): The `pynvml` module if successfully imported and initialized, otherwise `None`.
-        nvml_available (bool): Indicates if `pynvml` is ready for use. True if import and `nvmlInit()` succeeded, False
-            otherwise.
+        nvml_available (bool): Indicates if `pynvml` is ready for use. True if `nvmlInit()` succeeded, False otherwise.
         gpu_stats (list[dict[str, Any]]): A list of dictionaries, each holding stats for one GPU, populated on
         initialization and by `refresh_stats()`. Keys include: 'index', 'name', 'utilization' (%), 'memory_used' (MiB),
             'memory_total' (MiB), 'memory_free' (MiB), 'temperature' (C), 'power_draw' (W), 'power_limit' (W or 'N/A').
@@ -46,14 +43,15 @@ class GPUInfo:
 
     def __init__(self):
         """Initialize GPUInfo, attempting to import and initialize pynvml."""
-        self.pynvml: Any | None = None
+        self.pynvml = None
         self.nvml_available: bool = False
         self.gpu_stats: list[dict[str, Any]] = []
 
         try:
-            check_requirements("nvidia-ml-py>=12.0.0")
-            self.pynvml = __import__("pynvml")
-            self.pynvml.nvmlInit()
+            import pynvml  # scoped as slow import
+
+            self.pynvml = pynvml
+            pynvml.nvmlInit()
             self.nvml_available = True
             self.refresh_stats()
         except Exception as e:
@@ -87,9 +85,9 @@ class GPUInfo:
 
     def _get_device_stats(self, index: int) -> dict[str, Any]:
         """Get stats for a single GPU device."""
-        handle = self.pynvml.nvmlDeviceGetHandleByIndex(index)
-        memory = self.pynvml.nvmlDeviceGetMemoryInfo(handle)
-        util = self.pynvml.nvmlDeviceGetUtilizationRates(handle)
+        handle = pynvml.nvmlDeviceGetHandleByIndex(index)
+        memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
 
         def safe_get(func, *args, default=-1, divisor=1):
             try:
@@ -98,18 +96,18 @@ class GPUInfo:
             except Exception:
                 return default
 
-        temp_type = getattr(self.pynvml, "NVML_TEMPERATURE_GPU", -1)
+        temp_type = getattr(pynvml, "NVML_TEMPERATURE_GPU", -1)
 
         return {
             "index": index,
-            "name": self.pynvml.nvmlDeviceGetName(handle),
+            "name": pynvml.nvmlDeviceGetName(handle),
             "utilization": util.gpu if util else -1,
             "memory_used": memory.used >> 20 if memory else -1,  # Convert bytes to MiB
             "memory_total": memory.total >> 20 if memory else -1,
             "memory_free": memory.free >> 20 if memory else -1,
-            "temperature": safe_get(self.pynvml.nvmlDeviceGetTemperature, handle, temp_type),
-            "power_draw": safe_get(self.pynvml.nvmlDeviceGetPowerUsage, handle, divisor=1000),  # Convert mW to W
-            "power_limit": safe_get(self.pynvml.nvmlDeviceGetEnforcedPowerLimit, handle, divisor=1000),
+            "temperature": safe_get(pynvml.nvmlDeviceGetTemperature, handle, temp_type),
+            "power_draw": safe_get(pynvml.nvmlDeviceGetPowerUsage, handle, divisor=1000),  # Convert mW to W
+            "power_limit": safe_get(pynvml.nvmlDeviceGetEnforcedPowerLimit, handle, divisor=1000),
         }
 
     def print_status(self):
