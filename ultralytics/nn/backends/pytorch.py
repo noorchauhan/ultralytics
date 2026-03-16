@@ -82,8 +82,6 @@ class PyTorchBackend(BaseBackend):
         Returns:
             Model output tensor(s).
         """
-        if self.fp16 and im.dtype != torch.float16:
-            im = im.half()
         return self.model(im, augment=augment, visualize=visualize, embed=embed, **kwargs)
 
 
@@ -125,6 +123,4 @@ class TorchScriptBackend(BaseBackend):
         Returns:
             Model output as torch Tensor(s).
         """
-        if self.fp16 and im.dtype != torch.float16:
-            im = im.half()
         return self.model(im)

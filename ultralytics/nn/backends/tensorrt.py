@@ -117,9 +117,6 @@ class TensorRTBackend(BaseBackend):
         Returns:
             Model output as list of torch Tensors.
         """
-        if self.fp16 and im.dtype != torch.float16:
-            im = im.half()
-
         if self.dynamic and im.shape != self.bindings["images"].shape:
             if self.is_trt10:
                 self.context.set_input_shape("images", im.shape)

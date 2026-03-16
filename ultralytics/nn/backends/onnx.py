@@ -107,9 +107,6 @@ class ONNXBackend(BaseBackend):
         Returns:
             Model output as torch Tensor(s) or numpy array(s).
         """
-        if self.fp16 and im.dtype != torch.float16:
-            im = im.half()
-
         if self.format == "dnn":
             # OpenCV DNN
             self.net.setInput(im.cpu().numpy())

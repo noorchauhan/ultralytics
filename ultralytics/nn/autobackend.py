@@ -262,6 +262,8 @@ class AutoBackend(nn.Module):
         """
         if self.nhwc:
             im = im.permute(0, 2, 3, 1)  # torch BCHW to numpy BHWC shape(1,320,192,3)
+        if self.backend.fp16 and im.dtype != torch.float16:
+            im = im.half()
 
         # Build forward kwargs based on backend type
         forward_kwargs = {}

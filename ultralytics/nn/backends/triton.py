@@ -37,6 +37,4 @@ class TritonBackend(BaseBackend):
         Returns:
             Model output as list of triton results.
         """
-        if self.fp16 and im.dtype != torch.float16:
-            im = im.half()
         return self.model(im.cpu().numpy())
