@@ -818,11 +818,12 @@ class Results(SimpleClass, DataExportMixin):
                 x_kpt = (x / w).numpy().round(decimals)
                 y_kpt = (y / h).numpy().round(decimals)
                 if not as_numpy:
-                    x_kpt, y_kpt = x_kpt.tolist(), y_kpt.tolist()
+                    x_kpt = x_kpt.astype(float).tolist()
+                    y_kpt = y_kpt.astype(float).tolist()
                 result["keypoints"] = {"x": x_kpt, "y": y_kpt}
                 if kpt.has_visible:
                     vis = visible.numpy().round(decimals)
-                    result["keypoints"]["visible"] = vis if as_numpy else vis.tolist()
+                    result["keypoints"]["visible"] = vis if as_numpy else vis.astype(float).tolist()
             results.append(result)
 
         return results
