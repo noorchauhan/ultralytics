@@ -18,7 +18,6 @@ import torch
 from ultralytics.data.augment import LetterBox
 from ultralytics.utils import LOGGER, DataExportMixin, SimpleClass, ops
 from ultralytics.utils.plotting import Annotator, colors, save_one_box
-from ultralytics.utils.torch_utils import TORCH_1_11
 
 
 class BaseTensor(SimpleClass):
@@ -816,18 +815,14 @@ class Results(SimpleClass, DataExportMixin):
                     x, y, visible = kpt.data[0].cpu().unbind(dim=1)
                 else:
                     x, y = kpt.data[0].cpu().unbind(dim=1)
-                x_kpt = (x / w).round(decimals=decimals)
-                y_kpt = (y / h).round(decimals=decimals)
+                x_kpt = (x / w).numpy().round(decimals)
+                y_kpt = (y / h).numpy().round(decimals)
                 if not as_numpy:
-                    x_kpt = x_kpt.double().tolist()
-                    y_kpt = y_kpt.double().tolist()
-                else:
-                    x_kpt = x_kpt.numpy()
-                    y_kpt = y_kpt.numpy()
+                    x_kpt, y_kpt = x_kpt.tolist(), y_kpt.tolist()
                 result["keypoints"] = {"x": x_kpt, "y": y_kpt}
                 if kpt.has_visible:
-                    vis = visible.round(decimals=decimals)
-                    result["keypoints"]["visible"] = vis.numpy() if as_numpy else vis.double().tolist()
+                    vis = visible.numpy().round(decimals)
+                    result["keypoints"]["visible"] = vis if as_numpy else vis.tolist()
             results.append(result)
 
         return results
