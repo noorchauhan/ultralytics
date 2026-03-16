@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
 from functools import partial
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import torch
 
 from ultralytics.nn.modules import Detect, Pose, Pose26
-from ultralytics.utils import LOGGER
+from ultralytics.utils import LINUX, LOGGER, YAML
 from ultralytics.utils.downloads import attempt_download_asset
 from ultralytics.utils.files import spaces_in_path
 from ultralytics.utils.tal import make_anchors
@@ -229,3 +233,151 @@ def gd_outputs(gd):
         name_list.append(node.name)
         input_list.extend(node.input)
     return sorted(f"{x}:0" for x in list(set(name_list) - set(input_list)) if not x.startswith("NoOp"))
+
+
+def add_tflite_metadata(file: str | Path, metadata: dict) -> None:
+    """Add metadata to a TFLite model file as a ``metadata.json`` entry in the ZIP archive.
+
+    Args:
+        file (str | Path): Path to the ``.tflite`` model file.
+        metadata (dict): Metadata dictionary to serialize as JSON.
+    """
+    import zipfile
+
+    with zipfile.ZipFile(file, "a", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("metadata.json", json.dumps(metadata, indent=2))
+
+
+def torch2saved_model(
+    f_onnx: str,
+    file: Path,
+    args,
+    metadata: dict,
+    images: np.ndarray | None = None,
+    prefix: str = "",
+) -> tuple[str, object]:
+    """Export a YOLO ONNX model to TensorFlow SavedModel format.
+
+    Args:
+        f_onnx (str): Path to the source ONNX file (already exported).
+        file (Path): Source model path used to derive the ``_saved_model`` output directory.
+        args: Export arguments. Uses ``args.int8``, ``args.format``, and ``args.imgsz``.
+        metadata (dict): Metadata saved as ``metadata.yaml`` and embedded in TFLite files.
+        images (np.ndarray | None): BHWC float32 calibration images for INT8 quantization.
+        prefix (str): Prefix for log messages.
+
+    Returns:
+        (tuple[str, object]): ``(saved_model_dir, keras_model)`` — path to the SavedModel
+            directory and the converted Keras model object.
+    """
+    cuda = torch.cuda.is_available()
+    try:
+        import tensorflow as tf  # noqa: F401
+    except ImportError:
+        from ultralytics.utils.checks import check_requirements
+
+        check_requirements("tensorflow>=2.0.0,<=2.19.0")
+        import tensorflow as tf  # noqa: F401
+
+    from ultralytics.utils.checks import check_requirements, check_version
+
+    macos = _is_macos()
+    check_requirements(
+        (
+            "tf_keras<=2.19.0",  # required by 'onnx2tf' package
+            "sng4onnx>=1.0.1",  # required by 'onnx2tf' package
+            "onnx_graphsurgeon>=0.3.26",  # required by 'onnx2tf' package
+            "ai-edge-litert>=1.2.0" + (",<1.4.0" if macos else ""),  # required by 'onnx2tf' package
+            "onnx>=1.12.0,<2.0.0",
+            "onnx2tf>=1.26.3,<1.29.0",  # pin to avoid h5py build issues on aarch64
+            "onnxslim>=0.1.71",
+            "onnxruntime-gpu" if cuda else "onnxruntime",
+            "protobuf>=5",
+        ),
+        cmds="--extra-index-url https://pypi.ngc.nvidia.com",
+    )
+
+    import tensorflow as tf
+
+    LOGGER.info(f"\n{prefix} starting export with tensorflow {tf.__version__}...")
+    check_version(
+        tf.__version__,
+        ">=2.0.0",
+        name="tensorflow",
+        verbose=True,
+        msg="https://github.com/ultralytics/ultralytics/issues/5161",
+    )
+
+    f = Path(str(file).replace(file.suffix, "_saved_model"))
+    if f.is_dir():
+        shutil.rmtree(f)
+
+    keras_model = onnx2saved_model(
+        f_onnx,
+        f,
+        int8=args.int8,
+        images=images,
+        disable_group_convolution=getattr(args, "format", "") in {"tfjs", "edgetpu"},
+        prefix=prefix,
+    )
+    YAML.save(f / "metadata.yaml", metadata)
+    for tflite_file in f.rglob("*.tflite"):
+        if "quant_with_int16_act.tflite" in str(tflite_file):
+            tflite_file.unlink()
+        else:
+            add_tflite_metadata(tflite_file, metadata)
+
+    return str(f), keras_model
+
+
+def export_edgetpu_model(
+    tflite_model: str | Path,
+    metadata: dict,
+    prefix: str = "",
+) -> str:
+    """Install the Edge TPU compiler (if needed) and compile a TFLite model for Coral Edge TPU.
+
+    Args:
+        tflite_model (str | Path): Path to the full-integer-quantized ``.tflite`` source file.
+        metadata (dict): Metadata dictionary embedded into the exported Edge TPU model.
+        prefix (str): Prefix for log messages.
+
+    Returns:
+        (str): Path to the compiled ``_edgetpu.tflite`` model file.
+
+    Raises:
+        AssertionError: If not running on Linux.
+    """
+    from ultralytics.utils.checks import check_apt_requirements, is_sudo_available
+
+    tflite_model = Path(tflite_model)
+    cmd = "edgetpu_compiler --version"
+    help_url = "https://coral.ai/docs/edgetpu/compiler/"
+    assert LINUX, f"export only supported on Linux. See {help_url}"
+    if subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True).returncode != 0:
+        LOGGER.info(f"\n{prefix} export requires Edge TPU compiler. Attempting install from {help_url}")
+        sudo = "sudo " if is_sudo_available() else ""
+        for c in (
+            f"{sudo}mkdir -p /etc/apt/keyrings",
+            f"curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | {sudo}gpg --dearmor -o /etc/apt/keyrings/google.gpg",
+            f'echo "deb [signed-by=/etc/apt/keyrings/google.gpg] https://packages.cloud.google.com/apt coral-edgetpu-stable main" | {sudo}tee /etc/apt/sources.list.d/coral-edgetpu.list',
+        ):
+            subprocess.run(c, shell=True, check=True)
+        check_apt_requirements(["edgetpu-compiler"])
+
+    ver = subprocess.run(cmd, shell=True, capture_output=True, check=True).stdout.decode().rsplit(maxsplit=1)[-1]
+    LOGGER.info(f"\n{prefix} starting export with Edge TPU compiler {ver}...")
+    tflite2edgetpu(tflite_file=tflite_model, output_dir=tflite_model.parent, prefix=prefix)
+    f = str(tflite_model).replace(".tflite", "_edgetpu.tflite")
+    add_tflite_metadata(f, metadata)
+    return f
+
+
+def _is_macos() -> bool:
+    """Return True if running on macOS."""
+    try:
+        from ultralytics.utils import MACOS
+
+        return bool(MACOS)
+    except Exception:
+        return False
