@@ -47,7 +47,7 @@ class PaddleBackend(BaseBackend):
 
         config = pdi.Config(str(model_file), str(params_file))
         if cuda:
-            config.enable_use_gpu(memory_pool_init_size_mb=2048, device_id=self.device.index)
+            config.enable_use_gpu(memory_pool_init_size_mb=2048, device_id=self.device.index or 0)
 
         self.predictor = pdi.create_predictor(config)
         self.input_handle = self.predictor.get_input_handle(self.predictor.get_input_names()[0])
