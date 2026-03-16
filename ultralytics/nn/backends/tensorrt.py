@@ -18,8 +18,8 @@ from .base import BaseBackend
 class TensorRTBackend(BaseBackend):
     """NVIDIA TensorRT inference backend for GPU-accelerated deployment.
 
-    Loads and runs inference with NVIDIA TensorRT serialized engines (.engine files). Supports both
-    TensorRT 7-9 and TensorRT 10+ APIs, dynamic input shapes, FP16 precision, and DLA core offloading.
+    Loads and runs inference with NVIDIA TensorRT serialized engines (.engine files). Supports both TensorRT 7-9 and
+    TensorRT 10+ APIs, dynamic input shapes, FP16 precision, and DLA core offloading.
     """
 
     def load_model(self, weight: str | Path) -> None:

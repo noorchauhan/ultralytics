@@ -16,8 +16,8 @@ from .base import BaseBackend
 class PaddleBackend(BaseBackend):
     """Baidu PaddlePaddle inference backend.
 
-    Loads and runs inference with Baidu PaddlePaddle models (*_paddle_model/ directories). Supports both
-    CPU and GPU execution with automatic device configuration and memory pool initialization.
+    Loads and runs inference with Baidu PaddlePaddle models (*_paddle_model/ directories). Supports both CPU and GPU
+    execution with automatic device configuration and memory pool initialization.
     """
 
     def load_model(self, weight: str | Path) -> None:

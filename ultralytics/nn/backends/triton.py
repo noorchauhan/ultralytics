@@ -14,8 +14,8 @@ from .base import BaseBackend
 class TritonBackend(BaseBackend):
     """NVIDIA Triton Inference Server backend for remote model serving.
 
-    Connects to and runs inference with models hosted on an NVIDIA Triton Inference Server instance
-    via HTTP or gRPC protocols. The model is specified using a triton:// URL scheme.
+    Connects to and runs inference with models hosted on an NVIDIA Triton Inference Server instance via HTTP or gRPC
+    protocols. The model is specified using a triton:// URL scheme.
     """
 
     def load_model(self, weight: str | Path) -> None:

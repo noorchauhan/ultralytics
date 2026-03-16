@@ -17,8 +17,8 @@ from .base import BaseBackend
 class CoreMLBackend(BaseBackend):
     """CoreML inference backend for Apple hardware.
 
-    Loads and runs inference with CoreML models (.mlpackage files) using the coremltools library.
-    Supports both static and dynamic input shapes and handles NMS-included model outputs.
+    Loads and runs inference with CoreML models (.mlpackage files) using the coremltools library. Supports both static
+    and dynamic input shapes and handles NMS-included model outputs.
     """
 
     def load_model(self, weight: str | Path) -> None:

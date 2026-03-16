@@ -16,8 +16,8 @@ from .base import BaseBackend
 class OpenVINOBackend(BaseBackend):
     """Intel OpenVINO inference backend for Intel hardware acceleration.
 
-    Loads and runs inference with Intel OpenVINO IR models (*_openvino_model/ directories). Supports automatic
-    device selection, Intel-specific device targeting, and async inference for throughput optimization.
+    Loads and runs inference with Intel OpenVINO IR models (*_openvino_model/ directories). Supports automatic device
+    selection, Intel-specific device targeting, and async inference for throughput optimization.
     """
 
     def load_model(self, weight: str | Path) -> None:

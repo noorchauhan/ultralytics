@@ -16,8 +16,8 @@ from .base import BaseBackend
 class NCNNBackend(BaseBackend):
     """Tencent NCNN inference backend for mobile and embedded deployment.
 
-    Loads and runs inference with Tencent NCNN models (*_ncnn_model/ directories). Optimized for mobile
-    platforms with optional Vulkan GPU acceleration when available.
+    Loads and runs inference with Tencent NCNN models (*_ncnn_model/ directories). Optimized for mobile platforms with
+    optional Vulkan GPU acceleration when available.
     """
 
     def load_model(self, weight: str | Path) -> None:

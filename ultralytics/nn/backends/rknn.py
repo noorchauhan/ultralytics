@@ -15,8 +15,8 @@ from .base import BaseBackend
 class RKNNBackend(BaseBackend):
     """Rockchip RKNN inference backend for Rockchip NPU hardware.
 
-    Loads and runs inference with RKNN models (.rknn files) using the RKNN-Toolkit-Lite2 runtime.
-    Only supported on Rockchip devices with NPU hardware (e.g., RK3588, RK3566).
+    Loads and runs inference with RKNN models (.rknn files) using the RKNN-Toolkit-Lite2 runtime. Only supported on
+    Rockchip devices with NPU hardware (e.g., RK3588, RK3566).
     """
 
     def load_model(self, weight: str | Path) -> None:

@@ -17,8 +17,8 @@ from .base import BaseBackend
 class MNNBackend(BaseBackend):
     """MNN (Mobile Neural Network) inference backend.
 
-    Loads and runs inference with MNN models (.mnn files) using the Alibaba MNN framework.
-    Optimized for mobile and edge deployment with configurable thread count and precision.
+    Loads and runs inference with MNN models (.mnn files) using the Alibaba MNN framework. Optimized for mobile and edge
+    deployment with configurable thread count and precision.
     """
 
     def load_model(self, weight: str | Path) -> None:
