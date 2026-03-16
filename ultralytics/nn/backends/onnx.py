@@ -16,9 +16,9 @@ from .base import BaseBackend
 class ONNXBackend(BaseBackend):
     """Microsoft ONNX Runtime inference backend with optional OpenCV DNN support.
 
-    Loads and runs inference with ONNX models (.onnx files) using either Microsoft ONNX Runtime with
-    CUDA/CoreML execution providers, or OpenCV DNN for lightweight CPU inference. Supports IO binding
-    for optimized GPU inference with static input shapes.
+    Loads and runs inference with ONNX models (.onnx files) using either Microsoft ONNX Runtime with CUDA/CoreML
+    execution providers, or OpenCV DNN for lightweight CPU inference. Supports IO binding for optimized GPU inference
+    with static input shapes.
     """
 
     def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, format: str = "onnx"):
@@ -140,8 +140,8 @@ class ONNXBackend(BaseBackend):
 class ONNXIMXBackend(ONNXBackend):
     """ONNX IMX inference backend for NXP i.MX processors.
 
-    Extends `ONNXBackend` with support for quantized models targeting NXP i.MX edge devices.
-    Uses MCT (Model Compression Toolkit) quantizers and custom NMS operations for optimized inference.
+    Extends `ONNXBackend` with support for quantized models targeting NXP i.MX edge devices. Uses MCT (Model Compression
+    Toolkit) quantizers and custom NMS operations for optimized inference.
     """
 
     def load_model(self, weight: str | Path) -> None:

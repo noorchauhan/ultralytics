@@ -93,8 +93,8 @@ class PyTorchBackend(BaseBackend):
 class TorchScriptBackend(BaseBackend):
     """PyTorch TorchScript inference backend for serialized model execution.
 
-    Loads and runs inference with TorchScript models (.torchscript files) created via torch.jit.trace
-    or torch.jit.script. Supports FP16 precision and embedded metadata extraction.
+    Loads and runs inference with TorchScript models (.torchscript files) created via torch.jit.trace or
+    torch.jit.script. Supports FP16 precision and embedded metadata extraction.
     """
 
     def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False):

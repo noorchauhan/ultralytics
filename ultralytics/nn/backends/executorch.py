@@ -15,8 +15,8 @@ from .base import BaseBackend
 class ExecuTorchBackend(BaseBackend):
     """Meta ExecuTorch inference backend for on-device deployment.
 
-    Loads and runs inference with Meta ExecuTorch models (.pte files) using the ExecuTorch runtime.
-    Supports both standalone .pte files and directory-based model packages with metadata.
+    Loads and runs inference with Meta ExecuTorch models (.pte files) using the ExecuTorch runtime. Supports both
+    standalone .pte files and directory-based model packages with metadata.
     """
 
     def load_model(self, weight: str | Path) -> None:
