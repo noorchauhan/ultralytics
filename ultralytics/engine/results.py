@@ -18,7 +18,6 @@ import torch
 from ultralytics.data.augment import LetterBox
 from ultralytics.utils import LOGGER, DataExportMixin, SimpleClass, ops
 from ultralytics.utils.plotting import Annotator, colors, save_one_box
-from ultralytics.utils.torch_utils import TORCH_1_11
 
 
 class BaseTensor(SimpleClass):
