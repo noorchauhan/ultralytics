@@ -122,7 +122,7 @@ class SegmentationPredictor(DetectionPredictor):
         return Results(orig_img, path=img_path, names=self.model.names, boxes=pred[:, :6], masks=masks)
 
     def _process_mask_native_with_padding(self, protos, masks_in, bboxes, img_hw: tuple[int, int], orig_hw: tuple[int, int]):
-        """Retina-mask path for custom resize+pad preprocess."""
+        """Retina-mask path for border padding."""
         c, mh, mw = protos.shape  # CHW
         masks = (masks_in @ protos.float().view(c, -1)).view(-1, mh, mw)
         masks = F.interpolate(masks[None], img_hw, mode="bilinear")[0]  # NHW@img
@@ -132,7 +132,7 @@ class SegmentationPredictor(DetectionPredictor):
         return masks.gt_(0.0).byte()
 
     def _clip_padded_masks_to_original(self, masks):
-        """Map custom-preprocessed binary masks back to original image space."""
+        """Map border padded binary masks back to original image space."""
         pad = max(int(getattr(self.args, "border_pad", 0)), 0)
         masks = masks.float()
         if pad:
