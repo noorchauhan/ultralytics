@@ -175,7 +175,7 @@ def torch2coreml(
         model (nn.Module): The PyTorch model to export.
         im (torch.Tensor): Example input tensor.
         file (Path | str): Source model path used to derive the output path.
-        args(SimpleNamespace): Export arguments (``format``, ``batch``, ``dynamic``, ``nms``, ``int8``, ``half``).
+        args (SimpleNamespace): Export arguments (``format``, ``batch``, ``dynamic``, ``nms``, ``int8``, ``half``).
         output_shape (tuple): Model output shape used by the NMS pipeline.
         metadata (dict | None): Metadata to embed in the CoreML model.
         imgsz (list | None): Image size ``[h, w]``.

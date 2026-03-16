@@ -26,7 +26,7 @@ def torch2ncnn(
         model (torch.nn.Module): The PyTorch model to export.
         im (torch.Tensor): Example input tensor for tracing.
         file (Path | str): Source model path used to derive the output directory.
-        args(SimpleNamespace): Export arguments with ``half`` attribute.
+        args (SimpleNamespace): Export arguments with ``half`` attribute.
         metadata (dict | None): Optional metadata saved as ``metadata.yaml``.
         device (torch.device | None): Device the model lives on.
         prefix (str): Prefix for log messages.

@@ -23,7 +23,7 @@ def torch2axelera(
     Args:
         f_onnx (str): Path to the source ONNX file (already exported).
         model_str (str): String representation of the model (``str(model)``) for architecture detection.
-        args: Export arguments. ``args.int8`` must be ``True``.
+        args (SimpleNamespace): Export arguments. ``args.int8`` must be ``True``.
         metadata (dict | None): Metadata saved as ``metadata.yaml``.
         calibration_dataset: Dataloader for INT8 calibration.
         transform_fn: Transformation function applied to calibration batches.

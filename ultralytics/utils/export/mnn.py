@@ -21,7 +21,7 @@ def onnx2mnn(
     Args:
         f_onnx (str): Path to the source ONNX file.
         file (Path | str): Source model path used to derive the output ``.mnn`` path.
-        args(SimpleNamespace): Export arguments with ``int8`` and ``half`` attributes.
+        args (SimpleNamespace): Export arguments with ``int8`` and ``half`` attributes.
         metadata (dict | None): Optional metadata embedded via ``--bizCode``.
         prefix (str): Prefix for log messages.
 
