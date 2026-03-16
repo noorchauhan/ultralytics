@@ -66,6 +66,7 @@ class ONNXBackend(BaseBackend):
                 if cuda:
                     LOGGER.warning("CUDA requested but CUDAExecutionProvider not available. Using CPU...")
                     self.device = torch.device("cpu")
+                    cuda = False
 
             LOGGER.info(
                 f"Using ONNX Runtime {onnxruntime.__version__} with "
