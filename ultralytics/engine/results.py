@@ -815,8 +815,8 @@ class Results(SimpleClass, DataExportMixin):
                     x, y, visible = kpt.data[0].cpu().unbind(dim=1)
                 else:
                     x, y = kpt.data[0].cpu().unbind(dim=1)
-                x_kpt = (x / w).round(decimals=decimals)
-                y_kpt = (y / h).round(decimals=decimals)
+                x_kpt = (x / w).round(decimals)
+                y_kpt = (y / h).round(decimals)
                 if not as_numpy:
                     x_kpt = x_kpt.double().tolist()
                     y_kpt = y_kpt.double().tolist()
@@ -825,7 +825,7 @@ class Results(SimpleClass, DataExportMixin):
                     y_kpt = y_kpt.numpy()
                 result["keypoints"] = {"x": x_kpt, "y": y_kpt}
                 if kpt.has_visible:
-                    vis = visible.round(decimals=decimals)
+                    vis = visible.round(decimals)
                     result["keypoints"]["visible"] = vis.numpy() if as_numpy else vis.double().tolist()
             results.append(result)
 
