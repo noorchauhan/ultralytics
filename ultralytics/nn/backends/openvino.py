@@ -14,13 +14,18 @@ from .base import BaseBackend
 
 
 class OpenVINOBackend(BaseBackend):
-    """OpenVINO inference backend.
+    """Intel OpenVINO inference backend for Intel hardware acceleration.
 
-    Supports loading and inference with OpenVINO IR models (*_openvino_model/ directories).
+    Loads and runs inference with Intel OpenVINO IR models (*_openvino_model/ directories). Supports automatic
+    device selection, Intel-specific device targeting, and async inference for throughput optimization.
     """
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the OpenVINO model."""
+        """Load an Intel OpenVINO IR model from a .xml/.bin file pair or model directory.
+
+        Args:
+            weight (str | Path): Path to the .xml file or directory containing OpenVINO model files.
+        """
         LOGGER.info(f"Loading {weight} for OpenVINO inference...")
         check_requirements("openvino>=2024.0.0")
         import openvino as ov
@@ -66,13 +71,13 @@ class OpenVINOBackend(BaseBackend):
         self.ov = ov
 
     def forward(self, im: torch.Tensor) -> list[np.ndarray]:
-        """Run OpenVINO inference.
+        """Run Intel OpenVINO inference with sync or async execution based on inference mode.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
 
         Returns:
-            Model output as list of numpy arrays.
+            (list[np.ndarray]): Model predictions as a list of numpy arrays, one per output layer.
         """
         im = im.cpu().numpy().astype(np.float32)
 
@@ -82,7 +87,7 @@ class OpenVINOBackend(BaseBackend):
             results = [None] * n
 
             def callback(request, userdata):
-                """Place result in preallocated list using userdata index."""
+                """Store async inference result in the preallocated results list at the given index."""
                 results[userdata] = request.results
 
             async_queue = self.ov.AsyncInferQueue(self.ov_compiled_model)

@@ -369,5 +369,5 @@ class AutoBackend(nn.Module):
         self = super()._apply(fn)
         if hasattr(self.backend, "model") and isinstance(self.backend.model, nn.Module):
             self.backend.model._apply(fn)
-            self.backend.device = next(self.backend.model.parameters()).device  # device change
+            self.backend.device = next(self.backend.model.parameters()).device  # update device after move
         return self

@@ -16,13 +16,18 @@ from .base import BaseBackend
 
 
 class TensorRTBackend(BaseBackend):
-    """TensorRT inference backend.
+    """NVIDIA TensorRT inference backend for GPU-accelerated deployment.
 
-    Supports loading and inference with TensorRT engines (.engine files).
+    Loads and runs inference with NVIDIA TensorRT serialized engines (.engine files). Supports both
+    TensorRT 7-9 and TensorRT 10+ APIs, dynamic input shapes, FP16 precision, and DLA core offloading.
     """
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the TensorRT engine."""
+        """Load an NVIDIA TensorRT engine from a serialized .engine file.
+
+        Args:
+            weight (str | Path): Path to the .engine file with optional embedded metadata.
+        """
         LOGGER.info(f"Loading {weight} for TensorRT inference...")
 
         if IS_JETSON and check_version(PYTHON_VERSION, "<=3.8.10"):
@@ -109,13 +114,13 @@ class TensorRTBackend(BaseBackend):
         self.model = engine
 
     def forward(self, im: torch.Tensor) -> list[torch.Tensor]:
-        """Run TensorRT inference.
+        """Run NVIDIA TensorRT inference with dynamic shape handling.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BCHW format on the CUDA device.
 
         Returns:
-            Model output as list of torch Tensors.
+            (list[torch.Tensor]): Model predictions as a list of tensors on the CUDA device.
         """
         if self.dynamic and im.shape != self.bindings["images"].shape:
             if self.is_trt10:

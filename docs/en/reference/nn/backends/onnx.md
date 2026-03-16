@@ -1,6 +1,6 @@
 ---
-description: Explore ONNXBackend and ONNXIMXBackend for ONNX Runtime inference, supporting both standard ONNX models and IMX-optimized variants for edge deployment.
-keywords: Ultralytics, ONNXBackend, ONNXIMXBackend, ONNX Runtime, ONNX inference, .onnx models, IMX, edge deployment, deep learning
+description: Explore ONNXBackend and ONNXIMXBackend for Microsoft ONNX Runtime inference, supporting standard ONNX models and NXP IMX-optimized variants.
+keywords: Ultralytics, ONNXBackend, ONNXIMXBackend, Microsoft ONNX Runtime, Sony IMX, ONNX inference, edge deployment, deep learning
 ---
 
 # Reference for `ultralytics/nn/backends/onnx.py`

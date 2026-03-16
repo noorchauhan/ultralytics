@@ -14,13 +14,18 @@ from .base import BaseBackend
 
 
 class AxeleraBackend(BaseBackend):
-    """Axelera inference backend.
+    """Axelera AI inference backend for Axelera Metis AI accelerators.
 
-    Supports loading and inference with Axelera models on Axelera hardware.
+    Loads compiled Axelera models (.axm files) and runs inference using the Axelera AI runtime SDK.
+    Requires the Axelera runtime environment to be activated before use.
     """
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the Axelera model."""
+        """Load an Axelera model from a directory containing a .axm file.
+
+        Args:
+            weight (str | Path): Path to the Axelera model directory containing the .axm binary.
+        """
         if not os.environ.get("AXELERA_RUNTIME_DIR"):
             LOGGER.warning(
                 "Axelera runtime environment is not activated.\n"
@@ -53,12 +58,12 @@ class AxeleraBackend(BaseBackend):
             self.apply_metadata(YAML.load(metadata_file))
 
     def forward(self, im: torch.Tensor) -> list:
-        """Run Axelera inference.
+        """Run inference on the Axelera hardware accelerator.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
 
         Returns:
-            Model output as list of Axelera inference results.
+            (list): Model predictions as a list of output arrays.
         """
         return self.model(im.cpu())

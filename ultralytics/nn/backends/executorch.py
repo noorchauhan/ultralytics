@@ -13,13 +13,18 @@ from .base import BaseBackend
 
 
 class ExecuTorchBackend(BaseBackend):
-    """ExecuTorch inference backend.
+    """Meta ExecuTorch inference backend for on-device deployment.
 
-    Supports loading and inference with ExecuTorch models (.pte files).
+    Loads and runs inference with Meta ExecuTorch models (.pte files) using the ExecuTorch runtime.
+    Supports both standalone .pte files and directory-based model packages with metadata.
     """
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the ExecuTorch model."""
+        """Load an ExecuTorch model from a .pte file or directory.
+
+        Args:
+            weight (str | Path): Path to the .pte model file or directory containing the model.
+        """
         LOGGER.info(f"Loading {weight} for ExecuTorch inference...")
         check_executorch_requirements()
 
@@ -43,12 +48,12 @@ class ExecuTorchBackend(BaseBackend):
             self.apply_metadata(YAML.load(metadata_file))
 
     def forward(self, im: torch.Tensor) -> list:
-        """Run ExecuTorch inference.
+        """Run inference using the ExecuTorch runtime.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
 
         Returns:
-            Model output as list of ExecuTorch values.
+            (list): Model predictions as a list of ExecuTorch output values.
         """
         return self.model.execute([im])

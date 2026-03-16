@@ -15,13 +15,18 @@ from .base import BaseBackend
 
 
 class MNNBackend(BaseBackend):
-    """MNN inference backend.
+    """MNN (Mobile Neural Network) inference backend.
 
-    Supports loading and inference with MNN models (.mnn files).
+    Loads and runs inference with MNN models (.mnn files) using the Alibaba MNN framework.
+    Optimized for mobile and edge deployment with configurable thread count and precision.
     """
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the MNN model."""
+        """Load an Alibaba MNN model from a .mnn file.
+
+        Args:
+            weight (str | Path): Path to the .mnn model file.
+        """
         LOGGER.info(f"Loading {weight} for MNN inference...")
         check_requirements("MNN")
         import MNN
@@ -40,13 +45,13 @@ class MNNBackend(BaseBackend):
                 pass
 
     def forward(self, im: torch.Tensor) -> list:
-        """Run MNN inference.
+        """Run inference using the MNN runtime.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
 
         Returns:
-            Model output as list of MNN tensors.
+            (list): Model predictions as a list of numpy arrays.
         """
         input_var = self.expr.const(im.data_ptr(), im.shape)
         output_var = self.net.onForward([input_var])

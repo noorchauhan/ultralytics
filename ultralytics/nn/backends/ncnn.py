@@ -14,13 +14,18 @@ from .base import BaseBackend
 
 
 class NCNNBackend(BaseBackend):
-    """NCNN inference backend.
+    """Tencent NCNN inference backend for mobile and embedded deployment.
 
-    Supports loading and inference with NCNN models (*_ncnn_model/ directories).
+    Loads and runs inference with Tencent NCNN models (*_ncnn_model/ directories). Optimized for mobile
+    platforms with optional Vulkan GPU acceleration when available.
     """
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the NCNN model."""
+        """Load an NCNN model from a .param/.bin file pair or model directory.
+
+        Args:
+            weight (str | Path): Path to the .param file or directory containing NCNN model files.
+        """
         LOGGER.info(f"Loading {weight} for NCNN inference...")
         check_requirements("ncnn", cmds="--no-deps")
         import ncnn as pyncnn
@@ -51,13 +56,13 @@ class NCNNBackend(BaseBackend):
             self.apply_metadata(YAML.load(metadata_file))
 
     def forward(self, im: torch.Tensor) -> list[np.ndarray]:
-        """Run NCNN inference.
+        """Run inference using the NCNN runtime.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
 
         Returns:
-            Model output as list of numpy arrays.
+            (list[np.ndarray]): Model predictions as a list of numpy arrays, one per output layer.
         """
         mat_in = self.pyncnn.Mat(im[0].cpu().numpy())
         with self.net.create_extractor() as ex:

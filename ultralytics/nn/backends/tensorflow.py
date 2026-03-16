@@ -17,26 +17,31 @@ from .base import BaseBackend
 
 
 class TensorFlowBackend(BaseBackend):
-    """TensorFlow SavedModel and GraphDef inference backend.
+    """Google TensorFlow inference backend supporting multiple serialization formats.
 
-    Supports loading and inference with TensorFlow SavedModel and GraphDef formats.
+    Loads and runs inference with Google TensorFlow models in SavedModel, GraphDef (.pb), TFLite (.tflite),
+    and Edge TPU formats. Handles quantized model dequantization and task-specific output formatting.
     """
 
     def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, format: str = "saved_model"):
-        """Initialize TensorFlow backend.
+        """Initialize the Google TensorFlow backend.
 
         Args:
-            weight: Path to the SavedModel directory or .pb file.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            format: TensorFlow model format, choice of "saved_model", "pb", "tflite", or "edgetpu".
+            weight (str | Path): Path to the SavedModel directory, .pb file, or .tflite file.
+            device (torch.device): Device to run inference on.
+            fp16 (bool): Whether to use FP16 half-precision inference.
+            format (str): Model format, one of "saved_model", "pb", "tflite", or "edgetpu".
         """
         assert format in {"saved_model", "pb", "tflite", "edgetpu"}, f"Unsupported TensorFlow format: {format}."
         self.format = format
         super().__init__(weight, device, fp16)
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the TensorFlow model."""
+        """Load a Google TensorFlow model in SavedModel, GraphDef, TFLite, or Edge TPU format.
+
+        Args:
+            weight (str | Path): Path to the model file or directory.
+        """
         import tensorflow as tf
 
         if self.format == "saved_model":
@@ -53,7 +58,7 @@ class TensorFlowBackend(BaseBackend):
             from ultralytics.utils.export.tensorflow import gd_outputs
 
             def wrap_frozen_graph(gd, inputs, outputs):
-                """Wrap frozen graphs for deployment."""
+                """Wrap a TensorFlow frozen graph for inference by pruning to specified input/output nodes."""
                 x = tf.compat.v1.wrap_function(lambda: tf.compat.v1.import_graph_def(gd, name=""), [])
                 ge = x.graph.as_graph_element
                 return x.prune(tf.nest.map_structure(ge, inputs), tf.nest.map_structure(ge, outputs))
@@ -94,7 +99,7 @@ class TensorFlowBackend(BaseBackend):
                     model_path=str(weight),
                     experimental_delegates=[load_delegate(delegate, options={"device": device})],
                 )
-                self.device = torch.device("cpu")  # Required, otherwise PyTorch will try to use the wrong device
+                self.device = torch.device("cpu")  # Edge TPU runs on CPU from PyTorch's perspective
             else:
                 LOGGER.info(f"Loading {weight} for TensorFlow Lite inference...")
                 self.interpreter = Interpreter(model_path=weight)
@@ -116,13 +121,13 @@ class TensorFlowBackend(BaseBackend):
                 pass
 
     def forward(self, im: torch.Tensor) -> list[np.ndarray]:
-        """Run TensorFlow inference.
+        """Run Google TensorFlow inference with format-specific execution and output post-processing.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BHWC format (converted from BCHW by AutoBackend).
 
         Returns:
-            Model output as list of numpy arrays.
+            (list[np.ndarray]): Model predictions as a list of numpy arrays.
         """
         im = im.cpu().numpy()
         if self.format == "saved_model":

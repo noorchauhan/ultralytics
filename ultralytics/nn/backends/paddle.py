@@ -14,13 +14,18 @@ from .base import BaseBackend
 
 
 class PaddleBackend(BaseBackend):
-    """PaddlePaddle inference backend.
+    """Baidu PaddlePaddle inference backend.
 
-    Supports loading and inference with PaddlePaddle models (*_paddle_model/ directories).
+    Loads and runs inference with Baidu PaddlePaddle models (*_paddle_model/ directories). Supports both
+    CPU and GPU execution with automatic device configuration and memory pool initialization.
     """
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the PaddlePaddle model."""
+        """Load a Baidu PaddlePaddle model from a directory containing .json and .pdiparams files.
+
+        Args:
+            weight (str | Path): Path to the model directory or .pdiparams file.
+        """
         cuda = isinstance(self.device, torch.device) and torch.cuda.is_available() and self.device.type != "cpu"
         LOGGER.info(f"Loading {weight} for PaddlePaddle inference...")
         if cuda:
@@ -54,20 +59,20 @@ class PaddleBackend(BaseBackend):
         self.output_names = self.predictor.get_output_names()
 
         # Load metadata
-        metadata_file = w / "metadata.yaml"
+        metadata_file = (w if w.is_dir() else w.parent) / "metadata.yaml"
         if metadata_file.exists():
             from ultralytics.utils import YAML
 
             self.apply_metadata(YAML.load(metadata_file))
 
     def forward(self, im: torch.Tensor) -> list[np.ndarray]:
-        """Run PaddlePaddle inference.
+        """Run Baidu PaddlePaddle inference.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
 
         Returns:
-            Model output as list of numpy arrays.
+            (list[np.ndarray]): Model predictions as a list of numpy arrays, one per output handle.
         """
         self.input_handle.copy_from_cpu(im.cpu().numpy().astype(np.float32))
         self.predictor.run()

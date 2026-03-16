@@ -14,26 +14,32 @@ from .base import BaseBackend
 
 
 class ONNXBackend(BaseBackend):
-    """ONNX Runtime inference backend.
+    """Microsoft ONNX Runtime inference backend with optional OpenCV DNN support.
 
-    Supports loading and inference with ONNX models (.onnx files).
+    Loads and runs inference with ONNX models (.onnx files) using either Microsoft ONNX Runtime with
+    CUDA/CoreML execution providers, or OpenCV DNN for lightweight CPU inference. Supports IO binding
+    for optimized GPU inference with static input shapes.
     """
 
     def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, format: str = "onnx"):
-        """Initialize ONNX backend.
+        """Initialize the ONNX backend.
 
         Args:
-            weight: Path to the .onnx model file.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            format: ONNX model format, choice of "onnx" for ONNX Runtime or "dnn" for OpenCV DNN.
+            weight (str | Path): Path to the .onnx model file.
+            device (torch.device): Device to run inference on.
+            fp16 (bool): Whether to use FP16 half-precision inference.
+            format (str): Inference engine, either "onnx" for ONNX Runtime or "dnn" for OpenCV DNN.
         """
         assert format in {"onnx", "dnn"}, f"Unsupported ONNX format: {format}."
         self.format = format
         super().__init__(weight, device, fp16)
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the ONNX model."""
+        """Load an ONNX model using ONNX Runtime or OpenCV DNN.
+
+        Args:
+            weight (str | Path): Path to the .onnx model file.
+        """
         cuda = isinstance(self.device, torch.device) and torch.cuda.is_available() and self.device.type != "cpu"
 
         if self.format == "dnn":
@@ -99,13 +105,13 @@ class ONNXBackend(BaseBackend):
                     self.bindings.append(y_tensor)
 
     def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor] | np.ndarray:
-        """Run ONNX inference.
+        """Run ONNX inference using IO binding (CUDA) or standard session execution.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
 
         Returns:
-            Model output as torch Tensor(s) or numpy array(s).
+            (torch.Tensor | list[torch.Tensor] | np.ndarray): Model predictions as tensor(s) or numpy array(s).
         """
         if self.format == "dnn":
             # OpenCV DNN
@@ -131,13 +137,18 @@ class ONNXBackend(BaseBackend):
 
 
 class ONNXIMXBackend(ONNXBackend):
-    """ONNX IMX (i.MX) inference backend.
+    """ONNX IMX inference backend for NXP i.MX processors.
 
-    Supports inference on NXP i.MX devices with quantized models.
+    Extends `ONNXBackend` with support for quantized models targeting NXP i.MX edge devices.
+    Uses MCT (Model Compression Toolkit) quantizers and custom NMS operations for optimized inference.
     """
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the IMX model."""
+        """Load a quantized ONNX model from an IMX model directory.
+
+        Args:
+            weight (str | Path): Path to the IMX model directory containing the .onnx file.
+        """
         check_requirements(("model-compression-toolkit>=2.4.1", "edge-mdt-cl<1.1.0", "onnxruntime-extensions"))
         check_requirements(("onnx", "onnxruntime"))
         import mct_quantizers as mctq
@@ -160,13 +171,13 @@ class ONNXIMXBackend(ONNXBackend):
             self.apply_metadata(dict(metadata_map))
 
     def forward(self, im: torch.Tensor) -> np.ndarray | list[np.ndarray] | tuple[np.ndarray, ...]:
-        """Run IMX inference with task-specific output formatting.
+        """Run IMX inference with task-specific output concatenation for detect, pose, and segment tasks.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
 
         Returns:
-            Model output as numpy array(s).
+            (np.ndarray | list[np.ndarray] | tuple[np.ndarray, ...]): Task-formatted model predictions.
         """
         y = self.session.run(self.output_names, {self.session.get_inputs()[0].name: im.cpu().numpy()})
 

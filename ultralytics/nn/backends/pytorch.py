@@ -14,9 +14,10 @@ from .base import BaseBackend
 
 
 class PyTorchBackend(BaseBackend):
-    """PyTorch inference backend.
+    """PyTorch inference backend for native model execution.
 
-    Supports loading and inference with native PyTorch models (.pt files).
+    Loads and runs inference with native PyTorch models (.pt checkpoint files) or pre-loaded nn.Module
+    instances. Supports model layer fusion, FP16 precision, and NVIDIA Jetson compatibility.
     """
 
     def __init__(
@@ -27,21 +28,25 @@ class PyTorchBackend(BaseBackend):
         fuse: bool = True,
         verbose: bool = True,
     ):
-        """Initialize PyTorch backend.
+        """Initialize the PyTorch backend.
 
         Args:
-            weight: Path to the .pt model file or nn.Module instance.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
-            fuse: Whether to fuse Conv2D + BatchNorm layers.
-            verbose: Whether to print verbose messages.
+            weight (str | Path | nn.Module): Path to the .pt model file or a pre-loaded nn.Module instance.
+            device (torch.device): Device to run inference on (e.g., 'cpu', 'cuda:0').
+            fp16 (bool): Whether to use FP16 half-precision inference.
+            fuse (bool): Whether to fuse Conv2D + BatchNorm layers for optimization.
+            verbose (bool): Whether to print verbose model loading messages.
         """
         self.fuse = fuse
         self.verbose = verbose
         super().__init__(weight, device, fp16)
 
     def load_model(self, weight: str | torch.nn.Module) -> None:
-        """Load the PyTorch model."""
+        """Load a PyTorch model from a checkpoint file or nn.Module instance.
+
+        Args:
+            weight (str | torch.nn.Module): Path to the .pt checkpoint or a pre-loaded module.
+        """
         from ultralytics.nn.tasks import load_checkpoint
 
         if isinstance(weight, torch.nn.Module):
@@ -70,41 +75,47 @@ class PyTorchBackend(BaseBackend):
     def forward(
         self, im: torch.Tensor, augment: bool = False, visualize: bool = False, embed: list | None = None, **kwargs: Any
     ) -> torch.Tensor | list[torch.Tensor]:
-        """Run PyTorch inference.
+        """Run native PyTorch inference with support for augmentation, visualization, and embeddings.
 
         Args:
-            im: Input image tensor in BCHW format.
-            augment: Whether to use test-time augmentation.
-            visualize: Whether to visualize features.
-            embed: Layers to extract embeddings from.
-            **kwargs: Additional arguments.
+            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
+            augment (bool): Whether to apply test-time augmentation.
+            visualize (bool): Whether to visualize intermediate feature maps.
+            embed (list | None): List of layer indices to extract embeddings from, or None.
+            **kwargs (Any): Additional keyword arguments passed to the model forward method.
 
         Returns:
-            Model output tensor(s).
+            (torch.Tensor | list[torch.Tensor]): Model predictions as tensor(s).
         """
         return self.model(im, augment=augment, visualize=visualize, embed=embed, **kwargs)
 
 
 class TorchScriptBackend(BaseBackend):
-    """TorchScript inference backend.
+    """PyTorch TorchScript inference backend for serialized model execution.
 
-    Supports loading and inference with TorchScript models (.torchscript files).
+    Loads and runs inference with TorchScript models (.torchscript files) created via torch.jit.trace
+    or torch.jit.script. Supports FP16 precision and embedded metadata extraction.
     """
 
     def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False):
-        """Initialize TorchScript backend.
+        """Initialize the TorchScript backend.
 
         Args:
-            weight: Path to the .torchscript model file.
-            device: Device to run inference on.
-            fp16: Whether to use FP16 precision.
+            weight (str | Path): Path to the .torchscript model file.
+            device (torch.device): Device to run inference on (e.g., 'cpu', 'cuda:0').
+            fp16 (bool): Whether to use FP16 half-precision inference.
         """
         super().__init__(weight, device, fp16)
 
     def load_model(self, weight: str) -> None:
-        """Load the TorchScript model."""
-        import torchvision  # noqa
+        """Load a TorchScript model from a .torchscript file with optional embedded metadata.
+
+        Args:
+            weight (str): Path to the .torchscript model file.
+        """
         import json
+
+        import torchvision  # noqa - required for TorchScript model deserialization
 
         LOGGER.info(f"Loading {weight} for TorchScript inference...")
         extra_files = {"config.txt": ""}
@@ -115,12 +126,12 @@ class TorchScriptBackend(BaseBackend):
             self.apply_metadata(json.loads(extra_files["config.txt"], object_hook=lambda x: dict(x.items())))
 
     def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
-        """Run PyTorch/TorchScript inference.
+        """Run TorchScript inference.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
 
         Returns:
-            Model output as torch Tensor(s).
+            (torch.Tensor | list[torch.Tensor]): Model predictions as tensor(s).
         """
         return self.model(im)

@@ -15,13 +15,18 @@ from .base import BaseBackend
 
 
 class CoreMLBackend(BaseBackend):
-    """CoreML inference backend.
+    """CoreML inference backend for Apple hardware.
 
-    Supports loading and inference with CoreML models (.mlpackage files).
+    Loads and runs inference with CoreML models (.mlpackage files) using the coremltools library.
+    Supports both static and dynamic input shapes and handles NMS-included model outputs.
     """
 
     def load_model(self, weight: str | Path) -> None:
-        """Load the CoreML model."""
+        """Load a CoreML model from a .mlpackage file.
+
+        Args:
+            weight (str | Path): Path to the .mlpackage model file.
+        """
         check_requirements(["coremltools>=9.0", "numpy>=1.14.5,<=2.3.5"])
         import coremltools as ct
 
@@ -33,13 +38,13 @@ class CoreMLBackend(BaseBackend):
         self.apply_metadata(dict(self.model.user_defined_metadata))
 
     def forward(self, im: torch.Tensor) -> np.ndarray | list[np.ndarray]:
-        """Run CoreML inference.
+        """Run CoreML inference with automatic input format handling.
 
         Args:
-            im: Input image tensor in BCHW format.
+            im (torch.Tensor): Input image tensor in BHWC format (converted from BCHW by AutoBackend).
 
         Returns:
-            Model output as numpy array(s).
+            (np.ndarray | list[np.ndarray]): Model predictions as numpy array(s).
         """
         im = im.cpu().numpy()
         h, w = im.shape[1:3]
