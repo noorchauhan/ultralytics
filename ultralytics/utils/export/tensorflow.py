@@ -266,8 +266,8 @@ def torch2saved_model(
         prefix (str): Prefix for log messages.
 
     Returns:
-        (tuple[str, object]): ``(saved_model_dir, keras_model)`` — path to the SavedModel
-            directory and the converted Keras model object.
+        (tuple[str, object]): ``(saved_model_dir, keras_model)`` — path to the SavedModel directory and the converted
+            Keras model object.
     """
     cuda = torch.cuda.is_available()
     try:

@@ -199,8 +199,7 @@ def torch2coreml(
         )
     if args.dynamic:
         assert not args.nms, (
-            "'nms=True' cannot be used together with 'dynamic=True' for CoreML export. "
-            "Please disable one of them."
+            "'nms=True' cannot be used together with 'dynamic=True' for CoreML export. Please disable one of them."
         )
         assert model.task != "classify", "'dynamic=True' is not supported for CoreML classification models."
 

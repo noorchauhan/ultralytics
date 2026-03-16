@@ -17,8 +17,7 @@ def onnx2rknn(
 
     Args:
         f_onnx (str): Path to the source ONNX file (already exported, opset ≤19).
-        args: Export arguments. Must contain ``name`` for the target platform
-            (e.g. ``"rk3588"``).
+        args: Export arguments. Must contain ``name`` for the target platform (e.g. ``"rk3588"``).
         metadata (dict | None): Metadata saved as ``metadata.yaml``.
         prefix (str): Prefix for log messages.
 
