@@ -749,7 +749,7 @@ class Results(SimpleClass, DataExportMixin):
                 BGR=True,
             )
 
-    def summary(self, normalize: bool = False, decimals: int = 5) -> list[dict[str, Any]]:
+    def summary(self, normalize: bool = False, decimals: int = 5, as_numpy: bool = False) -> list[dict[str, Any]]:
         """Convert inference results to a summarized dictionary with optional normalization for box coordinates.
 
         This method creates a list of detection dictionaries, each containing information about a single detection or
@@ -760,6 +760,8 @@ class Results(SimpleClass, DataExportMixin):
         Args:
             normalize (bool): Whether to normalize bounding box coordinates by image dimensions.
             decimals (int): Number of decimal places to round the output values to.
+            as_numpy (bool): Whether to return numpy arrays instead of Python lists for segments and keypoints.
+                When True, skips .tolist() conversion for faster serialization with orjson. Default is False.
 
         Returns:
             (list[dict[str, Any]]): A list of dictionaries, each containing summarized information for a single
@@ -801,22 +803,30 @@ class Results(SimpleClass, DataExportMixin):
             if data.is_track:
                 result["track_id"] = int(row.id.item())  # track ID
             if self.masks:
-                result["segments"] = {
-                    "x": (self.masks.xy[i][:, 0] / w).astype(float).round(decimals).tolist(),
-                    "y": (self.masks.xy[i][:, 1] / h).astype(float).round(decimals).tolist(),
-                }
+                x_seg = (self.masks.xy[i][:, 0] / w).round(decimals)
+                y_seg = (self.masks.xy[i][:, 1] / h).round(decimals)
+                if not as_numpy:
+                    x_seg = x_seg.astype(float).tolist()
+                    y_seg = y_seg.astype(float).tolist()
+                result["segments"] = {"x": x_seg, "y": y_seg}
             if self.keypoints is not None:
                 kpt = self.keypoints[i]
                 if kpt.has_visible:
                     x, y, visible = kpt.data[0].cpu().unbind(dim=1)
                 else:
                     x, y = kpt.data[0].cpu().unbind(dim=1)
-                result["keypoints"] = {
-                    "x": (x / w).double().round(decimals=decimals).tolist(),
-                    "y": (y / h).double().round(decimals=decimals).tolist(),
-                }
+                x_kpt = (x / w).round(decimals=decimals)
+                y_kpt = (y / h).round(decimals=decimals)
+                if not as_numpy:
+                    x_kpt = x_kpt.double().tolist()
+                    y_kpt = y_kpt.double().tolist()
+                else:
+                    x_kpt = x_kpt.numpy()
+                    y_kpt = y_kpt.numpy()
+                result["keypoints"] = {"x": x_kpt, "y": y_kpt}
                 if kpt.has_visible:
-                    result["keypoints"]["visible"] = visible.double().round(decimals=decimals).tolist()
+                    vis = visible.round(decimals=decimals)
+                    result["keypoints"]["visible"] = vis.numpy() if as_numpy else vis.double().tolist()
             results.append(result)
 
         return results
