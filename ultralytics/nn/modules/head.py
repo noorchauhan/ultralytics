@@ -1940,6 +1940,8 @@ class ADMBHead(nn.Module):
 
         if self.anomaly_mode:
             p = scores_hw[mask].clamp(1e-6, 1 - 1e-6)
+            # Convert anomaly probability p in (0,1) to logit space so sigmoid(logits)=p.
+            # Cancel out the follow-up sigmoid operation, so the final output is the anomaly score.
             logits = torch.log(p / (1 - p))
             cls_scores = logits.view(1, 1, -1).expand(B, 1, -1)                      # [B, 1, k]
         else:
