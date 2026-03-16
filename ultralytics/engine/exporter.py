@@ -60,7 +60,6 @@ TensorFlow.js:
     $ npm start
 """
 
-import os
 import re
 import subprocess
 import time
@@ -112,9 +111,7 @@ from ultralytics.utils.checks import (
 from ultralytics.utils.export import (
     keras2pb,
     onnx2engine,
-    onnx2saved_model,
     pb2tfjs,
-    tflite2edgetpu,
     torch2executorch,
     torch2imx,
 )
@@ -930,7 +927,6 @@ class Exporter:
 
 
 # Re-export IOSDetectModel for backward compatibility
-from ultralytics.utils.export.coreml import IOSDetectModel  # noqa: E402
 
 
 class NMSModel(torch.nn.Module):

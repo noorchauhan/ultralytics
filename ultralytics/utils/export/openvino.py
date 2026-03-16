@@ -41,7 +41,7 @@ def torch2openvino(
     Returns:
         (str): Path to the exported ``_openvino_model`` or ``_int8_openvino_model`` directory.
     """
-    from ultralytics.utils.checks import check_requirements, check_version
+    from ultralytics.utils.checks import check_requirements
     from ultralytics.utils.torch_utils import TORCH_2_1, TORCH_2_3
 
     check_requirements("openvino>=2025.2.0" if _is_macos_154() else "openvino>=2024.0.0")

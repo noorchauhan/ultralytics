@@ -5,9 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import torch
-
-from ultralytics.utils import LOGGER, YAML
+from ultralytics.utils import LOGGER
 
 
 def onnx2mnn(

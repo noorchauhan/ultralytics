@@ -7,7 +7,6 @@ import shutil
 import subprocess
 from functools import partial
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import torch
@@ -272,12 +271,12 @@ def torch2saved_model(
     """
     cuda = torch.cuda.is_available()
     try:
-        import tensorflow as tf  # noqa: F401
+        import tensorflow as tf
     except ImportError:
         from ultralytics.utils.checks import check_requirements
 
         check_requirements("tensorflow>=2.0.0,<=2.19.0")
-        import tensorflow as tf  # noqa: F401
+        import tensorflow as tf
 
     from ultralytics.utils.checks import check_requirements, check_version
 

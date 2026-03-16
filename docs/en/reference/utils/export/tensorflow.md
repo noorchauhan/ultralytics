@@ -41,4 +41,20 @@ keywords: Ultralytics, TensorFlow, SavedModel, Protocol Buffer, TensorFlow Lite,
 
 ## ::: ultralytics.utils.export.tensorflow.gd_outputs
 
+<br><br><hr><br>
+
+## ::: ultralytics.utils.export.tensorflow.add_tflite_metadata
+
+<br><br><hr><br>
+
+## ::: ultralytics.utils.export.tensorflow.torch2saved_model
+
+<br><br><hr><br>
+
+## ::: ultralytics.utils.export.tensorflow.export_edgetpu_model
+
+<br><br><hr><br>
+
+## ::: ultralytics.utils.export.tensorflow._is_macos
+
 <br><br>

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ultralytics.utils import LOGGER, YAML
+from ultralytics.utils import YAML
 
 
 def torch2axelera(
@@ -34,7 +34,7 @@ def torch2axelera(
 
     os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
     try:
-        from axelera import compiler  # noqa: F401
+        from axelera import compiler
     except ImportError:
         from ultralytics.utils.checks import check_apt_requirements, check_requirements
 

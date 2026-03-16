@@ -11,15 +11,23 @@ from .onnx import best_onnx_opset, export_onnx_model
 from .openvino import torch2openvino
 from .paddle import torch2paddle
 from .rknn import onnx2rknn
-from .tensorflow import add_tflite_metadata, export_edgetpu_model, keras2pb, onnx2saved_model, pb2tfjs, tflite2edgetpu, torch2saved_model
+from .tensorflow import (
+    add_tflite_metadata,
+    export_edgetpu_model,
+    keras2pb,
+    onnx2saved_model,
+    pb2tfjs,
+    tflite2edgetpu,
+    torch2saved_model,
+)
 from .torchscript import torch2torchscript
 
 __all__ = [
+    "IOSDetectModel",
     "add_tflite_metadata",
     "best_onnx_opset",
     "export_edgetpu_model",
     "export_onnx_model",
-    "IOSDetectModel",
     "keras2pb",
     "onnx2engine",
     "onnx2mnn",
