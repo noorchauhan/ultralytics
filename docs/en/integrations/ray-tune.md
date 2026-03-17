@@ -67,6 +67,7 @@ The `tune()` method in YOLO26 provides an easy-to-use interface for hyperparamet
 | `grace_period`  | `int, optional`  | The grace period in [epochs](https://www.ultralytics.com/glossary/epoch) for the [ASHA scheduler](https://docs.ray.io/en/latest/tune/api/schedulers.html) in Ray Tune. The scheduler will not terminate any trial before this number of epochs, allowing the model to have some minimum training before making a decision on early stopping. | 10            |
 | `gpu_per_trial` | `int, optional`  | The number of GPUs to allocate per trial during tuning. This helps manage GPU usage, particularly in multi-GPU environments. If not provided, the tuner will use all available GPUs.                                                                                                                                                         | `None`        |
 | `iterations`    | `int, optional`  | The maximum number of trials to run during tuning. This parameter helps control the total number of hyperparameter combinations tested, ensuring the tuning process does not run indefinitely.                                                                                                                                               | 10            |
+| `search_alg`    | `str or Searcher, optional` | Ray Tune search strategy to use. You can pass a Ray searcher object directly, or use a supported string such as `optuna`, `hyperopt`, `bayesopt`, `bohb`, `hebo`, `nevergrad`, `zoopt`, `ax`, or `random`. String-based searchers automatically use the default task metric and `mode="max"`. If not provided, Ray Tune falls back to its default random search strategy, `BasicVariantGenerator`. | `None`        |
 | `**train_args`  | `dict, optional` | Additional arguments to pass to the `train()` method during tuning. These arguments can include settings like the number of training epochs, [batch size](https://www.ultralytics.com/glossary/batch-size), and other training-specific configurations.                                                                                      | {}            |
 
 By customizing these parameters, you can fine-tune the hyperparameter optimization process to suit your specific needs and available computational resources.
@@ -124,6 +125,51 @@ In this example, we demonstrate how to use a custom search space for hyperparame
     ```
 
 In the code snippet above, we create a YOLO model with the "yolo26n.pt" pretrained weights. Then, we call the `tune()` method, specifying the dataset configuration with "coco8.yaml". We provide a custom search space for the initial learning rate `lr0` using a dictionary with the key "lr0" and the value `tune.uniform(1e-5, 1e-1)`. Finally, we pass additional training arguments, such as the number of epochs directly to the tune method as `epochs=50`.
+
+## Search Algorithm Example
+
+You can select a Ray Tune search strategy by name. For string-based search algorithms, Ultralytics will automatically use the current task's default optimization metric and `mode="max"`. If `search_alg` is not provided, Ray Tune uses its default random search strategy, `BasicVariantGenerator`.
+
+!!! example "Using string `search_alg` with `model.tune()`"
+
+    ```python
+    from ultralytics import YOLO
+
+    # Define a YOLO model
+    model = YOLO("yolo26n.pt")
+
+    result_grid = model.tune(
+        data="coco8.yaml",
+        epochs=50,
+        search_alg="optuna",
+        use_ray=True,
+    )
+    ```
+
+If you need to customize the searcher's sampler or override its metric and optimization mode, pass an instantiated Ray Tune searcher object instead of a string.
+
+!!! example "Using `OptunaSearch` object with `model.tune()`"
+
+    ```python
+    from ultralytics import YOLO
+    from ray.tune.search.optuna import OptunaSearch
+
+    # Define a YOLO model
+    model = YOLO("yolo26n.pt")
+
+    # Define a searcher
+    searcher = OptunaSearch(
+        metric="metrics/mAP50-95(B)",
+        mode="max",
+    )
+
+    result_grid = model.tune(
+        data="coco8.yaml",
+        epochs=50,
+        search_alg=searcher,
+        use_ray=True,
+    )
+    ```
 
 ## Resuming An Interrupted Hyperparameter Tuning Session With Ray Tune
 

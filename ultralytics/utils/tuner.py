@@ -6,12 +6,56 @@ from ultralytics.cfg import TASK2DATA, TASK2METRIC, get_cfg, get_save_dir
 from ultralytics.utils import DEFAULT_CFG, DEFAULT_CFG_DICT, LOGGER, NUM_THREADS, checks, colorstr
 
 
+RAY_SEARCH_ALG_REQUIREMENTS = {
+    "random": None,
+    "ax": "ax-platform",
+    "bayesopt": "bayesian-optimization",
+    "bohb": ["hpbandster", "ConfigSpace"],
+    "hebo": "HEBO>=0.2.0",
+    "hyperopt": "hyperopt",
+    "nevergrad": "nevergrad",
+    "optuna": "optuna",
+    "zoopt": "zoopt",
+}
+
+
+def _resolve_ray_search_alg(search_alg, task):
+    """Resolve string search algorithm aliases into Ray Tune searcher objects."""
+    if search_alg is None or not isinstance(search_alg, str):
+        return search_alg
+
+    normalized = search_alg.strip().lower()
+    if not normalized:
+        return None
+
+    if normalized not in RAY_SEARCH_ALG_REQUIREMENTS:
+        supported = ", ".join(sorted(RAY_SEARCH_ALG_REQUIREMENTS))
+        raise ValueError(f"Unsupported Ray Tune search_alg '{search_alg}'. Supported values: {supported}.")
+
+    if normalized == "random":
+        return None
+
+    try:
+        requirements = RAY_SEARCH_ALG_REQUIREMENTS[normalized]
+        if requirements:
+            checks.check_requirements(requirements)
+
+        from ray.tune.search import create_searcher
+
+        return create_searcher(normalized, metric=TASK2METRIC[task], mode="max")
+    except (ImportError, ModuleNotFoundError) as e:
+        raise ModuleNotFoundError(
+            f"Ray Tune search_alg '{search_alg}' requires additional dependencies. Original error: {e}"
+        ) from e
+
+
 def run_ray_tune(
     model,
     space: dict | None = None,
     grace_period: int = 10,
     gpu_per_trial: int | None = None,
     max_samples: int = 10,
+    search_alg=None,
     **train_args,
 ):
     """Run hyperparameter tuning using Ray Tune.
@@ -22,6 +66,8 @@ def run_ray_tune(
         grace_period (int, optional): The grace period in epochs of the ASHA scheduler.
         gpu_per_trial (int, optional): The number of GPUs to allocate per trial.
         max_samples (int, optional): The maximum number of trials to run.
+        search_alg (str | ray.tune.search.Searcher | ray.tune.search.SearchAlgorithm, optional): Search algorithm
+            to use. Strings are resolved to supported Ray Tune searchers, while objects are passed through as-is.
         **train_args (Any): Additional arguments to pass to the `train()` method.
 
     Returns:
@@ -82,6 +128,7 @@ def run_ray_tune(
 
     # Put the model in ray store
     task = model.task
+    resolved_search_alg = _resolve_ray_search_alg(search_alg, task)
     model_in_store = ray.put(model)
     base_name = train_args.get("name", "tune")
 
@@ -145,6 +192,7 @@ def run_ray_tune(
             trainable_with_resources,
             param_space=space,
             tune_config=tune.TuneConfig(
+                search_alg=resolved_search_alg,
                 scheduler=asha_scheduler,
                 num_samples=max_samples,
                 trial_name_creator=lambda trial: f"{trial.trainable_name}_{trial.trial_id}",
