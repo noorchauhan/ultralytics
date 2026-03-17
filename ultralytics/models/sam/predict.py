@@ -462,8 +462,7 @@ class Predictor(BasePredictor):
         self.std = torch.tensor([58.395, 57.12, 57.375]).view(-1, 1, 1).to(device)
 
         # Ultralytics compatibility settings
-        self.model.pt = False
-        self.model.triton = False
+        self.model.format = "sam"
         self.model.stride = 32
         self.model.fp16 = self.args.half
         self.done_warmup = True

@@ -172,9 +172,10 @@ class BaseValidator:
             )
             self.device = model.device  # update device
             self.args.half = model.fp16  # update half
-            stride, pt, jit = model.stride, model.pt, model.jit
+            stride, fmt = model.stride, model.format
+            pt = fmt == "pt"
             imgsz = check_imgsz(self.args.imgsz, stride=stride)
-            if not (pt or jit or getattr(model, "dynamic", False)):
+            if fmt not in {"pt", "torchscript"} and not getattr(model, "dynamic", False):
                 self.args.batch = model.metadata.get("batch", 1)  # export.py models default to batch-size 1
                 LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz}, {imgsz})")
 
@@ -187,7 +188,7 @@ class BaseValidator:
 
             if self.device.type in {"cpu", "mps"}:
                 self.args.workers = 0  # faster CPU val as time dominated by inference, not dataloading
-            if not (pt or (getattr(model, "dynamic", False) and not model.imx)):
+            if not (pt or (getattr(model, "dynamic", False) and fmt != "imx")):
                 self.args.rect = False
             self.stride = model.stride  # used in get_dataloader() for padding
             self.dataloader = self.dataloader or self.get_dataloader(self.data.get(self.args.split), self.args.batch)
