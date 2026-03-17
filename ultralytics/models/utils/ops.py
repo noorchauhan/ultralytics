@@ -147,8 +147,8 @@ class HungarianMatcher(nn.Module):
             else:
                 cost_class = -pred_scores
 
-            # Compute L1 cost between boxes
-            cost_bbox = torch.cdist(pred_bboxes, gt_bboxes, p=1)  # (bs*num_queries, num_gt)
+            # Compute L1 cost between boxes (cdist requires float32 on CUDA)
+            cost_bbox = torch.cdist(pred_bboxes.float(), gt_bboxes.float(), p=1)  # (bs*num_queries, num_gt)
 
             # Compute GIoU cost between boxes, (bs*num_queries, num_gt)
             cost_giou = 1.0 - pairwise_giou(pred_xyxy, gt_xyxy)
