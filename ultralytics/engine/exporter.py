@@ -60,13 +60,8 @@ TensorFlow.js:
     $ npm start
 """
 
-<<<<<<< refactor-exporter
-=======
 from __future__ import annotations
 
-import json
-import os
->>>>>>> main
 import re
 import subprocess
 import time
