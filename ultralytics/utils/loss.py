@@ -89,26 +89,26 @@ class FocalLoss(nn.Module):
 class MALoss(nn.Module):
     """Matcher-Aware Loss (MALoss) for classification in DETR-based detection models.
 
-    Computes a quality-aware binary cross-entropy loss designed for Hungarian-matched queries. Positive
-    queries use IoU-weighted soft targets (IoU^gamma) instead of hard 1.0 labels, making the loss
-    sensitive to prediction quality. Negative queries are weighted by their predicted confidence raised
-    to gamma, penalizing high-confidence wrong predictions similarly to focal loss.
+    Computes a quality-aware binary cross-entropy loss designed for Hungarian-matched queries. Positive queries use
+    IoU-weighted soft targets (IoU^gamma) instead of hard 1.0 labels, making the loss sensitive to prediction quality.
+    Negative queries are weighted by their predicted confidence raised to gamma, penalizing high-confidence wrong
+    predictions similarly to focal loss.
 
     Attributes:
         gamma (float): Focusing exponent applied to both soft targets (IoU^gamma) and negative weights
             (pred_prob^gamma). Higher values increase focus on hard examples.
-        alpha (float | None): Optional scaling factor for negative query weights. When provided,
-            negative weights become alpha * pred_prob^gamma. When None, alpha scaling is omitted.
+        alpha (float | None): Optional scaling factor for negative query weights. When provided, negative weights become
+            alpha * pred_prob^gamma. When None, alpha scaling is omitted.
     """
 
     def __init__(self, gamma: float = 2.0, alpha: float | None = None):
         """Initialize MALoss with focusing and balancing parameters.
 
         Args:
-            gamma (float): Focusing exponent for soft target sharpening and negative weighting.
-                Higher values put more emphasis on hard-to-classify examples. Defaults to 2.0.
-            alpha (float | None): Optional scaling factor applied to negative query weights. When None,
-                no alpha scaling is applied to negatives. Defaults to None.
+            gamma (float): Focusing exponent for soft target sharpening and negative weighting. Higher values put more
+                emphasis on hard-to-classify examples. Defaults to 2.0.
+            alpha (float | None): Optional scaling factor applied to negative query weights. When None, no alpha scaling
+                is applied to negatives. Defaults to None.
         """
         super().__init__()
         self.gamma = gamma
@@ -122,12 +122,12 @@ class MALoss(nn.Module):
         pred_prob^gamma if alpha is None).
 
         Args:
-            pred_score (torch.Tensor): Raw class logits with shape (B, N, C), where B is batch size,
-                N is number of queries, and C is number of classes.
-            gt_score (torch.Tensor): IoU-weighted soft targets with shape (B, N, C). Non-zero only
-                for matched queries at the ground truth class position.
-            label (torch.Tensor): One-hot class encodings with shape (B, N, C) and dtype int64.
-                Used to separate positive (label=1) and negative (label=0) query weighting.
+            pred_score (torch.Tensor): Raw class logits with shape (B, N, C), where B is batch size, N is number of
+                queries, and C is number of classes.
+            gt_score (torch.Tensor): IoU-weighted soft targets with shape (B, N, C). Non-zero only for matched queries
+                at the ground truth class position.
+            label (torch.Tensor): One-hot class encodings with shape (B, N, C) and dtype int64. Used to separate
+                positive (label=1) and negative (label=0) query weighting.
 
         Returns:
             (torch.Tensor): Scalar loss value averaged over queries and summed over the batch.
