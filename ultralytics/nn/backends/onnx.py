@@ -111,8 +111,8 @@ class ONNXBackend(BaseBackend):
         """Run ONNX inference using IO binding (CUDA) or standard session execution.
 
         Args:
-            im (torch.Tensor | dict): Input image tensor in BCHW format, normalized to [0, 1],
-                or a dictionary mapping input names to tensors/arrays for multi-input models.
+            im (torch.Tensor | dict): Input image tensor in BCHW format, normalized to [0, 1], or a dictionary mapping
+                input names to tensors/arrays for multi-input models.
 
         Returns:
             (torch.Tensor | list[torch.Tensor] | np.ndarray): Model predictions as tensor(s) or numpy array(s).
