@@ -86,6 +86,7 @@ class HungarianMatcher(nn.Module):
         self.iou_order_alpha = iou_order_alpha
         self.matcher_change_epoch = matcher_change_epoch
 
+    @torch.no_grad()
     def forward(
         self,
         pred_bboxes: torch.Tensor,
@@ -147,7 +148,7 @@ class HungarianMatcher(nn.Module):
                 cost_class = -pred_scores
 
             # Compute L1 cost between boxes
-            cost_bbox = (pred_bboxes.unsqueeze(1) - gt_bboxes.unsqueeze(0)).abs().sum(-1)  # (bs*num_queries, num_gt)
+            cost_bbox = torch.cdist(pred_bboxes, gt_bboxes, p=1)  # (bs*num_queries, num_gt)
 
             # Compute GIoU cost between boxes, (bs*num_queries, num_gt)
             cost_giou = 1.0 - pairwise_giou(pred_xyxy, gt_xyxy)
