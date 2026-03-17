@@ -18,7 +18,7 @@ The `Profile` tab contains your profile information, social links, API keys, dat
 
 Update your profile information:
 
-<!-- Screenshot: settings-profile-tab-display-name-bio-company-fields.avif -->
+![Ultralytics Platform Settings Profile Tab Display Name Bio Company Fields](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/platform/settings-profile-tab-display-name-bio-company-fields.avif)
 
 | Field            | Description                               |
 | ---------------- | ----------------------------------------- |
@@ -31,7 +31,7 @@ Update your profile information:
 
 #### Username Rules
 
-- 3-30 characters
+- 4-32 characters
 - Lowercase letters, numbers, hyphens
 - Cannot start/end with hyphen
 - Must be unique
@@ -63,19 +63,37 @@ Update your profile information:
 
 Connect your professional profiles:
 
-<!-- Screenshot: settings-profile-tab-social-links-grid.avif -->
+![Ultralytics Platform Settings Profile Tab Social Links Grid](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/platform/settings-profile-tab-social-links-grid.avif)
 
-| Platform           | Format               |
-| ------------------ | -------------------- |
-| **GitHub**         | username             |
-| **LinkedIn**       | profile-slug         |
-| **X (Twitter)**    | username             |
-| **YouTube**        | channel-handle       |
-| **Google Scholar** | user-id              |
-| **Discord**        | username             |
-| **Website**        | https://yoursite.com |
+| Platform           | Format         |
+| ------------------ | -------------- |
+| **GitHub**         | username       |
+| **LinkedIn**       | profile-slug   |
+| **X (Twitter)**    | username       |
+| **YouTube**        | channel-handle |
+| **Bilibili**       | user-id        |
+| **Google Scholar** | user-id        |
+| **Discord**        | username       |
+| **WeChat**         | username       |
 
 Social links appear on your public profile page.
+
+### Emails
+
+Manage email addresses linked to your account in the `Profile` tab:
+
+<!-- Screenshot: settings-profile-tab-emails-section.avif -->
+
+| Action             | Description                                    |
+| ------------------ | ---------------------------------------------- |
+| **Add Email**      | Add a new email address to your account        |
+| **Remove**         | Remove a non-primary email address             |
+| **Verify**         | Send a verification email to confirm ownership |
+| **Set as Primary** | Set a verified email as your primary address   |
+
+!!! note "Primary Email"
+
+    Your primary email is used for notifications and account recovery. Only verified emails can be set as primary.
 
 ### API Keys
 
@@ -85,11 +103,11 @@ API keys are managed directly on the `Profile` tab. See [API Keys](api-keys.md) 
 
 View your data region on the `Profile` tab:
 
-| Region | Location     | Best For                        |
-| ------ | ------------ | ------------------------------- |
-| **US** | US Central   | Americas users                  |
-| **EU** | EU West      | European users, GDPR compliance |
-| **AP** | Asia Pacific | Asia-Pacific users              |
+| Region | Location      | Best For                        |
+| ------ | ------------- | ------------------------------- |
+| **US** | United States | Americas users                  |
+| **EU** | Europe        | European users, GDPR compliance |
+| **AP** | Asia Pacific  | Asia-Pacific users              |
 
 !!! note "Region is Permanent"
 
@@ -97,38 +115,62 @@ View your data region on the `Profile` tab:
 
 ### Storage Usage
 
-Monitor your storage consumption on the `Profile` tab:
+Monitor your storage consumption on the `Profile` tab and the **Home** page:
 
-<!-- Screenshot: settings-profile-tab-storage-usage-card.avif -->
+![Ultralytics Platform Settings Profile Tab Storage Usage Card](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/platform/settings-profile-tab-storage-usage-card.avif)
 
-| Type         | Description             |
-| ------------ | ----------------------- |
-| **Datasets** | Image and label storage |
-| **Models**   | Checkpoint storage      |
-| **Exports**  | Exported model formats  |
+The storage card shows:
+
+- **Overall progress bar** with color-coded status (green under 70%, amber 70-89%, red 90%+)
+- **Category breakdown** for datasets, models, and exports
+- **Resource counts** for projects, datasets, models, images, and deployments
+- **Largest items** to help identify what consumes the most space
+
+| Category     | Description                                           |
+| ------------ | ----------------------------------------------------- |
+| **Datasets** | Uploaded images, videos, labels, and annotation files |
+| **Models**   | Trained model checkpoints (`.pt` files)               |
+| **Exports**  | Exported model formats (ONNX, TensorRT, CoreML, etc)  |
+
+!!! tip "Recalculate Storage"
+
+    To refresh your storage values, click the **Recalculate** button on the storage card.
 
 #### Storage Limits
 
-| Plan       | Limit     |
-| ---------- | --------- |
-| Free       | 100 GB    |
-| Pro        | 500 GB    |
-| Enterprise | Unlimited |
+| Plan           | Storage   | Models    | Deployments |
+| -------------- | --------- | --------- | ----------- |
+| **Free**       | 100 GB    | 100       | 3           |
+| **Pro**        | 500 GB    | 500       | 10          |
+| **Enterprise** | Unlimited | Unlimited | Unlimited   |
+
+#### Upload Size Limits
+
+| File Type       | Max Size |
+| --------------- | -------- |
+| **Image**       | 50 MB    |
+| **Video**       | 1 GB     |
+| **Model (.pt)** | 1 GB     |
+| **ZIP Archive** | 10 GB    |
+
+#### Trash and Storage
+
+Items in the trash still count toward your storage quota. To free up space, permanently delete items from the trash. Trash items are automatically removed after 30 days. See [Trash](trash.md) for details.
 
 #### Reduce Storage
 
 To free up storage:
 
-1. Delete unused datasets
+1. Delete unused datasets or remove unnecessary images
 2. Remove old model checkpoints
-3. Delete exported formats
-4. Empty trash (`Settings > Trash`)
+3. Delete exported model formats you no longer need
+4. Empty trash in [**Settings > Trash**](trash.md)
 
 ### Security
 
 The `Profile` tab includes a Security card at the bottom:
 
-- **Two-Factor Authentication**: Coming soon. Currently handled by your OAuth provider (Google, Apple, GitHub)
+- **Two-Factor Authentication**: Coming soon. Currently handled by your OAuth provider (Google, GitHub)
 - **Connected Accounts**: Shows your linked OAuth provider (e.g., Google)
 
 ### GDPR Compliance
@@ -167,12 +209,11 @@ Permanently delete your account:
 
 ##### What's Deleted
 
-- Profile and settings
+- All projects and trained models
 - All datasets and images
-- All models and checkpoints
-- All deployments
-- API keys
-- Billing history
+- All API keys and credentials
+- All activity history
+- Credit balance
 
 ##### What's Retained
 
@@ -190,45 +231,13 @@ Manage credits, payment methods, and view transaction history. See [Billing](bil
 
 ## Teams Tab
 
-Manage workspace members, roles, and invitations. Teams are available on Pro and Enterprise plans.
-
-### Team Overview
-
-The Teams tab displays:
-
-- Workspace name and avatar
-- Seat usage summary (used / available)
-- Member list with roles
-- Pending invitations
-
-### Member Roles
-
-| Role       | Permissions                                               |
-| ---------- | --------------------------------------------------------- |
-| **Owner**  | Full control, transfer ownership, delete workspace        |
-| **Admin**  | Manage members, billing, settings, content                |
-| **Editor** | Create and manage projects, datasets, models, API keys    |
-| **Viewer** | Read-only access to workspace resources (Enterprise only) |
-
-!!! note "Role Availability"
-
-    Owner, Admin, and Editor roles are available on Pro plans. The Viewer role and custom roles with granular permissions are Enterprise features.
-
-### Invite Members
-
-1. Go to **Settings > Teams**
-2. Click **Invite Member**
-3. Enter email address
-4. Select role
-5. Send invitation
-
-The invitee receives an email and can accept the invitation to join the workspace.
+Manage workspace members, roles, and invitations. Teams are available on [Pro and Enterprise plans](billing.md#plans). See [Teams](teams.md) for full documentation on team creation, roles, shared resources, and enterprise features.
 
 ### Manage Members
 
-Admins and owners can:
+Owners and admins can manage the team:
 
-- **Change roles**: Click the role dropdown next to a member
+- **Change roles**: Click the role dropdown next to a member (only the owner can assign/remove the admin role)
 - **Remove members**: Click the menu and select **Remove**
 - **Cancel invites**: Cancel pending invitations that haven't been accepted
 - **Resend invites**: Resend invitation emails
@@ -242,11 +251,11 @@ Manage deleted items. See [Trash](trash.md) for full documentation.
 
 ### How do I change my email?
 
-Email is managed through your OAuth provider:
+Manage your email addresses directly on the platform:
 
-1. Update email in Google/Apple/GitHub
-2. Sign out and sign in again
-3. Platform updates automatically
+1. Go to **Settings > Profile**
+2. Scroll to the **Emails** section
+3. Add a new email, verify it, and set it as primary
 
 ### Can I have multiple accounts?
 
@@ -258,10 +267,9 @@ You can create accounts in different regions, but:
 
 ### How do I change my password?
 
-Passwords are managed by your OAuth provider:
+If you signed up with email and password, use the password reset flow on the sign-in page. If you signed up with an OAuth provider, manage your password through that provider:
 
 - **Google**: accounts.google.com
-- **Apple**: appleid.apple.com
 - **GitHub**: github.com/settings/security
 
 ### Is two-factor authentication available?
@@ -269,7 +277,6 @@ Passwords are managed by your OAuth provider:
 2FA is handled by your OAuth provider. Enable 2FA in:
 
 - Google Account settings
-- Apple ID settings
 - GitHub Security settings
 
 ### How long until deleted data is removed?
