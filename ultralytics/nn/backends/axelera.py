@@ -38,7 +38,7 @@ class AxeleraBackend(BaseBackend):
             from axelera.runtime import op
         except ImportError:
             check_requirements(
-                "axelera_runtime2==0.1.2",
+                "axelera-rt==1.6.0rc2",
                 cmds="--extra-index-url https://software.axelera.ai/artifactory/axelera-runtime-pypi",
             )
             from axelera.runtime import op

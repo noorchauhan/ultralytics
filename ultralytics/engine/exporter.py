@@ -397,7 +397,9 @@ class Exporter:
                 self.args.int8 = True
             if not self.args.data:
                 # Axelera default to task-specific lightweight calibration datasets
-                if model.task in {"segment"}:
+                if model.task in {"classify"}:
+                    self.args.data = "imagenet100"
+                elif model.task in {"segment"}:
                     self.args.data = "coco128-seg.yaml"
                 elif model.task in {"pose"}:
                     self.args.data = "coco8-pose.yaml"
@@ -1170,7 +1172,7 @@ class Exporter:
             from axelera import compiler
         except ImportError:
             check_requirements(
-                "axelera-devkit==1.6.0rc1",
+                 "axelera-devkit==1.6.0rc2",
                 cmds="--extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
             )
 
