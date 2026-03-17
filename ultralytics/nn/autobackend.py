@@ -880,7 +880,7 @@ class AutoBackend(nn.Module):
 
         # DeepX
         elif self.deepx:
-            y = self.deepx_engine.run([im.cpu().numpy()])
+            y = self._deepx_inference(im)
         # ExecuTorch
         elif self.pte:
             y = self.model.execute([im])
@@ -952,6 +952,18 @@ class AutoBackend(nn.Module):
             (torch.Tensor): Tensor on `self.device`.
         """
         return torch.tensor(x).to(self.device) if isinstance(x, np.ndarray) else x
+
+    def _deepx_inference(self, im: torch.Tensor) -> np.ndarray | list[np.ndarray]:
+        """Run DeepX inference using the per-image HWC uint8 contract validated against the runtime."""
+        outputs = []
+        for sample in im.cpu().numpy():
+            sample = np.ascontiguousarray(np.clip(np.transpose(sample, (1, 2, 0)) * 255, 0, 255).astype(np.uint8))
+            for i, out in enumerate(map(np.asarray, self.deepx_engine.run([sample]))):
+                if i == len(outputs):
+                    outputs.append([])
+                outputs[i].append(out if out.ndim and out.shape[0] == 1 else out[None])
+        y = [np.concatenate(x, axis=0) for x in outputs]
+        return y[0] if len(y) == 1 else y
 
     def warmup(self, imgsz: tuple[int, int, int, int] = (1, 3, 640, 640)) -> None:
         """Warm up the model by running forward pass(es) with a dummy input.
