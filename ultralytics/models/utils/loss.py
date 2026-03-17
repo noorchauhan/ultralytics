@@ -153,7 +153,7 @@ class DETRLoss(nn.Module):
                 loss_cls = self.fl(pred_scores, one_hot.float())
             loss_cls /= max(global_num_gts, 1) / nq
         else:
-            loss_cls = nn.BCEWithLogitsLoss(reduction="none")(pred_scores, gt_scores).mean(1).sum()  # YOLO CLS loss
+            loss_cls = F.binary_cross_entropy_with_logits(pred_scores, gt_scores, reduction="none").mean(1).sum()
 
         return {name_class: loss_cls.squeeze() * self.loss_gain["class"]}
 

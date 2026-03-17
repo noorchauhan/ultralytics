@@ -70,6 +70,7 @@ class DfineLoss(nn.Module):
         self.vfl = VarifocalLoss(gamma, alpha) if use_vfl else None
         self.mal = MALoss(gamma, alpha) if use_mal else None
 
+        self.kl_loss = nn.KLDivLoss(reduction="none")
         self.fgl_gain = self.loss_gain.get("fgl", 0.0)
         self.ddf_gain = self.loss_gain.get("ddf", 0.0)
 
@@ -198,7 +199,7 @@ class DfineLoss(nn.Module):
                 loss_cls = self.fl(pred_scores, one_hot.float())
             loss_cls /= max(global_num_gts, 1.0) / nq
         else:
-            loss_cls = nn.BCEWithLogitsLoss(reduction="none")(pred_scores, gt_scores).mean(1).sum()
+            loss_cls = F.binary_cross_entropy_with_logits(pred_scores, gt_scores, reduction="none").mean(1).sum()
         return {name_class: loss_cls.squeeze() * self.loss_gain["class"]}
 
     def _get_loss_bbox(
@@ -330,7 +331,7 @@ class DfineLoss(nn.Module):
         weight_targets_local[idx] = ious.to(weight_targets_local.dtype)
         weight_targets_local = weight_targets_local.unsqueeze(-1).repeat(1, 1, 4).reshape(-1).detach()
         loss_match_local = weight_targets_local * (self.local_temperature**2) * (
-            nn.KLDivLoss(reduction="none")(
+            self.kl_loss(
                 F.log_softmax(pred_all / self.local_temperature, dim=1),
                 F.softmax(teacher_all.detach() / self.local_temperature, dim=1),
             ).sum(-1)
