@@ -1,5 +1,7 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
+"""Loss functions for DETR-based detection models including RT-DETR with denoising training support."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -9,7 +11,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ultralytics.utils.loss import FocalLoss, VarifocalLoss
+from ultralytics.utils.loss import FocalLoss, MALoss, VarifocalLoss
 from ultralytics.utils.metrics import bbox_iou
 
 from .ops import HungarianMatcher
@@ -18,8 +20,8 @@ from .ops import HungarianMatcher
 def _global_num_gts(num_gts: int, device: torch.device) -> float:
     """Compute the global average number of ground truths across distributed workers.
 
-    In distributed training, this function sums local ground-truth counts across all processes and returns the average
-    per process. It also enforces a minimum of 1.0 to avoid zero-division issues.
+    In distributed training, this function sums local ground-truth counts across all processes and
+    returns the average per process. It also enforces a minimum of 1.0 to avoid zero-division issues.
 
     Args:
         num_gts (int): Number of ground-truth objects on the current process.
@@ -45,13 +47,12 @@ class DETRLoss(nn.Module):
         nc (int): Number of classes.
         loss_gain (dict[str, float]): Coefficients for different loss components.
         aux_loss (bool): Whether to compute auxiliary losses.
-        use_fl (bool): Whether to use FocalLoss.
-        use_vfl (bool): Whether to use VarifocalLoss.
         use_uni_match (bool): Whether to use a fixed layer for auxiliary branch label assignment.
         uni_match_ind (int): Index of fixed layer to use if use_uni_match is True.
         matcher (HungarianMatcher): Object to compute matching cost and indices.
         fl (FocalLoss | None): Focal Loss object if use_fl is True, otherwise None.
         vfl (VarifocalLoss | None): Varifocal Loss object if use_vfl is True, otherwise None.
+        mal (MALoss | None): MALoss object if use_mal is True, otherwise None.
         device (torch.device): Device on which tensors are stored.
     """
 
@@ -62,6 +63,7 @@ class DETRLoss(nn.Module):
         aux_loss: bool = True,
         use_fl: bool = True,
         use_vfl: bool = True,
+        use_mal: bool = False,
         use_uni_match: bool = False,
         uni_match_ind: int = 0,
         gamma: float = 1.5,
@@ -79,6 +81,7 @@ class DETRLoss(nn.Module):
             aux_loss (bool): Whether to use auxiliary losses from each decoder layer.
             use_fl (bool): Whether to use FocalLoss.
             use_vfl (bool): Whether to use VarifocalLoss.
+            use_mal (bool): Whether to use MAL for classification loss.
             use_uni_match (bool): Whether to use fixed layer for auxiliary branch label assignment.
             uni_match_ind (int): Index of fixed layer for uni_match.
             gamma (float): The focusing parameter that controls how much the loss focuses on hard-to-classify examples.
@@ -97,6 +100,7 @@ class DETRLoss(nn.Module):
         self.aux_loss = aux_loss
         self.fl = FocalLoss(gamma, alpha) if use_fl else None
         self.vfl = VarifocalLoss(gamma, alpha) if use_vfl else None
+        self.mal = MALoss(gamma, alpha) if use_mal else None
 
         self.use_uni_match = use_uni_match
         self.uni_match_ind = uni_match_ind
@@ -125,21 +129,24 @@ class DETRLoss(nn.Module):
             (dict[str, torch.Tensor]): Dictionary containing classification loss value.
 
         Notes:
-            The function supports different classification loss types:
-            - Varifocal Loss (if self.vfl is not None and local_num_gts > 0)
-            - Focal Loss (if self.fl is not None)
+            The function supports different classification loss types (in priority order):
+            - MALoss (if self.mal is not None)
+            - Varifocal Loss (if self.fl and self.vfl are set and local_num_gts > 0)
+            - Focal Loss (if self.fl is set but vfl condition is not met)
             - BCE Loss (default fallback)
         """
         # Logits: [b, query, num_classes], gt_class: list[[n, 1]]
         name_class = f"loss_class{postfix}"
         bs, nq = pred_scores.shape[:2]
-        # one_hot = F.one_hot(targets, self.nc + 1)[..., :-1]  # (bs, num_queries, num_classes)
         one_hot = torch.zeros((bs, nq, self.nc + 1), dtype=torch.int64, device=targets.device)
         one_hot.scatter_(2, targets.unsqueeze(-1), 1)
         one_hot = one_hot[..., :-1]
         gt_scores = gt_scores.view(bs, nq, 1) * one_hot
 
-        if self.fl:
+        if self.mal is not None:
+            loss_cls = self.mal(pred_scores, gt_scores, one_hot)
+            loss_cls /= max(global_num_gts, 1) / nq
+        elif self.fl:
             if local_num_gts and self.vfl:
                 loss_cls = self.vfl(pred_scores, gt_scores, one_hot)
             else:
@@ -246,7 +253,7 @@ class DETRLoss(nn.Module):
         Returns:
             (dict[str, torch.Tensor]): Dictionary of auxiliary losses.
         """
-        # NOTE: loss class, bbox, giou, mask, dice
+        # NOTE: loss class, bbox, giou (mask and dice reserved for future segmentation support)
         loss = torch.zeros(5 if masks is not None else 3, device=pred_bboxes.device)
         if match_indices is None and self.use_uni_match:
             match_indices = self.matcher(
@@ -450,7 +457,7 @@ class DETRLoss(nn.Module):
 
 
 class RTDETRDetectionLoss(DETRLoss):
-    """Real-Time DEtection TRansformer (RT-DETR) Detection Loss class that extends the DETRLoss.
+    """Real-Time Detection Transformer (RT-DETR) Detection Loss class that extends the DETRLoss.
 
     This class computes the detection loss for the RT-DETR model, which includes the standard detection loss as well as
     an additional denoising training loss when provided with denoising metadata.
