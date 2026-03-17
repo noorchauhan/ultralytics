@@ -980,7 +980,7 @@ class Metric(SimpleClass):
     def fitness(self) -> float:
         """Return model fitness as a weighted combination of metrics."""
         w = [0.0, 0.0, 0.0, 1.0]  # weights for [P, R, mAP@0.5, mAP@0.5:0.95]
-        return (np.nan_to_num(np.array(self.mean_results())) * w).sum()
+        return float((np.nan_to_num(np.array(self.mean_results())) * w).sum())
 
     def update(self, results: tuple):
         """Update the evaluation metrics with a new set of results.
@@ -1034,7 +1034,6 @@ class DetMetrics(SimpleClass, DataExportMixin):
         names (dict[int, str]): A dictionary of class names.
         box (Metric): An instance of the Metric class for storing detection results.
         speed (dict[str, float]): A dictionary for storing execution times of different parts of the detection process.
-        task (str): The task type, set to 'detect'.
         stats (dict[str, list]): A dictionary containing lists for true positives, confidence scores, predicted classes,
             target classes, and target images.
         nt_per_class: Number of targets per class.
@@ -1065,7 +1064,6 @@ class DetMetrics(SimpleClass, DataExportMixin):
         self.names = names
         self.box = Metric()
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
-        self.task = "detect"
         self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
         self.nt_per_class = None
         self.nt_per_image = None
@@ -1204,7 +1202,6 @@ class SegmentMetrics(DetMetrics):
         box (Metric): An instance of the Metric class for storing detection results.
         seg (Metric): An instance of the Metric class to calculate mask segmentation metrics.
         speed (dict[str, float]): A dictionary for storing execution times of different parts of the detection process.
-        task (str): The task type, set to 'segment'.
         stats (dict[str, list]): A dictionary containing lists for true positives, confidence scores, predicted classes,
             target classes, and target images.
         nt_per_class: Number of targets per class.
@@ -1230,7 +1227,6 @@ class SegmentMetrics(DetMetrics):
         """
         DetMetrics.__init__(self, names)
         self.seg = Metric()
-        self.task = "segment"
         self.stats["tp_m"] = []  # add additional stats for masks
 
     def process(self, save_dir: Path = Path("."), plot: bool = False, on_plot=None) -> dict[str, np.ndarray]:
@@ -1342,7 +1338,6 @@ class PoseMetrics(DetMetrics):
         pose (Metric): An instance of the Metric class to calculate pose metrics.
         box (Metric): An instance of the Metric class for storing detection results.
         speed (dict[str, float]): A dictionary for storing execution times of different parts of the detection process.
-        task (str): The task type, set to 'pose'.
         stats (dict[str, list]): A dictionary containing lists for true positives, confidence scores, predicted classes,
             target classes, and target images.
         nt_per_class: Number of targets per class.
@@ -1368,7 +1363,6 @@ class PoseMetrics(DetMetrics):
         """
         super().__init__(names)
         self.pose = Metric()
-        self.task = "pose"
         self.stats["tp_p"] = []  # add additional stats for pose
 
     def process(self, save_dir: Path = Path("."), plot: bool = False, on_plot=None) -> dict[str, np.ndarray]:
@@ -1482,7 +1476,6 @@ class ClassifyMetrics(SimpleClass, DataExportMixin):
         top1 (float): The top-1 accuracy.
         top5 (float): The top-5 accuracy.
         speed (dict[str, float]): A dictionary containing the time taken for each step in the pipeline.
-        task (str): The task type, set to 'classify'.
 
     Methods:
         process: Process target classes and predicted classes to compute metrics.
@@ -1499,7 +1492,6 @@ class ClassifyMetrics(SimpleClass, DataExportMixin):
         self.top1 = 0
         self.top5 = 0
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
-        self.task = "classify"
 
     def process(self, targets: torch.Tensor, pred: torch.Tensor):
         """Process target classes and predicted classes to compute metrics.
@@ -1563,7 +1555,6 @@ class OBBMetrics(DetMetrics):
         names (dict[int, str]): Dictionary of class names.
         box (Metric): An instance of the Metric class for storing detection results.
         speed (dict[str, float]): A dictionary for storing execution times of different parts of the detection process.
-        task (str): The task type, set to 'obb'.
         stats (dict[str, list]): A dictionary containing lists for true positives, confidence scores, predicted classes,
             target classes, and target images.
         nt_per_class: Number of targets per class.
@@ -1580,5 +1571,3 @@ class OBBMetrics(DetMetrics):
             names (dict[int, str], optional): Dictionary of class names.
         """
         DetMetrics.__init__(self, names)
-        # TODO: probably remove task as well
-        self.task = "obb"
