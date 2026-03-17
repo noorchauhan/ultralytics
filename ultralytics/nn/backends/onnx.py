@@ -105,21 +105,32 @@ class ONNXBackend(BaseBackend):
                     )
                     self.bindings.append(y_tensor)
 
-    def forward(self, im: torch.Tensor) -> torch.Tensor | list[torch.Tensor] | np.ndarray:
+    def forward(
+        self, im: torch.Tensor | dict[str, torch.Tensor | np.ndarray]
+    ) -> torch.Tensor | list[torch.Tensor] | np.ndarray:
         """Run ONNX inference using IO binding (CUDA) or standard session execution.
 
         Args:
-            im (torch.Tensor): Input image tensor in BCHW format, normalized to [0, 1].
+            im (torch.Tensor | dict): Input image tensor in BCHW format, normalized to [0, 1],
+                or a dictionary mapping input names to tensors/arrays for multi-input models.
 
         Returns:
             (torch.Tensor | list[torch.Tensor] | np.ndarray): Model predictions as tensor(s) or numpy array(s).
         """
         if self.format == "dnn":
-            # OpenCV DNN
-            self.net.setInput(im.cpu().numpy())
+            # OpenCV DNN - only supports single input
+            if isinstance(im, dict):
+                im = next(iter(im.values()))
+            self.net.setInput(im.cpu().numpy() if isinstance(im, torch.Tensor) else im)
             return self.net.forward()
 
         # ONNX Runtime
+        if isinstance(im, dict):
+            # Multi-input mode
+            input_dict = {k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v for k, v in im.items()}
+            return self.session.run(self.output_names, input_dict)
+
+        # Single input mode
         if self.use_io_binding:
             if self.device.type == "cpu":
                 im = im.cpu()
