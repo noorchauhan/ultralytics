@@ -13,13 +13,6 @@ def box_xyxy_to_cxcywh(x: Tensor) -> Tensor:
     return torch.stack(b, dim=-1)
 
 
-def box_cxcywh_to_xyxy(x: Tensor) -> Tensor:
-    x_c, y_c, w, h = x.unbind(-1)
-    b = [(x_c - 0.5 * w.clamp(min=0.0)), (y_c - 0.5 * h.clamp(min=0.0)),
-         (x_c + 0.5 * w.clamp(min=0.0)), (y_c + 0.5 * h.clamp(min=0.0))]
-    return torch.stack(b, dim=-1)
-
-
 def weighting_function(reg_max, up, reg_scale, deploy=False):
     """
     Generates the non-uniform Weighting Function W(n) for bounding box regression.

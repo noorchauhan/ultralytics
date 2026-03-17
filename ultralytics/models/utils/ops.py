@@ -8,68 +8,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
-from torchvision.ops.boxes import box_area
 
 from ultralytics.utils.ops import xywh2xyxy, xyxy2xywh
 
-
-def dfine_box_cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
-    """Convert cxcywh boxes to xyxy using DEIMv2's width/height clamp behavior."""
-    x_c, y_c, w, h = boxes.unbind(-1)
-    w = w.clamp(min=0.0)
-    h = h.clamp(min=0.0)
-    return torch.stack((x_c - 0.5 * w, y_c - 0.5 * h, x_c + 0.5 * w, y_c + 0.5 * h), dim=-1)
-
-
-def dfine_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """DEIMv2/DETR-style pairwise IoU returning both IoU and union."""
-    area1 = box_area(boxes1)
-    area2 = box_area(boxes2)
-
-    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])
-    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])
-
-    wh = (rb - lt).clamp(min=0)
-    inter = wh[..., 0] * wh[..., 1]
-    union = area1[:, None] + area2 - inter
-    return inter / union, union
-
-
-def dfine_generalized_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
-    """DEIMv2/DETR-style pairwise GIoU for xyxy boxes."""
-    iou, union = dfine_box_iou(boxes1, boxes2)
-
-    lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
-    rb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
-
-    wh = (rb - lt).clamp(min=0)
-    area = wh[..., 0] * wh[..., 1]
-    return iou - (area - union) / area
-
-
-def dfine_aligned_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
-    """Aligned IoU for matched xyxy box pairs."""
-    inter_lt = torch.max(boxes1[:, :2], boxes2[:, :2])
-    inter_rb = torch.min(boxes1[:, 2:], boxes2[:, 2:])
-    inter_wh = (inter_rb - inter_lt).clamp(min=0)
-    inter = inter_wh[:, 0] * inter_wh[:, 1]
-    union = box_area(boxes1) + box_area(boxes2) - inter
-    return inter / union
-
-
-def dfine_aligned_generalized_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
-    """Aligned GIoU for matched xyxy box pairs."""
-    iou = dfine_aligned_box_iou(boxes1, boxes2)
-    cover_lt = torch.min(boxes1[:, :2], boxes2[:, :2])
-    cover_rb = torch.max(boxes1[:, 2:], boxes2[:, 2:])
-    cover_wh = (cover_rb - cover_lt).clamp(min=0)
-    cover_area = cover_wh[:, 0] * cover_wh[:, 1]
-    inter_lt = torch.max(boxes1[:, :2], boxes2[:, :2])
-    inter_rb = torch.min(boxes1[:, 2:], boxes2[:, 2:])
-    inter_wh = (inter_rb - inter_lt).clamp(min=0)
-    inter = inter_wh[:, 0] * inter_wh[:, 1]
-    union = box_area(boxes1) + box_area(boxes2) - inter
-    return iou - (cover_area - union) / cover_area
+from .box_ops import box_cxcywh_to_xyxy, pairwise_box_iou, pairwise_giou
 
 
 class HungarianMatcher(nn.Module):
@@ -186,13 +128,13 @@ class HungarianMatcher(nn.Module):
         pred_scores = pred_scores.detach().view(-1, nc)
         pred_scores = F.sigmoid(pred_scores) if self.use_fl else F.softmax(pred_scores, dim=-1)
         pred_bboxes = pred_bboxes.detach().view(-1, 4)
-        pred_xyxy = dfine_box_cxcywh_to_xyxy(pred_bboxes)
-        gt_xyxy = dfine_box_cxcywh_to_xyxy(gt_bboxes)
+        pred_xyxy = box_cxcywh_to_xyxy(pred_bboxes)
+        gt_xyxy = box_cxcywh_to_xyxy(gt_bboxes)
 
         # DEIMv2-style dynamic matcher switch (late-epoch class*IoU ordering).
         if self.change_matcher and epoch >= self.matcher_change_epoch:
             class_score = pred_scores[:, gt_cls]
-            iou_score = dfine_box_iou(pred_xyxy, gt_xyxy)[0]
+            iou_score = pairwise_box_iou(pred_xyxy, gt_xyxy)[0]
             C = -(class_score * torch.pow(iou_score, self.iou_order_alpha))
         else:
             # Compute classification cost
@@ -207,8 +149,8 @@ class HungarianMatcher(nn.Module):
             # Compute L1 cost between boxes
             cost_bbox = (pred_bboxes.unsqueeze(1) - gt_bboxes.unsqueeze(0)).abs().sum(-1)  # (bs*num_queries, num_gt)
 
-            # Compute GIoU cost between boxes, (bs*num_queries, num_gt), using DEIMv2-style box ops.
-            cost_giou = 1.0 - dfine_generalized_box_iou(pred_xyxy, gt_xyxy)
+            # Compute GIoU cost between boxes, (bs*num_queries, num_gt)
+            cost_giou = 1.0 - pairwise_giou(pred_xyxy, gt_xyxy)
 
             # Combine costs into final cost matrix
             C = (
