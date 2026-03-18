@@ -6,11 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from tqdm import tqdm
-
 from ultralytics.models.yolo.classify.train import ClassificationTrainer
 from ultralytics.nn.tasks import TextClassificationModel
-from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
+from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK, TQDM
 
 
 class TextClassificationTrainer(ClassificationTrainer):
@@ -160,7 +158,7 @@ class TextClassificationTrainer(ClassificationTrainer):
         embed_dim = probe.shape[-1]
         embeds = torch.zeros(n, embed_dim)
         batch_size = 64
-        for i in tqdm(range(0, n, batch_size), desc="Teacher embeddings"):
+        for i in TQDM(range(0, n, batch_size), desc="Teacher embeddings"):
             end = min(i + batch_size, n)
             batch_pil = [Image.open(dataset.samples[j][0]).convert("RGB") for j in range(i, end)]
             batch_tensors = torch.stack([teacher.image_preprocess(img) for img in batch_pil])
