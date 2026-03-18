@@ -763,7 +763,11 @@ class TextClassificationModel(ClassificationModel):
             (tuple): Tuple of (loss, detached_loss) from the active loss criterion.
         """
         if not self.training:
-            return super().loss(batch, preds)
+            if preds is None:
+                preds = self.forward(batch["img"])
+            if getattr(self, "val_criterion", None) is None:
+                self.val_criterion = v8ClassificationLoss()
+            return self.val_criterion(preds, batch)
 
         if getattr(self, "criterion", None) is None:
             self.criterion = self.init_criterion()
