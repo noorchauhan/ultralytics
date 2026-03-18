@@ -185,7 +185,7 @@ class TextClassificationTrainer(ClassificationTrainer):
             (dict[str, torch.Tensor]): Batch with added 'txt_feats' and optionally 'teacher_img_embeds'.
         """
         batch = super().preprocess_batch(batch)
-        batch["txt_feats"] = self.text_embeddings
+        batch["txt_feats"] = self.text_embeddings.to(device=batch["img"].device, dtype=batch["img"].dtype)
         if self.teacher_img_embeds is not None and "idx" in batch:
             batch["teacher_img_embeds"] = self.teacher_img_embeds[batch["idx"]].to(
                 self.device, non_blocking=self.device.type == "cuda"
@@ -205,9 +205,9 @@ class TextClassificationTrainer(ClassificationTrainer):
             """Validator that attaches text embeddings to batches for text-aligned loss computation."""
 
             def preprocess(self, batch):
-                """Preprocess batch and attach text embeddings."""
+                """Preprocess batch and attach text embeddings matching image dtype."""
                 batch = super().preprocess(batch)
-                batch["txt_feats"] = text_embeddings
+                batch["txt_feats"] = text_embeddings.to(device=batch["img"].device, dtype=batch["img"].dtype)
                 return batch
 
         return TextClassificationValidator(
