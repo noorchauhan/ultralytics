@@ -750,6 +750,7 @@ nav:
               - base: reference/nn/backends/base.md
               - coreml: reference/nn/backends/coreml.md
               - executorch: reference/nn/backends/executorch.md
+              - litert: reference/nn/backends/litert.md
               - mnn: reference/nn/backends/mnn.md
               - ncnn: reference/nn/backends/ncnn.md
               - onnx: reference/nn/backends/onnx.md
