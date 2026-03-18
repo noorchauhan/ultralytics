@@ -21,7 +21,6 @@ import colorsys
 
 import cv2
 import numpy as np
-
 from axelera.runtime import op
 
 # COCO skeleton: 19 limb connections (1-indexed keypoint pairs)

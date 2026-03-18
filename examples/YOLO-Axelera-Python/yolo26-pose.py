@@ -20,7 +20,6 @@ import argparse
 
 import cv2
 import numpy as np
-
 from axelera.runtime import op
 
 # COCO skeleton: 19 limb connections (1-indexed keypoint pairs)
@@ -61,7 +60,7 @@ class ConfidenceFilter(op.Operator):
     score_col: int = 4
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
-        """ Filter detections by confidence score """
+        """Filter detections by confidence score."""
         if x.ndim == 3:
             x = x[0]
         mask = x[:, self.score_col] >= self.threshold
@@ -119,7 +118,7 @@ def draw_pose(image: np.ndarray, detections: np.ndarray, conf: float = 0.25) -> 
 
 
 def main():
-    """ YOLO26 Pose Estimation example """
+    """YOLO26 Pose Estimation example."""
     parser = argparse.ArgumentParser(description="YOLO26 Pose Estimation -- Axelera Voyager SDK")
     parser.add_argument("--model", type=str, required=True, help="Path to compiled .axm model")
     parser.add_argument("--source", type=str, default="0", help="Image, video path, or camera index")
