@@ -779,7 +779,9 @@ class TextClassificationModel(ClassificationModel):
             return TextSimilarityLoss(self.text_similarity)
         elif self.loss_mode == "clip_distill":
             return CLIPDistillationLoss()
-        raise ValueError(f"Unknown loss_mode '{self.loss_mode}'. Expected 'contrastive', 'text_similarity', or 'clip_distill'.")
+        raise ValueError(
+            f"Unknown loss_mode '{self.loss_mode}'. Expected 'contrastive', 'text_similarity', or 'clip_distill'."
+        )
 
 
 class RTDETRDetectionModel(DetectionModel):
