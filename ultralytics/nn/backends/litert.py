@@ -16,8 +16,8 @@ from .base import BaseBackend
 class LiteRTBackend(BaseBackend):
     """Google LiteRT (formerly TensorFlow Lite) inference backend.
 
-    Loads and runs inference with LiteRT models (.tflite files) exported via ai-edge-litert/litert-torch.
-    Supports FP32, FP16, and INT8 quantized models with automatic dequantization.
+    Loads and runs inference with LiteRT models (.tflite files) exported via ai-edge-litert/litert-torch. Supports FP32,
+    FP16, and INT8 quantized models with automatic dequantization.
     """
 
     def load_model(self, weight: str | Path) -> None:
