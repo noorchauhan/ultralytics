@@ -960,6 +960,107 @@ class v8ClassificationLoss:
         return loss, loss.detach()
 
 
+class TextContrastiveLoss:
+    """Combined CE + CLIP-style contrastive loss (https://arxiv.org/abs/2103.00020) for classification.
+
+    Align image features with text embeddings via cosine similarity while maintaining standard cross-entropy
+    classification.
+
+    Attributes:
+        alpha (float): Weight for contrastive loss (0=pure CE, 1=pure contrastive).
+        logit_scale (nn.Parameter): Learnable temperature for contrastive logits.
+    """
+
+    def __init__(self, logit_scale, alpha=0.5):
+        """Initialize TextContrastiveLoss.
+
+        Args:
+            logit_scale (nn.Parameter): Learnable logit scale parameter.
+            alpha (float): Balance between CE (0.0) and contrastive (1.0) loss.
+        """
+        self.alpha = alpha
+        self.logit_scale = logit_scale
+
+    def __call__(self, preds: Any, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute combined CE + contrastive classification loss."""
+        cls_logits, img_embeds = preds
+        txt_embeds = batch["txt_feats"]
+        ce_loss = F.cross_entropy(cls_logits, batch["cls"], reduction="mean")
+        logits = self.logit_scale.exp() * img_embeds @ txt_embeds.T
+        contrastive_loss = F.cross_entropy(logits, batch["cls"], reduction="mean")
+        loss = (1 - self.alpha) * ce_loss + self.alpha * contrastive_loss
+        return loss, loss.detach()
+
+
+class TextSimilarityLoss:
+    """KL divergence loss using text embedding similarity as soft classification targets.
+
+    Use the cosine similarity between class text embeddings from MobileCLIP2 (https://arxiv.org/abs/2508.20691) to
+    create soft target distributions, teaching the model that semantically similar classes should have similar
+    predictions (e.g., 'golden retriever' ~ 'labrador' >> 'airplane').
+
+    Attributes:
+        soft_targets (torch.Tensor): Pre-computed (nc, nc) soft target distributions.
+        alpha (float): Weight for KL loss (0=pure CE, 1=pure KL).
+    """
+
+    def __init__(self, text_similarity, temperature=4.0, alpha=0.5):
+        """Initialize TextSimilarityLoss.
+
+        Args:
+            text_similarity (torch.Tensor): Pre-computed (nc, nc) text embedding similarity matrix.
+            temperature (float): Temperature for softmax over similarity matrix.
+            alpha (float): Balance between CE (0.0) and KL (1.0) loss.
+        """
+        self.soft_targets = F.softmax(text_similarity / temperature, dim=-1)
+        self.alpha = alpha
+
+    def __call__(self, preds: Any, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute combined CE + text-similarity KL divergence loss."""
+        cls_logits = preds[0] if isinstance(preds, (list, tuple)) else preds
+        ce_loss = F.cross_entropy(cls_logits, batch["cls"], reduction="mean")
+        teacher = self.soft_targets.to(cls_logits.device)[batch["cls"]]
+        kl_loss = F.kl_div(F.log_softmax(cls_logits, dim=-1), teacher, reduction="batchmean")
+        loss = (1 - self.alpha) * ce_loss + self.alpha * kl_loss
+        return loss, loss.detach()
+
+
+class CLIPDistillationLoss:
+    """KL divergence loss distilling pre-computed CLIP image embeddings into student features.
+
+    Inspired by MobileCLIP2 dataset reinforcement (https://arxiv.org/abs/2508.20691). Pre-computed CLIP image embeddings
+    provide per-image teacher signal. The student learns to match the teacher's image-to-text similarity distribution
+    via symmetric KL divergence as described in https://arxiv.org/abs/2407.10886.
+
+    Attributes:
+        temperature (float): Temperature for teacher similarity softmax.
+        alpha (float): Weight for KL loss (0=pure CE, 1=pure KL distillation).
+    """
+
+    def __init__(self, temperature=70.0, alpha=0.5):
+        """Initialize CLIPDistillationLoss.
+
+        Args:
+            temperature (float): Temperature for teacher logit scaling.
+            alpha (float): Balance between CE (0.0) and KL distillation (1.0) loss.
+        """
+        self.temperature = temperature
+        self.alpha = alpha
+
+    def __call__(self, preds: Any, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute combined CE + per-image CLIP KL distillation loss."""
+        cls_logits, img_embeds = preds
+        txt_embeds = batch["txt_feats"]
+        teacher_img_embeds = batch["teacher_img_embeds"]
+        ce_loss = F.cross_entropy(cls_logits, batch["cls"], reduction="mean")
+        teacher_logits = teacher_img_embeds @ txt_embeds.T / self.temperature
+        teacher_dist = F.softmax(teacher_logits, dim=-1)
+        student_logits = img_embeds @ txt_embeds.T
+        kl_loss = F.kl_div(F.log_softmax(student_logits, dim=-1), teacher_dist, reduction="batchmean")
+        loss = (1 - self.alpha) * ce_loss + self.alpha * kl_loss
+        return loss, loss.detach()
+
+
 class v8OBBLoss(v8DetectionLoss):
     """Calculates losses for object detection, classification, and box distribution in rotated YOLO models."""
 
