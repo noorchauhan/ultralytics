@@ -1,0 +1,89 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# Ultralytics RT-DETR (DINOv3-s timm) with STA dual-path fusion and DEIMv2-large-like encoder+decoder settings
+# Timm-based variant of rtdetr_dinov3s_l4_sta_v3.yaml — identical head/loss, backbone uses timm DINOv3.
+# Model docs: https://docs.ultralytics.com/models/rtdetr
+# Task docs: https://docs.ultralytics.com/tasks/detect
+
+# Parameters
+nc: 80 # number of classes
+
+backbone:
+  # [from, repeats, module, args]
+  # Keep raw image as a stable anchor so both semantic and detail paths can read it.
+  - [-1, 1, nn.Identity, []] # 0 image
+
+  # Semantic path (DINOv3 features from timm, embed_dim=384)
+  # Timm args: [out_ch, model_name, pretrained, out_indices, split]
+  - [0, 1, Timm, [None, vit_small_patch16_dinov3_qkvb.lvd1689m, True, [5, 8, 11], True]] # 1
+  - [1, 1, Index, [384, 1]] # 2 sem (early, layer 5)
+  - [1, 1, Index, [384, 2]] # 3 sem (mid, layer 8)
+  - [1, 1, Index, [384, 3]] # 4 sem (late, layer 11)
+
+  # Bilinear semantic scale alignment (DEIMv2-style interpolation before fusion).
+  - [2, 1, nn.Upsample, [None, 2, "bilinear", False]] # 5 sem -> P3 scale
+  - [4, 1, nn.Upsample, [None, 0.5, "bilinear", False]] # 6 sem -> P5 scale
+
+  # Detail path (STA with inplanes=32, matching v3 conv_inplane=32)
+  - [0, 1, SpatialPriorModulev2, [32]] # 7
+  - [7, 1, Index, [64, 0]] # 8 detail P3 (2*32=64)
+  - [7, 1, Index, [128, 1]] # 9 detail P4 (4*32=128)
+  - [7, 1, Index, [128, 2]] # 10 detail P5 (4*32=128)
+
+  # Fusion + projection to 224ch (matching v3 hidden_dim=224)
+  - [[5, 8], 1, Concat, [1]] # 11 fused P3 (384+64=448)
+  - [-1, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 12 P3
+  - [[3, 9], 1, Concat, [1]] # 13 fused P4 (384+128=512)
+  - [-1, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 14 P4
+  - [[6, 10], 1, Concat, [1]] # 15 fused P5 (384+128=512)
+  - [-1, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 16 P5
+
+head:
+  # DEIMv2-large-like HybridEncoder head: input_proj + AIFI + FPN/PAN.
+  - [16, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 17 input_proj.2
+  - [-1, 1, AIFI, [896, 8]]
+  - [-1, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 19 Y5, lateral_convs.0
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [14, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 21 input_proj.1
+  - [[-2, -1], 1, Add, []]
+  - [-1, 1, RepNCSPELAN5, [224, 448, 112, 3]] # 23 fpn_blocks.0
+  - [-1, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 24 Y4, lateral_convs.1
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [12, 1, Conv, [224, 1, 1, None, 1, 1, False]] # 26 input_proj.0
+  - [[-2, -1], 1, Add, []]
+  - [-1, 1, RepNCSPELAN5, [224, 448, 112, 3]] # 28 X3, fpn_blocks.1
+
+  - [-1, 1, SCDown, [224, 3, 2, False]] # 29 downsample_convs.0
+  - [[-1, 24], 1, Add, []]
+  - [-1, 1, RepNCSPELAN5, [224, 448, 112, 3]] # 31 F4, pan_blocks.0
+
+  - [-1, 1, SCDown, [224, 3, 2, False]] # 32 downsample_convs.1
+  - [[-1, 19], 1, Add, []]
+  - [-1, 1, RepNCSPELAN5, [224, 448, 112, 3]] # 34 F5, pan_blocks.1
+
+  # DeimDecoder (DEIMv2-large defaults explicitly set in YAML)
+  # Args: [nc, hd, nq, ndp, nh, ndl, d_ffn, dropout, act, eval_idx, nd, label_noise_ratio, box_noise_scale,
+  #        learnt_init_query, enable_cuda_acceleration, one_to_many_groups, dab_sine_embedding,
+  #        efficient_msdeformable_attn, query_select_method, reg_max, reg_scale, layer_scale, mlp_act,
+  #        o2m_topk_mode, use_gateway, share_bbox_head, share_score_head]
+  - [[28, 31, 34], 1, DeimDecoder, [nc, 224, 300, [3, 6, 3], 8, 4, 1792, 0.0, "silu", -1, 100, 0.5, 1.0, False, False, 0, False, False, "default", 32, 4.0, 1.0, "silu", "unshared", True, False, False]]
+
+loss:
+  gamma: 1.5
+  alpha: 0.75
+  use_fl: False
+  use_vfl: False
+  use_mal: True
+  use_union_set: True
+  reg_max: 32
+  loss_gain: {class: 1, bbox: 5, giou: 2, fgl: 0.15, ddf: 1.5}
+  matcher:
+    cost_gain: {class: 2, bbox: 5, giou: 2}
+    use_fl: True
+    alpha: 0.25
+    gamma: 2.0
+    change_matcher: True
+    iou_order_alpha: 4.0
+    matcher_change_epoch: 50
