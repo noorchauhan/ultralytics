@@ -782,7 +782,7 @@ class ClassificationDataset:
         # Convert NumPy array to PIL image
         im = Image.fromarray(cv2.cvtColor(im, cv2.COLOR_BGR2RGB))
         sample = self.torch_transforms(im)
-        return {"img": sample, "cls": j}
+        return {"img": sample, "cls": j, "idx": i}
 
     def __len__(self) -> int:
         """Return the total number of samples in the dataset."""
