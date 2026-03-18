@@ -3,27 +3,32 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from ultralytics.utils import YAML
+import numpy as np
+import torch
+
+from ultralytics.utils import LOGGER, YAML
 from ultralytics.utils.checks import check_requirements
 
 
 def torch2axelera(
-    model,
+    model: torch.nn.Module,
     file: str | Path,
-    calibration_dataset,
-    transform_fn,
+    calibration_dataset: torch.utils.data.DataLoader,
+    transform_fn: Callable[[Any], np.ndarray],
     metadata: dict | None = None,
     prefix: str = "",
 ) -> Path:
     """Convert a YOLO model to Axelera format.
 
     Args:
-        model: Source YOLO model for quantization.
+        model (torch.nn.Module): Source YOLO model for quantization.
         file (str | Path): Source model file path used to derive output names.
-        calibration_dataset: Calibration dataloader for quantization.
-        transform_fn: Calibration preprocessing transform function.
+        calibration_dataset (torch.utils.data.DataLoader): Calibration dataloader for quantization.
+        transform_fn (Callable[[Any], np.ndarray]): Calibration preprocessing transform function.
         metadata (dict | None, optional): Optional metadata to save as YAML. Defaults to None.
         prefix (str, optional): Prefix for log messages. Defaults to "".
 
@@ -42,6 +47,8 @@ def torch2axelera(
 
     from axelera.compiler import CompilerConfig
     from axelera.compiler.config.model_specific import extract_ultralytics_metadata
+
+    LOGGER.info(f"\n{prefix} starting export with Axelera compiler...")
 
     file = Path(file)
     model_name = file.stem
