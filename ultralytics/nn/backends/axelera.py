@@ -32,7 +32,7 @@ class AxeleraBackend(BaseBackend):
                 cmds="--extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
             )
             check_requirements(["numpy<2.0.0", "onnxruntime"])
-        
+
         from axelera.runtime import op
 
         w = Path(weight)
