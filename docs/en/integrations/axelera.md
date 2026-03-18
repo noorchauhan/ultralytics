@@ -231,7 +231,6 @@ Verify your Axelera device is functioning properly:
 ```bash
 # if axdevice cannot be found, please run at least one inference (see above) to ensure the required packages are installed
 axdevice
-
 ```
 
 For detailed diagnostics, see the [AxDevice documentation](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/docs/reference/axdevice.md).
