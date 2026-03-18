@@ -566,6 +566,20 @@ def check_cls_dataset(dataset: str | Path, split: str = "") -> dict[str, Any]:
     names = [x.name for x in (data_dir / "train").iterdir() if x.is_dir()]  # class names list
     names = dict(enumerate(sorted(names)))
 
+    # Use human-readable names from matching dataset YAML if available (e.g., ImageNet synset IDs -> class names)
+    import yaml  # scope for one-time dataset init
+
+    for yaml_file in (ROOT / "cfg/datasets").glob("*.yaml"):
+        with open(yaml_file, errors="ignore") as f:
+            yaml_data = yaml.safe_load(f)
+        if (
+            yaml_data
+            and yaml_data.get("path", "").lower() == data_dir.name.lower()
+            and len(yaml_data.get("names", {})) == nc
+        ):
+            names = yaml_data["names"]
+            break
+
     # Print to console
     for k, v in {"train": train_set, "val": val_set, "test": test_set}.items():
         prefix = f"{colorstr(f'{k}:')} {v}..."
