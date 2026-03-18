@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ultralytics.utils import YAML
+from ultralytics.utils.checks import check_requirements
 
 
 def torch2axelera(
-    compiler,
-    compiler_config,
-    extract_ultralytics_metadata,
     model,
     file: str | Path,
     calibration_dataset,
@@ -21,9 +20,6 @@ def torch2axelera(
     """Convert a YOLO model to Axelera format.
 
     Args:
-        compiler: Axelera compiler module.
-        compiler_config: Axelera `CompilerConfig` class used to create compiler settings.
-        extract_ultralytics_metadata: Axelera metadata extraction utility.
         model: Source YOLO model for quantization.
         file (str | Path): Source model file path used to derive output names.
         calibration_dataset: Calibration dataloader for quantization.
@@ -34,13 +30,26 @@ def torch2axelera(
     Returns:
         (Path): Path to exported Axelera model directory.
     """
+    os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+    try:
+        from axelera import compiler
+    except ImportError:
+        check_requirements(
+            "axelera-devkit==1.6.0rc2",
+            cmds="--extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
+        )
+        from axelera import compiler
+
+    from axelera.compiler import CompilerConfig
+    from axelera.compiler.config.model_specific import extract_ultralytics_metadata
+
     file = Path(file)
     model_name = file.stem
     export_path = Path(f"{model_name}_axelera_model")
     export_path.mkdir(exist_ok=True)
 
     axelera_model_metadata = extract_ultralytics_metadata(model)
-    config = compiler_config(
+    config = CompilerConfig(
         model_metadata=axelera_model_metadata,
         model_name=model_name,
         resources_used=0.25,

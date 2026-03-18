@@ -1167,23 +1167,7 @@ class Exporter:
     @try_export
     def export_axelera(self, prefix=colorstr("Axelera:")):
         """Export YOLO model to Axelera format."""
-        os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-        try:
-            from axelera import compiler
-        except ImportError:
-            check_requirements(
-                "axelera-devkit==1.6.0rc2",
-                cmds="--extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
-            )
-
-        from axelera import compiler
-        from axelera.compiler import CompilerConfig
-        from axelera.compiler.config.model_specific import extract_ultralytics_metadata
-
         return torch2axelera(
-            compiler=compiler,
-            compiler_config=CompilerConfig,
-            extract_ultralytics_metadata=extract_ultralytics_metadata,
             model=self.model,
             file=self.file,
             calibration_dataset=self.get_int8_calibration_dataloader(prefix),
