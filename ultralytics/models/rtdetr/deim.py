@@ -13,7 +13,7 @@ from torch import distributed as dist
 from torch import optim
 
 from ultralytics.data import YOLODataset
-from ultralytics.data.augment import Compose, Format
+from ultralytics.data.augment import Compose, Format, v8_transforms
 from ultralytics.nn.tasks import load_checkpoint
 from ultralytics.utils import LOGGER, RANK, colorstr
 from ultralytics.utils.torch_utils import one_cycle, strip_optimizer, unwrap_model
@@ -369,16 +369,20 @@ class RTDETRDEIMDataset(RTDETRDataset):
     def build_transforms(self, hyp=None):
         """Build DEIM transforms for train and standard formatting for train/val."""
         if self.augment:
+            hyp.mosaic = hyp.mosaic if self.augment and not self.rect else 0.0
             hyp.mixup = hyp.mixup if self.augment and not self.rect else 0.0
             hyp.cutmix = hyp.cutmix if self.augment and not self.rect else 0.0
-            transforms = rtdetr_deim_transforms(
-                self,
-                self.imgsz,
-                hyp,
-                stretch=True,
-                policy_epochs=self.policy_epochs,
-                mosaic_prob=self.mosaic_prob,
-            )
+            if self.rtdetr_augmentations:
+                transforms = rtdetr_deim_transforms(
+                    self,
+                    self.imgsz,
+                    hyp,
+                    stretch=True,
+                    policy_epochs=self.policy_epochs,
+                    mosaic_prob=self.mosaic_prob,
+                )
+            else:
+                transforms = v8_transforms(self, self.imgsz, hyp, stretch=True)
         else:
             transforms = Compose([])
 
@@ -398,7 +402,8 @@ class RTDETRDEIMDataset(RTDETRDataset):
     def set_epoch(self, epoch: int) -> None:
         """Propagate epoch to transforms and collate_fn for DEIM stage scheduling."""
         self.epoch = epoch
-        self.transforms.set_epoch(epoch)
+        if hasattr(self.transforms, "set_epoch"):
+            self.transforms.set_epoch(epoch)
 
         requires_collate_epoch = self.mixup_prob > 0.0 or self.copyblend_prob > 0.0
         if requires_collate_epoch:
