@@ -748,15 +748,23 @@ class TextClassificationModel(ClassificationModel):
         self.text_similarity = None
 
     def loss(self, batch, preds=None):
-        """Compute text-aligned classification loss by extracting intermediate pooled features.
+        """Compute text-aligned classification loss during training, CE-only during validation.
+
+        Uses text-aligned criterion (contrastive/text_similarity/clip_distill) during training when extra batch data
+        (txt_feats, teacher_img_embeds) is available, and falls back to standard CE via parent ClassificationModel
+        during validation. Follows the RTDETR pattern of checking self.training for different train/val behavior.
 
         Args:
-            batch (dict): Batch dict with 'img', 'cls', 'txt_feats', and optionally 'teacher_img_embeds'.
-            preds (torch.Tensor, optional): Pre-computed predictions (unused, recomputed for feature access).
+            batch (dict): Batch dict with 'img', 'cls', and during training: 'txt_feats' and optionally
+                'teacher_img_embeds'.
+            preds (torch.Tensor, optional): Pre-computed predictions.
 
         Returns:
             (tuple): Tuple of (loss, detached_loss) from the active loss criterion.
         """
+        if not self.training:
+            return super().loss(batch, preds)
+
         if getattr(self, "criterion", None) is None:
             self.criterion = self.init_criterion()
 

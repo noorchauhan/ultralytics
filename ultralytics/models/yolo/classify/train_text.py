@@ -191,25 +191,3 @@ class TextClassificationTrainer(ClassificationTrainer):
                 self.device, non_blocking=self.device.type == "cuda"
             )
         return batch
-
-    def get_validator(self):
-        """Return a validator that injects text embeddings into validation batches."""
-        from copy import copy
-
-        from ultralytics.models.yolo import classify
-
-        self.loss_names = ["loss"]
-        text_embeddings = self.text_embeddings
-
-        class TextClassificationValidator(classify.ClassificationValidator):
-            """Validator that attaches text embeddings to batches for text-aligned loss computation."""
-
-            def preprocess(self, batch):
-                """Preprocess batch and attach text embeddings matching image dtype."""
-                batch = super().preprocess(batch)
-                batch["txt_feats"] = text_embeddings.to(device=batch["img"].device, dtype=batch["img"].dtype)
-                return batch
-
-        return TextClassificationValidator(
-            self.test_loader, self.save_dir, args=copy(self.args), _callbacks=self.callbacks
-        )
