@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import torch
 
-from ultralytics.utils import LOGGER
 from ultralytics.utils.checks import check_requirements
 
 from .base import BaseBackend
@@ -26,7 +24,6 @@ class AxeleraBackend(BaseBackend):
         Args:
             weight (str | Path): Path to the Axelera model directory containing the .axm binary.
         """
-
         try:
             from axelera.runtime import op
         except ImportError:
