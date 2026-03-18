@@ -76,8 +76,11 @@ from ultralytics.nn.modules import (
 from ultralytics.utils import DEFAULT_CFG_DICT, LOGGER, WINDOWS, YAML, colorstr, emojis
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
 from ultralytics.utils.loss import (
+    CLIPDistillationLoss,
     E2ELoss,
     PoseLoss26,
+    TextContrastiveLoss,
+    TextSimilarityLoss,
     v8ClassificationLoss,
     v8DetectionLoss,
     v8OBBLoss,
@@ -709,6 +712,74 @@ class ClassificationModel(BaseModel):
     def init_criterion(self):
         """Initialize the loss criterion for the ClassificationModel."""
         return v8ClassificationLoss()
+
+
+class TextClassificationModel(ClassificationModel):
+    """Classification model with text-aligned contrastive pre-training via projection head.
+
+    Extend ClassificationModel with a projection head that maps the Classify head's pooled features to a 768-dim text
+    embedding space for CLIP-style (https://arxiv.org/abs/2103.00020) contrastive alignment and MobileCLIP2-style
+    (https://arxiv.org/abs/2508.20691) KL distillation. Override loss() to compute both standard CE and text-aligned
+    losses during training without changing forward() (inference/export remain unchanged).
+
+    Attributes:
+        proj (nn.Sequential): Linear + LayerNorm projection to text embedding space.
+        logit_scale (nn.Parameter): Learnable temperature for contrastive similarity.
+        loss_mode (str): Loss mode ('contrastive', 'text_similarity', 'clip_distill').
+        text_similarity (torch.Tensor): Pre-computed (nc, nc) text similarity matrix.
+    """
+
+    def __init__(self, cfg="yolo26n-cls.yaml", ch=3, nc=None, verbose=True, embed_dim=768, loss_mode="contrastive"):
+        """Initialize TextClassificationModel with projection head for text-aligned training.
+
+        Args:
+            cfg (str | dict): Model configuration file path or dictionary.
+            ch (int): Number of input channels.
+            nc (int, optional): Number of classes.
+            verbose (bool): Whether to display model information.
+            embed_dim (int): Dimension of the text embedding space.
+            loss_mode (str): Loss mode ('contrastive', 'text_similarity', 'clip_distill').
+        """
+        super().__init__(cfg, ch, nc, verbose)
+        c_ = self.model[-1].linear.in_features  # Classify head intermediate dim (1280 for default)
+        self.proj = nn.Sequential(nn.Linear(c_, embed_dim), nn.LayerNorm(embed_dim))
+        self.logit_scale = nn.Parameter(torch.ones([]) * torch.tensor(1 / 0.07).log())
+        self.loss_mode = loss_mode
+        self.text_similarity = None
+
+    def loss(self, batch, preds=None):
+        """Compute text-aligned classification loss by extracting intermediate pooled features.
+
+        Args:
+            batch (dict): Batch dict with 'img', 'cls', 'txt_feats', and optionally 'teacher_img_embeds'.
+            preds (torch.Tensor, optional): Pre-computed predictions (unused, recomputed for feature access).
+
+        Returns:
+            (tuple): Tuple of (loss, detached_loss) from the active loss criterion.
+        """
+        if getattr(self, "criterion", None) is None:
+            self.criterion = self.init_criterion()
+
+        x = batch["img"]
+        for m in self.model[:-1]:
+            x = m(x)
+
+        head = self.model[-1]
+        features = head.pool(head.conv(x)).flatten(1)
+        cls_logits = head.linear(head.drop(features))
+        img_embeds = nn.functional.normalize(self.proj(features), dim=-1)
+
+        return self.criterion((cls_logits, img_embeds), batch)
+
+    def init_criterion(self):
+        """Initialize loss criterion based on loss_mode setting."""
+        if self.loss_mode == "contrastive":
+            return TextContrastiveLoss(self.logit_scale)
+        elif self.loss_mode == "text_similarity":
+            return TextSimilarityLoss(self.text_similarity)
+        elif self.loss_mode == "clip_distill":
+            return CLIPDistillationLoss()
+        raise ValueError(f"Unknown loss_mode '{self.loss_mode}'. Expected 'contrastive', 'text_similarity', or 'clip_distill'.")
 
 
 class RTDETRDetectionModel(DetectionModel):
