@@ -986,7 +986,8 @@ class TextContrastiveLoss:
         cls_logits, img_embeds = preds
         txt_embeds = batch["txt_feats"]
         ce_loss = F.cross_entropy(cls_logits, batch["cls"], reduction="mean")
-        logits = self.logit_scale.exp() * img_embeds @ txt_embeds.T
+        with torch.amp.autocast("cuda", enabled=False):
+            logits = self.logit_scale.exp() * img_embeds.float() @ txt_embeds.float().T
         contrastive_loss = F.cross_entropy(logits, batch["cls"], reduction="mean")
         loss = (1 - self.alpha) * ce_loss + self.alpha * contrastive_loss
         return loss, loss.detach()
@@ -1020,7 +1021,8 @@ class TextSimilarityLoss:
         cls_logits = preds[0] if isinstance(preds, (list, tuple)) else preds
         ce_loss = F.cross_entropy(cls_logits, batch["cls"], reduction="mean")
         teacher = self.soft_targets.to(cls_logits.device)[batch["cls"]]
-        kl_loss = F.kl_div(F.log_softmax(cls_logits, dim=-1), teacher, reduction="batchmean")
+        with torch.amp.autocast("cuda", enabled=False):
+            kl_loss = F.kl_div(F.log_softmax(cls_logits.float(), dim=-1), teacher.float(), reduction="batchmean")
         loss = (1 - self.alpha) * ce_loss + self.alpha * kl_loss
         return loss, loss.detach()
 
@@ -1037,26 +1039,30 @@ class CLIPDistillationLoss:
         alpha (float): Weight for KL loss (0=pure CE, 1=pure KL distillation).
     """
 
-    def __init__(self, temperature=70.0, alpha=0.5):
+    def __init__(self, logit_scale, temperature=70.0, alpha=0.5):
         """Initialize CLIPDistillationLoss.
 
         Args:
-            temperature (float): Temperature for teacher logit scaling.
+            logit_scale (nn.Parameter): Learnable student logit scale parameter.
+            temperature (float): Teacher logit scale as multiplier, following MobileCLIP2 formulation.
             alpha (float): Balance between CE (0.0) and KL distillation (1.0) loss.
         """
+        self.logit_scale = logit_scale
         self.temperature = temperature
         self.alpha = alpha
 
     def __call__(self, preds: Any, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute combined CE + per-image CLIP KL distillation loss."""
+        """Compute combined CE + per-image CLIP KL distillation loss following MobileCLIP2 formulation."""
         cls_logits, img_embeds = preds
-        txt_embeds = batch["txt_feats"]
-        teacher_img_embeds = batch["teacher_img_embeds"]
         ce_loss = F.cross_entropy(cls_logits, batch["cls"], reduction="mean")
-        teacher_logits = teacher_img_embeds @ txt_embeds.T / self.temperature
-        teacher_dist = F.softmax(teacher_logits, dim=-1)
-        student_logits = img_embeds @ txt_embeds.T
-        kl_loss = F.kl_div(F.log_softmax(student_logits, dim=-1), teacher_dist, reduction="batchmean")
+        if "teacher_img_embeds" not in batch:
+            return ce_loss, ce_loss.detach()
+        txt_embeds = batch["txt_feats"]
+        teacher_logits = self.temperature * (batch["teacher_img_embeds"] @ txt_embeds.T)
+        student_logits = self.logit_scale.exp() * (img_embeds @ txt_embeds.T)
+        with torch.amp.autocast("cuda", enabled=False):
+            teacher_dist = F.softmax(teacher_logits.float(), dim=-1)
+            kl_loss = -(teacher_dist * F.log_softmax(student_logits.float(), dim=-1)).sum(dim=-1).mean()
         loss = (1 - self.alpha) * ce_loss + self.alpha * kl_loss
         return loss, loss.detach()
 

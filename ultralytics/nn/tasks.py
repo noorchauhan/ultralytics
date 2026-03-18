@@ -790,7 +790,7 @@ class TextClassificationModel(ClassificationModel):
         elif self.loss_mode == "text_similarity":
             return TextSimilarityLoss(self.text_similarity)
         elif self.loss_mode == "clip_distill":
-            return CLIPDistillationLoss()
+            return CLIPDistillationLoss(self.logit_scale)
         raise ValueError(
             f"Unknown loss_mode '{self.loss_mode}'. Expected 'contrastive', 'text_similarity', or 'clip_distill'."
         )
