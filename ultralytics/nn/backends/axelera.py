@@ -26,29 +26,24 @@ class AxeleraBackend(BaseBackend):
         Args:
             weight (str | Path): Path to the Axelera model directory containing the .axm binary.
         """
-        if not os.environ.get("AXELERA_RUNTIME_DIR"):
-            LOGGER.warning(
-                "Axelera runtime environment is not activated.\n"
-                "Please run: source /opt/axelera/sdk/latest/axelera_activate.sh\n\n"
-                "If this fails, verify driver installation: "
-                "https://docs.ultralytics.com/integrations/axelera/#axelera-driver-installation"
-            )
 
         try:
             from axelera.runtime import op
         except ImportError:
             check_requirements(
-                "axelera_runtime2==0.1.2",
-                cmds="--extra-index-url https://software.axelera.ai/artifactory/axelera-runtime-pypi",
+                "axelera-rt==1.6.0rc2",
+                cmds="--extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
             )
-            from axelera.runtime import op
+            check_requirements(["numpy<2.0.0", "onnxruntime"])
+        
+        from axelera.runtime import op
 
         w = Path(weight)
         found = next(w.rglob("*.axm"), None)
         if found is None:
             raise FileNotFoundError(f"No .axm file found in: {w}")
 
-        self.model = op.load(str(found))
+        self.model = op.load(str(found)).optimized()
 
         # Load metadata
         metadata_file = found.parent / "metadata.yaml"

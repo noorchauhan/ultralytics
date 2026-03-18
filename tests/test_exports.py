@@ -298,7 +298,6 @@ def test_export_imx():
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
-@pytest.mark.skipif(not checks.IS_PYTHON_3_10, reason="Axelera export requires Python 3.10")
 def test_export_axelera():
     """Test YOLO export to Axelera format."""
     # For faster testing, use a smaller calibration dataset (32 image size crashes axelera export, so 64 is used)
