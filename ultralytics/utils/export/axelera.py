@@ -61,6 +61,13 @@ def torch2axelera(
         if artifact_path.exists():
             artifact_path.replace(export_path / artifact_path.name)
 
+    # Remove intermediate compiler artifacts, keeping only the compiled model and config.
+    keep_suffixes = {".axm"}
+    keep_names = {"compiler_config_final.toml", "metadata.yaml"}
+    for f in export_path.iterdir():
+        if f.is_file() and f.suffix not in keep_suffixes and f.name not in keep_names:
+            f.unlink()
+
     if metadata is not None:
         YAML.save(export_path / "metadata.yaml", metadata)
     return export_path
