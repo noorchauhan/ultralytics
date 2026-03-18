@@ -120,7 +120,9 @@ def _create_zoopt_search(space, task, max_samples):
     resolved_vars, _, _ = parse_spec_vars(resolved_space)
     fixed_param_space = {"/".join(str(p) for p in path): value for path, value in resolved_vars}
     dim_dict = ZOOptSearch.convert_search_space(space)
-    return ZOOptSearch(algo="asracos", budget=max_samples, dim_dict=dim_dict, metric=TASK2METRIC[task], mode="max"), fixed_param_space
+    return ZOOptSearch(
+        algo="asracos", budget=max_samples, dim_dict=dim_dict, metric=TASK2METRIC[task], mode="max"
+    ), fixed_param_space
 
 
 def _resolve_ray_search_alg(search_alg, task, space, max_samples):
@@ -179,8 +181,8 @@ def run_ray_tune(
         grace_period (int, optional): The grace period in epochs of the ASHA scheduler.
         gpu_per_trial (int, optional): The number of GPUs to allocate per trial.
         max_samples (int, optional): The maximum number of trials to run.
-        search_alg (str | ray.tune.search.Searcher | ray.tune.search.SearchAlgorithm, optional): Search algorithm
-            to use. Strings are resolved to supported Ray Tune searchers, while objects are passed through as-is.
+        search_alg (str | ray.tune.search.Searcher | ray.tune.search.SearchAlgorithm, optional): Search algorithm to
+            use. Strings are resolved to supported Ray Tune searchers, while objects are passed through as-is.
         **train_args (Any): Additional arguments to pass to the `train()` method.
 
     Returns:
