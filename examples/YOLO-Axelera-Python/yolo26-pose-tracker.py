@@ -1,3 +1,4 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 """
 YOLO26 Pose Estimation + Multi-Object Tracking with Axelera Voyager SDK.
 
@@ -32,17 +33,37 @@ COCO_SKELETON = [
 ]  # fmt: skip
 
 # Pose color palette (RGB) from Ultralytics
-POSE_PALETTE = np.array([
-    [255, 128, 0], [255, 153, 51], [255, 178, 102], [230, 230, 0],
-    [255, 153, 255], [153, 204, 255], [255, 102, 255], [255, 51, 255],
-    [102, 178, 255], [51, 153, 255], [255, 153, 153], [255, 102, 102],
-    [255, 51, 51], [153, 255, 153], [102, 255, 102], [51, 255, 51],
-    [0, 255, 0], [0, 0, 255], [255, 0, 0], [255, 255, 255],
-], dtype=np.uint8)
+POSE_PALETTE = np.array(
+    [
+        [255, 128, 0],
+        [255, 153, 51],
+        [255, 178, 102],
+        [230, 230, 0],
+        [255, 153, 255],
+        [153, 204, 255],
+        [255, 102, 255],
+        [255, 51, 255],
+        [102, 178, 255],
+        [51, 153, 255],
+        [255, 153, 153],
+        [255, 102, 102],
+        [255, 51, 51],
+        [153, 255, 153],
+        [102, 255, 102],
+        [51, 255, 51],
+        [0, 255, 0],
+        [0, 0, 255],
+        [255, 0, 0],
+        [255, 255, 255],
+    ],
+    dtype=np.uint8,
+)
 
 # Per-keypoint BGR colors (17 keypoints, precomputed for cv2)
-KPT_COLORS = [tuple(int(c) for c in color[::-1])
-              for color in POSE_PALETTE[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]]
+KPT_COLORS = [
+    tuple(int(c) for c in color[::-1])
+    for color in POSE_PALETTE[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
+]
 # Golden ratio conjugate for well-distributed track colors
 GOLDEN_RATIO_CONJUGATE = 0.618033988749895
 
@@ -57,12 +78,11 @@ def get_track_color(track_id: int) -> tuple[int, int, int]:
 class ConfidenceFilter(op.Operator):
     """Squeeze batch dimension and filter detections by confidence score.
 
-    Receives the raw output of op.load() -- for YOLO26-pose this is shaped
-    (1, 300, 57): each row is [x0, y0, x1, y1, score, class_id, 17x(kpt_x, kpt_y, kpt_conf)].
-    Column 4 (score) is used for thresholding.
+    Receives the raw output of op.load() -- for YOLO26-pose this is shaped (1, 300, 57): each row is [x0, y0, x1, y1,
+    score, class_id, 17x(kpt_x, kpt_y, kpt_conf)]. Column 4 (score) is used for thresholding.
 
-    This replaces decode_pose which doesn't support YOLO26's column layout
-    (class_id at column 5 shifts all keypoints by one).
+    This replaces decode_pose which doesn't support YOLO26's column layout (class_id at column 5 shifts all keypoints by
+    one).
     """
 
     threshold: float = 0.25
@@ -76,15 +96,14 @@ class ConfidenceFilter(op.Operator):
         return x[mask]
 
 
-def build_pipeline(model_path: str, conf: float = 0.25, tracker_algo: str = 'tracktrack'):
+def build_pipeline(model_path: str, conf: float = 0.25, tracker_algo: str = "tracktrack"):
     """Build YOLO26 pose estimation + tracking pipeline.
 
-    YOLO26 is NMS-free (end-to-end), so no op.nms() is needed.
-    op.axpose() converts the numpy array to list[PoseObject], which the
-    tracker consumes. tracked.tracked on each result is the original PoseObject.
+    YOLO26 is NMS-free (end-to-end), so no op.nms() is needed. op.axpose() converts the numpy array to list[PoseObject],
+    which the tracker consumes. tracked.tracked on each result is the original PoseObject.
     """
     return op.seq(
-        op.colorconvert('RGB', src='BGR'),  # OpenCV reads BGR; models expect RGB
+        op.colorconvert("RGB", src="BGR"),  # OpenCV reads BGR; models expect RGB
         op.letterbox(640, 640),
         op.totensor(),
         op.load(model_path),
@@ -104,12 +123,11 @@ def draw_tracked_poses(image: np.ndarray, tracked_poses: list) -> np.ndarray:
         bbox = tracked.predicted_bbox
         x0, y0, x1, y1 = int(bbox.x0), int(bbox.y0), int(bbox.x1), int(bbox.y1)
         cv2.rectangle(image, (x0, y0), (x1, y1), color, 2)
-        cv2.putText(image, f"ID {tracked.track_id}", (x0, y0 - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        cv2.putText(image, f"ID {tracked.track_id}", (x0, y0 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
         # Access keypoints from the original PoseObject via tracked.tracked
         pose = tracked.tracked
-        if not hasattr(pose, 'keypoints') or not pose.keypoints:
+        if not hasattr(pose, "keypoints") or not pose.keypoints:
             continue
 
         kpts = pose.keypoints
@@ -136,13 +154,17 @@ def main():
     parser.add_argument("--model", type=str, required=True, help="Path to compiled .axm model")
     parser.add_argument("--source", type=str, default="0", help="Image, video path, or camera index")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
-    parser.add_argument("--tracker", type=str, default="tracktrack",
-                        choices=["bytetrack", "oc-sort", "sort", "tracktrack"],
-                        help="Tracking algorithm")
-    parser.add_argument("--no-display", action="store_true",
-                        help="Disable GUI window (headless mode, saves to --output)")
-    parser.add_argument("--output", type=str, default="output.mp4",
-                        help="Output video path when --no-display is set")
+    parser.add_argument(
+        "--tracker",
+        type=str,
+        default="tracktrack",
+        choices=["bytetrack", "oc-sort", "sort", "tracktrack"],
+        help="Tracking algorithm",
+    )
+    parser.add_argument(
+        "--no-display", action="store_true", help="Disable GUI window (headless mode, saves to --output)"
+    )
+    parser.add_argument("--output", type=str, default="output.mp4", help="Output video path when --no-display is set")
     args = parser.parse_args()
 
     pipeline = build_pipeline(args.model, args.conf, args.tracker)
@@ -168,8 +190,7 @@ def main():
             if writer is None:
                 h, w = annotated.shape[:2]
                 fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-                writer = cv2.VideoWriter(
-                    args.output, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+                writer = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
             writer.write(annotated)
             if frame_count % 100 == 0:
                 print(f"  frame {frame_count}: {len(tracked_poses)} tracks")

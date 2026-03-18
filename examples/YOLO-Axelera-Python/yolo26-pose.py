@@ -1,3 +1,4 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 """
 YOLO26 Pose Estimation with Axelera Voyager SDK.
 
@@ -31,13 +32,31 @@ COCO_SKELETON = [
 ]  # fmt: skip
 
 # Pose color palette (RGB) from Ultralytics
-POSE_PALETTE = np.array([
-    [255, 128, 0], [255, 153, 51], [255, 178, 102], [230, 230, 0],
-    [255, 153, 255], [153, 204, 255], [255, 102, 255], [255, 51, 255],
-    [102, 178, 255], [51, 153, 255], [255, 153, 153], [255, 102, 102],
-    [255, 51, 51], [153, 255, 153], [102, 255, 102], [51, 255, 51],
-    [0, 255, 0], [0, 0, 255], [255, 0, 0], [255, 255, 255],
-], dtype=np.uint8)
+POSE_PALETTE = np.array(
+    [
+        [255, 128, 0],
+        [255, 153, 51],
+        [255, 178, 102],
+        [230, 230, 0],
+        [255, 153, 255],
+        [153, 204, 255],
+        [255, 102, 255],
+        [255, 51, 255],
+        [102, 178, 255],
+        [51, 153, 255],
+        [255, 153, 153],
+        [255, 102, 102],
+        [255, 51, 51],
+        [153, 255, 153],
+        [102, 255, 102],
+        [51, 255, 51],
+        [0, 255, 0],
+        [0, 0, 255],
+        [255, 0, 0],
+        [255, 255, 255],
+    ],
+    dtype=np.uint8,
+)
 
 # Per-keypoint colors (17 keypoints, palette indices)
 KPT_COLORS = POSE_PALETTE[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
@@ -48,12 +67,11 @@ LIMB_COLORS = POSE_PALETTE[[9, 9, 9, 9, 7, 7, 7, 0, 0, 0, 0, 0, 16, 16, 16, 16, 
 class ConfidenceFilter(op.Operator):
     """Squeeze batch dimension and filter detections by confidence score.
 
-    Receives the raw output of op.load() — for YOLO26-pose this is shaped
-    (1, 300, 57): each row is [x0, y0, x1, y1, score, class_id, 17×(kpt_x, kpt_y, kpt_conf)].
-    Column 4 (score) is used for thresholding.
+    Receives the raw output of op.load() — for YOLO26-pose this is shaped (1, 300, 57): each row is [x0, y0, x1, y1,
+    score, class_id, 17×(kpt_x, kpt_y, kpt_conf)]. Column 4 (score) is used for thresholding.
 
-    This replaces decode_pose which doesn't support YOLO26's column layout
-    (class_id at column 5 shifts all keypoints by one).
+    This replaces decode_pose which doesn't support YOLO26's column layout (class_id at column 5 shifts all keypoints by
+    one).
     """
 
     threshold: float = 0.25
@@ -70,12 +88,12 @@ class ConfidenceFilter(op.Operator):
 def build_pipeline(model_path: str, conf: float = 0.25):
     """Build YOLO26 pose estimation pipeline.
 
-    YOLO26 is NMS-free (end-to-end), so no op.nms() is needed.
-    Calls .optimized() so the runtime can fuse operators for maximum throughput.
+    YOLO26 is NMS-free (end-to-end), so no op.nms() is needed. Calls .optimized() so the runtime can fuse operators for
+    maximum throughput.
     """
     model_op = op.load(model_path)
     return op.seq(
-        op.colorconvert('RGB', src='BGR'),  # OpenCV reads BGR; models expect RGB
+        op.colorconvert("RGB", src="BGR"),  # OpenCV reads BGR; models expect RGB
         op.letterbox(640, 640),
         op.totensor(),
         model_op,
