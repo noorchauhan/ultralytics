@@ -355,6 +355,7 @@ def build_text_model(variant: str, device: torch.device = None) -> TextModel:
     elif base == "mobileclip":
         return MobileCLIPTS(device)
     elif base == "mobileclip2":
-        return MobileCLIPTS(device, weight="mobileclip2_b.ts")
+        weights = {"b": "mobileclip2_b.ts", "s4": "mobileclip2_s4_text.ts", "l14": "mobileclip2_l14_text.ts"}
+        return MobileCLIPTS(device, weight=weights.get(size, f"mobileclip2_{size}.ts"))
     else:
         raise ValueError(f"Unrecognized base model '{base}'. Supported models are 'clip', 'mobileclip', 'mobileclip2'.")
