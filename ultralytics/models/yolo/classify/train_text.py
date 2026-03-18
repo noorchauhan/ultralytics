@@ -117,6 +117,7 @@ class TextClassificationTrainer(ClassificationTrainer):
             del text_model
 
         self.text_similarity = self.text_embeddings @ self.text_embeddings.T
+        self.model.text_similarity = self.text_similarity.to(self.device)
 
         if self.loss_mode == "clip_distill":
             self._load_teacher_embeddings(dataset)
@@ -150,7 +151,9 @@ class TextClassificationTrainer(ClassificationTrainer):
 
         from ultralytics.nn.image_model import build_image_model
 
-        LOGGER.info(f"Pre-computing MobileCLIP2-{self.teacher_variant} image embeddings (one-time, ~30 min for ImageNet)...")
+        LOGGER.info(
+            f"Pre-computing MobileCLIP2-{self.teacher_variant} image embeddings (one-time, ~30 min for ImageNet)..."
+        )
         teacher = build_image_model(f"mobileclip2:{self.teacher_variant}", device=self.device)
         n = len(dataset)
         # Detect embed dim from a probe forward pass
@@ -165,7 +168,9 @@ class TextClassificationTrainer(ClassificationTrainer):
             batch_embeds = teacher.encode_image(batch_tensors.to(self.device))
             embeds[i:end] = batch_embeds.cpu()
         torch.save(embeds, cache_path)
-        LOGGER.info(f"Saved teacher embeddings ({embeds.shape}, {cache_path.stat().st_size / 1e9:.2f}GB) to {cache_path}")
+        LOGGER.info(
+            f"Saved teacher embeddings ({embeds.shape}, {cache_path.stat().st_size / 1e9:.2f}GB) to {cache_path}"
+        )
         del teacher
         torch.cuda.empty_cache()
 
@@ -185,10 +190,3 @@ class TextClassificationTrainer(ClassificationTrainer):
                 self.device, non_blocking=self.device.type == "cuda"
             )
         return batch
-
-    def setup_model(self):
-        """Set up model and pass text_similarity matrix for TextSimilarityLoss."""
-        ckpt = super().setup_model()
-        if hasattr(self.model, "text_similarity") and self.text_similarity is not None:
-            self.model.text_similarity = self.text_similarity.to(self.device)
-        return ckpt
