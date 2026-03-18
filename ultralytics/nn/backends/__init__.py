@@ -8,9 +8,9 @@ Each backend implements the `BaseBackend` interface and can be used independentl
 
 from .axelera import AxeleraBackend
 from .base import BaseBackend
-from .litert import LiteRTBackend
 from .coreml import CoreMLBackend
 from .executorch import ExecuTorchBackend
+from .litert import LiteRTBackend
 from .mnn import MNNBackend
 from .ncnn import NCNNBackend
 from .onnx import ONNXBackend, ONNXIMXBackend
@@ -25,9 +25,9 @@ from .triton import TritonBackend
 __all__ = [
     "AxeleraBackend",
     "BaseBackend",
-    "LiteRTBackend",
     "CoreMLBackend",
     "ExecuTorchBackend",
+    "LiteRTBackend",
     "MNNBackend",
     "NCNNBackend",
     "ONNXBackend",
