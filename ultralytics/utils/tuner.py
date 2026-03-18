@@ -7,7 +7,6 @@ import numpy as np
 from ultralytics.cfg import TASK2DATA, TASK2METRIC, get_cfg, get_save_dir
 from ultralytics.utils import DEFAULT_CFG, DEFAULT_CFG_DICT, LOGGER, NUM_THREADS, checks, colorstr
 
-
 RAY_SEARCH_ALG_REQUIREMENTS = {
     "random": None,
     "ax": "ax-platform",
@@ -200,8 +199,8 @@ def run_ray_tune(
 
         import ray
         from ray import tune
-        from ray.tune.schedulers import ASHAScheduler, HyperBandForBOHB
         from ray.tune import RunConfig
+        from ray.tune.schedulers import ASHAScheduler, HyperBandForBOHB
     except ImportError:
         raise ModuleNotFoundError('Ray Tune required but not found. To install run: pip install "ray[tune]"')
 
