@@ -986,8 +986,7 @@ class TextContrastiveLoss:
         cls_logits, img_embeds = preds
         txt_embeds = batch["txt_feats"]
         ce_loss = F.cross_entropy(cls_logits, batch["cls"], reduction="mean")
-        with torch.amp.autocast("cuda", enabled=False):
-            logits = self.logit_scale.exp() * img_embeds.float() @ txt_embeds.float().T
+        logits = self.logit_scale.exp() * img_embeds @ txt_embeds.T
         contrastive_loss = F.cross_entropy(logits, batch["cls"], reduction="mean")
         loss = (1 - self.alpha) * ce_loss + self.alpha * contrastive_loss
         return loss, loss.detach()
@@ -1021,8 +1020,7 @@ class TextSimilarityLoss:
         cls_logits = preds[0] if isinstance(preds, (list, tuple)) else preds
         ce_loss = F.cross_entropy(cls_logits, batch["cls"], reduction="mean")
         teacher = self.soft_targets.to(cls_logits.device)[batch["cls"]]
-        with torch.amp.autocast("cuda", enabled=False):
-            kl_loss = F.kl_div(F.log_softmax(cls_logits.float(), dim=-1), teacher.float(), reduction="batchmean")
+        kl_loss = F.kl_div(F.log_softmax(cls_logits, dim=-1), teacher, reduction="batchmean")
         loss = (1 - self.alpha) * ce_loss + self.alpha * kl_loss
         return loss, loss.detach()
 
@@ -1060,9 +1058,8 @@ class CLIPDistillationLoss:
         txt_embeds = batch["txt_feats"]
         teacher_logits = self.temperature * (batch["teacher_img_embeds"] @ txt_embeds.T)
         student_logits = self.logit_scale.exp() * (img_embeds @ txt_embeds.T)
-        with torch.amp.autocast("cuda", enabled=False):
-            teacher_dist = F.softmax(teacher_logits.float(), dim=-1)
-            kl_loss = -(teacher_dist * F.log_softmax(student_logits.float(), dim=-1)).sum(dim=-1).mean()
+        teacher_dist = F.softmax(teacher_logits, dim=-1)
+        kl_loss = -(teacher_dist * F.log_softmax(student_logits, dim=-1)).sum(dim=-1).mean()
         loss = (1 - self.alpha) * ce_loss + self.alpha * kl_loss
         return loss, loss.detach()
 
