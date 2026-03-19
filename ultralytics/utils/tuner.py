@@ -35,28 +35,53 @@ def _sanitize_tune_value(value):
     return value
 
 
-def _create_ax_search(space, task):
-    """Create an Ax searcher with an initialized experiment."""
+def _get_ray_search_alg_kind(search_alg):
+    """Return the normalized Ray Tune search algorithm kind for known searcher objects."""
+    if search_alg is None:
+        return None
+    if isinstance(search_alg, str):
+        normalized = search_alg.strip().lower()
+        return normalized or None
+
+    cls = search_alg.__class__
+    module, name = cls.__module__, cls.__name__
+    if name == "AxSearch" and module.startswith("ray.tune.search.ax"):
+        return "ax"
+    if name == "TuneBOHB" and module.startswith("ray.tune.search.bohb"):
+        return "bohb"
+    if name == "ZOOptSearch" and module.startswith("ray.tune.search.zoopt"):
+        return "zoopt"
+    return None
+
+
+def _validate_ax_search_space(space):
+    """Validate that a Tune search space can be consumed by Ax."""
     checks.check_requirements(RAY_SEARCH_ALG_REQUIREMENTS["ax"])
 
+    from ray.tune.search.ax.ax_search import AxSearch
+
+    return AxSearch.convert_search_space(space)
+
+
+def _create_ax_search(space, task):
+    """Create an Ax searcher with an initialized experiment."""
     from ax.service.ax_client import AxClient
     from ax.service.utils.instantiation import ObjectiveProperties
     from ray.tune.search.ax.ax_search import AxSearch
 
     ax_client = AxClient()
     ax_client.create_experiment(
-        parameters=AxSearch.convert_search_space(space),
+        parameters=_validate_ax_search_space(space),
         objectives={TASK2METRIC[task]: ObjectiveProperties(minimize=False)},
     )
     return AxSearch(ax_client=ax_client)
 
 
-def _create_bohb_search(space, task):
-    """Create a BOHB searcher using a ConfigSpace definition compatible with current ConfigSpace versions."""
+def _convert_bohb_search_space(space):
+    """Convert a Tune search space into BOHB-compatible ConfigSpace and fixed-only Tune param_space."""
     checks.check_requirements(RAY_SEARCH_ALG_REQUIREMENTS["bohb"])
 
     import ConfigSpace
-    from ray.tune.search.bohb.bohb_search import TuneBOHB
     from ray.tune.search.sample import Categorical, Float, Integer, LogUniform, Quantized, Uniform
     from ray.tune.search.variant_generator import parse_spec_vars
     from ray.tune.utils import flatten_dict
@@ -95,6 +120,14 @@ def _create_bohb_search(space, task):
             )
 
     fixed_param_space = {"/".join(str(p) for p in path): value for path, value in resolved_vars}
+    return cs, fixed_param_space
+
+
+def _create_bohb_search(space, task):
+    """Create a BOHB searcher using a ConfigSpace definition compatible with current ConfigSpace versions."""
+    from ray.tune.search.bohb.bohb_search import TuneBOHB
+
+    cs, fixed_param_space = _convert_bohb_search_space(space)
     return TuneBOHB(space=cs, metric=TASK2METRIC[task], mode="max"), fixed_param_space
 
 
@@ -108,8 +141,8 @@ def _create_nevergrad_search(task):
     return NevergradSearch(optimizer=ng.optimizers.OnePlusOne, metric=TASK2METRIC[task], mode="max")
 
 
-def _create_zoopt_search(space, task, max_samples):
-    """Create a ZOOpt searcher with required budget and converted search space."""
+def _convert_zoopt_search_space(space):
+    """Convert a Tune search space into ZOOpt-compatible dimensions and fixed-only Tune param_space."""
     checks.check_requirements(RAY_SEARCH_ALG_REQUIREMENTS["zoopt"])
 
     from ray.tune.search.variant_generator import parse_spec_vars
@@ -120,36 +153,58 @@ def _create_zoopt_search(space, task, max_samples):
     resolved_vars, _, _ = parse_spec_vars(resolved_space)
     fixed_param_space = {"/".join(str(p) for p in path): value for path, value in resolved_vars}
     dim_dict = ZOOptSearch.convert_search_space(space)
+    return dim_dict, fixed_param_space
+
+
+def _create_zoopt_search(space, task, max_samples):
+    """Create a ZOOpt searcher with required budget and converted search space."""
+    from ray.tune.search.zoopt import ZOOptSearch
+
+    dim_dict, fixed_param_space = _convert_zoopt_search_space(space)
     return ZOOptSearch(
         algo="asracos", budget=max_samples, dim_dict=dim_dict, metric=TASK2METRIC[task], mode="max"
     ), fixed_param_space
 
 
 def _resolve_ray_search_alg(search_alg, task, space, max_samples):
-    """Resolve string search algorithm aliases into Ray Tune searcher objects."""
-    if search_alg is None or not isinstance(search_alg, str):
-        return search_alg, space
+    """Resolve search algorithms and normalize Tune param_space for known Ray Tune searchers."""
+    if search_alg is None:
+        return None, space, None
 
-    normalized = search_alg.strip().lower()
-    if not normalized:
-        return None, space
-
-    if normalized not in RAY_SEARCH_ALG_REQUIREMENTS:
-        supported = ", ".join(sorted(RAY_SEARCH_ALG_REQUIREMENTS))
-        raise ValueError(f"Unsupported Ray Tune search_alg '{search_alg}'. Supported values: {supported}.")
-
-    if normalized == "random":
-        return None, space
+    normalized = _get_ray_search_alg_kind(search_alg)
+    if isinstance(search_alg, str):
+        if not normalized:
+            return None, space, None
+        if normalized not in RAY_SEARCH_ALG_REQUIREMENTS:
+            supported = ", ".join(sorted(RAY_SEARCH_ALG_REQUIREMENTS))
+            raise ValueError(f"Unsupported Ray Tune search_alg '{search_alg}'. Supported values: {supported}.")
+        if normalized == "random":
+            return None, space, normalized
 
     try:
         if normalized == "ax":
-            return _create_ax_search(space, task), {}
+            if isinstance(search_alg, str):
+                return _create_ax_search(space, task), {}, normalized
+            _validate_ax_search_space(space)
+            return search_alg, {}, normalized
         if normalized == "bohb":
-            return _create_bohb_search(space, task)
+            if isinstance(search_alg, str):
+                resolved_search_alg, tuner_param_space = _create_bohb_search(space, task)
+            else:
+                _, tuner_param_space = _convert_bohb_search_space(space)
+                resolved_search_alg = search_alg
+            return resolved_search_alg, tuner_param_space, normalized
         if normalized == "nevergrad":
-            return _create_nevergrad_search(task), space
+            return _create_nevergrad_search(task), space, normalized
         if normalized == "zoopt":
-            return _create_zoopt_search(space, task, max_samples)
+            if isinstance(search_alg, str):
+                resolved_search_alg, tuner_param_space = _create_zoopt_search(space, task, max_samples)
+            else:
+                _, tuner_param_space = _convert_zoopt_search_space(space)
+                resolved_search_alg = search_alg
+            return resolved_search_alg, tuner_param_space, normalized
+        if not isinstance(search_alg, str):
+            return search_alg, space, None
 
         requirements = RAY_SEARCH_ALG_REQUIREMENTS[normalized]
         if requirements:
@@ -157,7 +212,7 @@ def _resolve_ray_search_alg(search_alg, task, space, max_samples):
 
         from ray.tune.search import create_searcher
 
-        return create_searcher(normalized, metric=TASK2METRIC[task], mode="max"), space
+        return create_searcher(normalized, metric=TASK2METRIC[task], mode="max"), space, normalized
     except (ImportError, ModuleNotFoundError) as e:
         raise ModuleNotFoundError(
             f"Ray Tune search_alg '{search_alg}' requires additional dependencies. Original error: {e}"
@@ -182,7 +237,8 @@ def run_ray_tune(
         gpu_per_trial (int, optional): The number of GPUs to allocate per trial.
         max_samples (int, optional): The maximum number of trials to run.
         search_alg (str | ray.tune.search.Searcher | ray.tune.search.SearchAlgorithm, optional): Search algorithm to
-            use. Strings are resolved to supported Ray Tune searchers, while objects are passed through as-is.
+            use. Strings are resolved to supported Ray Tune searchers. Pre-instantiated objects are reused, and known
+            searchers with special Tune param_space requirements are normalized automatically.
         **train_args (Any): Additional arguments to pass to the `train()` method.
 
     Returns:
@@ -277,7 +333,9 @@ def run_ray_tune(
     if "data" not in train_args:
         LOGGER.warning(f'Data not provided, using default "data={data}".')
 
-    resolved_search_alg, tuner_param_space = _resolve_ray_search_alg(search_alg, task, space, max_samples)
+    resolved_search_alg, tuner_param_space, resolved_search_alg_kind = _resolve_ray_search_alg(
+        search_alg, task, space, max_samples
+    )
 
     # Define the trainable function with allocated resources
     trainable_with_resources = tune.with_resources(_tune, {"cpu": NUM_THREADS, "gpu": gpu_per_trial or 0})
@@ -291,7 +349,7 @@ def run_ray_tune(
         grace_period=grace_period,
         reduction_factor=3,
     )
-    if isinstance(search_alg, str) and search_alg.strip().lower() == "bohb":
+    if resolved_search_alg_kind == "bohb":
         scheduler = HyperBandForBOHB(
             time_attr="epoch",
             metric=TASK2METRIC[task],
