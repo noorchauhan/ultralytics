@@ -729,7 +729,16 @@ class TextClassificationModel(ClassificationModel):
         text_similarity (torch.Tensor): Pre-computed (nc, nc) text similarity matrix.
     """
 
-    def __init__(self, cfg="yolo26n-cls.yaml", ch=3, nc=None, verbose=True, embed_dim=768, loss_mode="contrastive"):
+    def __init__(
+        self,
+        cfg="yolo26n-cls.yaml",
+        ch=3,
+        nc=None,
+        verbose=True,
+        embed_dim=768,
+        loss_mode="contrastive",
+        use_clip_classifier=False,
+    ):
         """Initialize TextClassificationModel with projection head for text-aligned training.
 
         Args:
@@ -739,6 +748,7 @@ class TextClassificationModel(ClassificationModel):
             verbose (bool): Whether to display model information.
             embed_dim (int): Dimension of the text embedding space.
             loss_mode (str): Loss mode ('contrastive', 'text_similarity', 'clip_distill').
+            use_clip_classifier (bool): Use projection @ text_embeddings.T instead of linear head for classification.
         """
         super().__init__(cfg, ch, nc, verbose)
         c_ = self.model[-1].linear.in_features  # Classify head intermediate dim (1280 for default)
@@ -746,6 +756,8 @@ class TextClassificationModel(ClassificationModel):
         self.logit_scale = nn.Parameter(torch.ones([]) * torch.tensor(1 / 0.07).log())
         self.loss_mode = loss_mode
         self.text_similarity = None
+        self.use_clip_classifier = use_clip_classifier
+        self._text_embeddings = None
 
     def loss(self, batch, preds=None):
         """Compute text-aligned classification loss during training, CE-only during validation.
@@ -778,10 +790,28 @@ class TextClassificationModel(ClassificationModel):
 
         head = self.model[-1]
         features = head.pool(head.conv(x)).flatten(1)
-        cls_logits = head.linear(head.drop(features))
         img_embeds = nn.functional.normalize(self.proj(features), dim=-1)
 
+        if self.use_clip_classifier:
+            txt_feats = batch.get("txt_feats", self._text_embeddings.to(x.device, x.dtype))
+            cls_logits = self.logit_scale.exp() * (img_embeds @ txt_feats.T)
+        else:
+            cls_logits = head.linear(head.drop(features))
+
         return self.criterion((cls_logits, img_embeds), batch)
+
+    def forward(self, x, *args, **kwargs):
+        """Run forward pass, using CLIP classifier when enabled."""
+        if isinstance(x, dict):
+            return self.loss(x, *args, **kwargs)
+        if self.use_clip_classifier and self._text_embeddings is not None:
+            for m in self.model[:-1]:
+                x = m(x)
+            head = self.model[-1]
+            features = head.pool(head.conv(x)).flatten(1)
+            img_embeds = nn.functional.normalize(self.proj(features), dim=-1)
+            return self.logit_scale.exp() * (img_embeds @ self._text_embeddings.to(x.device, x.dtype).T)
+        return self.predict(x, *args, **kwargs)
 
     def init_criterion(self):
         """Initialize loss criterion based on loss_mode setting."""

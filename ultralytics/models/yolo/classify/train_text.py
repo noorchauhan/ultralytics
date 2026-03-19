@@ -40,6 +40,7 @@ class TextClassificationTrainer(ClassificationTrainer):
             overrides = {}
         self.loss_mode = overrides.pop("loss_mode", "contrastive")
         self.teacher_variant = overrides.pop("teacher_variant", "s4")
+        self.use_clip_classifier = overrides.pop("use_clip_classifier", False)
         self.text_embeddings = None
         self.text_similarity = None
         self.teacher_img_embeds = None
@@ -62,6 +63,7 @@ class TextClassificationTrainer(ClassificationTrainer):
             ch=self.data["channels"],
             verbose=verbose and RANK == -1,
             loss_mode=self.loss_mode,
+            use_clip_classifier=self.use_clip_classifier,
         )
         if weights:
             model.load(weights)
@@ -119,6 +121,7 @@ class TextClassificationTrainer(ClassificationTrainer):
 
         self.text_similarity = self.text_embeddings @ self.text_embeddings.T
         self.model.text_similarity = self.text_similarity.to(self.device)
+        self.model._text_embeddings = self.text_embeddings
 
         if self.loss_mode == "clip_distill":
             self._load_teacher_embeddings(dataset)
