@@ -56,13 +56,14 @@ class SemanticTrainer(BaseTrainer):
         Returns:
             (SemanticDataset): Semantic segmentation dataset.
         """
+        use_rect = mode == "val" and self.args.rect
         return SemanticDataset(
             img_path=img_path,
             imgsz=self.args.imgsz,
             augment=mode == "train",
             hyp=self.args,
             data=self.data,
-            rect=False,  # semantic seg requires fixed square input
+            rect=use_rect,
             batch_size=batch,
             stride=max(int(self.model.stride.max() if hasattr(self.model, "stride") else 32), 32),
             prefix=f"{mode}: ",

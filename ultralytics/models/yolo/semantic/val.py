@@ -131,13 +131,14 @@ class SemanticValidator(BaseValidator):
         Returns:
             (SemanticDataset): Dataset object.
         """
+        use_rect = mode == "val" and self.args.rect
         return SemanticDataset(
             img_path=img_path,
             imgsz=self.args.imgsz,
             augment=False,
             hyp=self.args,
             data=self.data,
-            rect=False,  # semantic seg requires fixed square input for consistent results
+            rect=use_rect,
             batch_size=batch,
             stride=self.stride,
             prefix=f"{mode}: ",
