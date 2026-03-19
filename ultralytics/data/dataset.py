@@ -800,6 +800,7 @@ class SemanticDataset(BaseDataset):
         Returns:
             (Compose): Composed transforms.
         """
+        transforms = []
         if self.augment:
             from ultralytics.data.augment import Mosaic, RandomPerspective, SemanticRandomScaleCrop
             transforms = []
@@ -824,8 +825,6 @@ class SemanticDataset(BaseDataset):
             crop_size = self.data.get("crop_size", 512)
             transforms.append(SemanticRandomScaleCrop(crop_size=crop_size))
             transforms.append(RandomFlip(p=0.5, direction="horizontal"))
-        else:
-            transforms = [LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)]
         transforms.append(SemanticFormat())
         return Compose(transforms)
 
