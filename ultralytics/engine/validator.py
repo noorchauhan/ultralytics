@@ -21,6 +21,7 @@ Usage - formats:
                           yolo26n_ncnn_model         # NCNN
                           yolo26n_imx_model          # Sony IMX
                           yolo26n_rknn_model         # Rockchip RKNN
+                          yolo26n_deepx_model        # DeepX
 """
 
 from __future__ import annotations
