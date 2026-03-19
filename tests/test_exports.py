@@ -306,6 +306,18 @@ def test_export_axelera():
     shutil.rmtree(file, ignore_errors=True)  # cleanup
 
 
+@pytest.mark.slow
+@pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
+@pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
+@pytest.mark.parametrize("task", [task for task in TASKS if task != "segment"])
+def test_export_axelera_matrix(task):
+    """Test YOLO export to Axelera format for supported non-segmentation tasks."""
+    # Use task-specific datasets for calibration; inference is skipped because it requires Axelera hardware.
+    file = YOLO(TASK2MODEL[task]).export(format="axelera", imgsz=64, data=TASK2DATA[task])
+    assert Path(file).exists(), f"Axelera export failed for task '{task}', directory not found: {file}"
+    shutil.rmtree(file, ignore_errors=True)  # cleanup
+
+
 # @pytest.mark.skipif(True, reason="Disabled for debugging ruamel.yaml installation required by executorch")
 @pytest.mark.skipif(not checks.IS_PYTHON_MINIMUM_3_10 or not TORCH_2_9, reason="Requires Python>=3.10 and Torch>=2.9.0")
 @pytest.mark.skipif(WINDOWS, reason="Skipping test on Windows")
