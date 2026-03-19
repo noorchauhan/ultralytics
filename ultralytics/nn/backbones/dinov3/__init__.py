@@ -1,1 +1,2 @@
 from .vision_transformer import DinoVisionTransformer
+from .windowed_vision_transformer import WindowedDinoVisionTransformer

@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 from ultralytics.utils import LOGGER
 
-from .dinov3 import DinoVisionTransformer
+from .dinov3 import DinoVisionTransformer, WindowedDinoVisionTransformer
 from .dinov3.vision_transformer import configs as dinov3_configs
 
 __all__ = ["DINOv3STAs"]
@@ -76,9 +76,19 @@ class DINOv3STAs(nn.Module):
         use_sta: bool = True,
         conv_inplane: int = 32,
         hidden_dim: int = 224,
+        num_windows: int = 1,
+        global_block_indexes: list[int] | None = None,
     ):
         super().__init__()
-        self.dinov3 = DinoVisionTransformer(name=name)
+        if num_windows > 1:
+            self.dinov3 = WindowedDinoVisionTransformer(
+                name=name,
+                num_windows=num_windows,
+                # Default: interaction_indexes are the global attention layers
+                global_block_indexes=global_block_indexes or list(interaction_indexes),
+            )
+        else:
+            self.dinov3 = DinoVisionTransformer(name=name)
         self.interaction_indexes = list(interaction_indexes)
         self.patch_size = patch_size
         self._last_load_source = "none"

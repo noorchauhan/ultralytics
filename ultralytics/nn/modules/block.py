@@ -1929,6 +1929,8 @@ class DEIMDINOv3STAs(nn.Module):
         conv_inplane: int = 32,
         hidden_dim: int = 224,
         split: bool = True,
+        num_windows: int = 1,
+        global_block_indexes: list[int] | None = None,
     ):
         """Initialize DEIMv2 DINOv3 wrapper for Ultralytics model parser."""
         from ultralytics.nn.backbones.dinov3_adapter import DINOv3STAs as _DINOv3STAs  # scope for faster import
@@ -1943,6 +1945,8 @@ class DEIMDINOv3STAs(nn.Module):
             use_sta=use_sta,
             conv_inplane=conv_inplane,
             hidden_dim=hidden_dim,
+            num_windows=num_windows,
+            global_block_indexes=list(global_block_indexes) if global_block_indexes is not None else None,
         )
         self.split = split
         self.channels = self.m.out_channels
