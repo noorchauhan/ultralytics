@@ -41,10 +41,19 @@ class TextClassificationTrainer(ClassificationTrainer):
         self.loss_mode = overrides.pop("loss_mode", "contrastive")
         self.teacher_variant = overrides.pop("teacher_variant", "s4")
         self.use_clip_classifier = overrides.pop("use_clip_classifier", False)
+        self.muon_w = overrides.pop("muon_w", 0.1)
         self.text_embeddings = None
         self.text_similarity = None
         self.teacher_img_embeds = None
         super().__init__(cfg, overrides, _callbacks)
+
+    def build_optimizer(self, model, name="auto", lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
+        """Build optimizer and override MuSGD muon weight (core hardcodes 0.2, published baseline uses 0.1)."""
+        optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
+        if hasattr(optimizer, "muon"):
+            optimizer.muon = self.muon_w
+            LOGGER.info(f"MuSGD muon weight overridden to {self.muon_w}")
+        return optimizer
 
     def get_model(self, cfg=None, weights=None, verbose: bool = True):
         """Return TextClassificationModel configured for text-aligned training.
