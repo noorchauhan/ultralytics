@@ -1,5 +1,6 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
+from .axelera import torch2axelera
 from .engine import onnx2engine, torch2onnx
 from .executorch import torch2executorch
 from .imx import torch2imx
@@ -11,6 +12,7 @@ __all__ = [
     "onnx2saved_model",
     "pb2tfjs",
     "tflite2edgetpu",
+    "torch2axelera",
     "torch2executorch",
     "torch2imx",
     "torch2onnx",
