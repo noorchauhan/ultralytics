@@ -393,6 +393,8 @@ class Exporter:
         fmt_keys = fmts_dict["Arguments"][flags.index(True) + 1]
         validate_args(fmt, self.args, fmt_keys)
         if axelera:
+            if model.task not in {"detect", "classify", "pose", "obb"}:
+                raise ValueError("Axelera export only supported for detection, classification, pose, and OBB models.")
             if not self.args.int8:
                 LOGGER.warning("Setting int8=True for Axelera mixed-precision export.")
                 self.args.int8 = True
@@ -400,8 +402,6 @@ class Exporter:
                 # Axelera default to task-specific lightweight calibration datasets
                 if model.task in {"classify"}:
                     self.args.data = "imagenet100"
-                elif model.task in {"segment"}:
-                    self.args.data = "coco128-seg.yaml"
                 elif model.task in {"pose"}:
                     self.args.data = "coco8-pose.yaml"
                 elif model.task in {"obb"}:

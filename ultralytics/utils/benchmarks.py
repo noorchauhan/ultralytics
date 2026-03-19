@@ -156,6 +156,10 @@ def benchmark(
                 assert not is_rockchip(), "RKNN Inference only supported on Rockchip devices"
             if format == "executorch":
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 ExecuTorch exports not supported yet"
+            if format == "axelera":
+                assert model.task in {"detect", "classify", "pose", "obb"}, (
+                    "Axelera export is only supported for detection, classification, pose, and OBB tasks"
+                )
             if "cpu" in device.type:
                 assert cpu, "inference not supported on CPU"
             if "cuda" in device.type:
