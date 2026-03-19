@@ -157,6 +157,7 @@ def benchmark(
             if format == "executorch":
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 ExecuTorch exports not supported yet"
             if format == "axelera":
+                assert not isinstance(model, YOLOWorld), "YOLOWorldv2 Axelera exports not supported"
                 assert model.task in {"detect", "classify", "pose", "obb"}, (
                     "Axelera export is only supported for detection, classification, pose, and OBB tasks"
                 )
