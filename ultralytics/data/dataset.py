@@ -703,7 +703,31 @@ class SemanticDataset(BaseDataset):
             **kwargs: Keyword arguments passed to BaseDataset.
         """
         self.data = data or {}
+        self.ignore_label = 255
+        self.label_mapping = self._parse_label_mapping(self.data.get("label_mapping"))
         super().__init__(*args, **kwargs)
+
+    def _parse_label_mapping(self, mapping):
+        """Normalize label_mapping entries from dataset YAML into integer-to-integer ids."""
+        if mapping is None:
+            return {}
+        if not isinstance(mapping, dict):
+            raise TypeError(
+                f"Expected 'label_mapping' to be a dict in dataset YAML, but got {type(mapping).__name__}."
+            )
+
+        normalized = {}
+        for src, dst in mapping.items():
+            src = int(src)
+            if isinstance(dst, str):
+                dst = dst.strip()
+                dst = self.ignore_label if dst == "ignore_label" else int(dst)
+            elif dst is None:
+                dst = self.ignore_label
+            else:
+                dst = int(dst)
+            normalized[src] = dst
+        return normalized
 
     def get_labels(self):
         """Load mask paths and create label entries for each image.
@@ -777,31 +801,43 @@ class SemanticDataset(BaseDataset):
             (Compose): Composed transforms.
         """
         if self.augment:
-            from ultralytics.data.augment import Mosaic, RandomPerspective
-
-            mosaic = Mosaic(self, imgsz=self.imgsz, p=getattr(hyp, "mosaic", 1.0) if hyp else 1.0)
-            affine = RandomPerspective(
-                degrees=getattr(hyp, "degrees", 0.0) if hyp else 0.0,
-                translate=getattr(hyp, "translate", 0.1) if hyp else 0.1,
-                scale=getattr(hyp, "scale", 0.5) if hyp else 0.5,
-                shear=getattr(hyp, "shear", 0.0) if hyp else 0.0,
-                perspective=getattr(hyp, "perspective", 0.0) if hyp else 0.0,
-                pre_transform=LetterBox(new_shape=(self.imgsz, self.imgsz)),
-            )
-            transforms = [mosaic, affine]
-            if hyp:
-                transforms.append(
-                    RandomHSV(
-                        hgain=getattr(hyp, "hsv_h", 0.015),
-                        sgain=getattr(hyp, "hsv_s", 0.7),
-                        vgain=getattr(hyp, "hsv_v", 0.4),
-                    )
-                )
+            from ultralytics.data.augment import Mosaic, RandomPerspective, SemanticRandomScaleCrop
+            transforms = []
+            # mosaic = Mosaic(self, imgsz=self.imgsz, p=getattr(hyp, "mosaic", 1.0) if hyp else 1.0)
+            # affine = RandomPerspective(
+            #     degrees=getattr(hyp, "degrees", 0.0) if hyp else 0.0,
+            #     translate=getattr(hyp, "translate", 0.1) if hyp else 0.1,
+            #     scale=getattr(hyp, "scale", 0.5) if hyp else 0.5,
+            #     shear=getattr(hyp, "shear", 0.0) if hyp else 0.0,
+            #     perspective=getattr(hyp, "perspective", 0.0) if hyp else 0.0,
+            #     pre_transform=LetterBox(new_shape=(self.imgsz, self.imgsz)),
+            # )
+            # transforms = [mosaic, affine]
+            # if hyp:
+            #     transforms.append(
+            #         RandomHSV(
+            #             hgain=getattr(hyp, "hsv_h", 0.015),
+            #             sgain=getattr(hyp, "hsv_s", 0.7),
+            #             vgain=getattr(hyp, "hsv_v", 0.4),
+            #         )
+            #     )
+            crop_size = self.data.get("crop_size", 512)
+            transforms.append(SemanticRandomScaleCrop(crop_size=crop_size))
             transforms.append(RandomFlip(p=0.5, direction="horizontal"))
         else:
             transforms = [LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)]
         transforms.append(SemanticFormat())
         return Compose(transforms)
+
+    def convert_label(self, label, inverse=False):
+        temp = label.copy()
+        if inverse:
+            for v, k in self.label_mapping.items():
+                label[temp == k] = v
+        else:
+            for k, v in self.label_mapping.items():
+                label[temp == k] = v
+        return label
 
     def _load_semantic_mask(self, index):
         """Load semantic mask for the given index.
@@ -820,7 +856,10 @@ class SemanticDataset(BaseDataset):
         except Exception:
             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         if mask is None:
-            mask = np.full((640, 640), 255, dtype=np.uint8)
+            h, w = self.labels[index]["resized_shape"]
+            mask = np.full((h, w), self.ignore_label, dtype=np.uint8)
+        elif self.label_mapping:
+            mask = self.convert_label(mask, inverse=False)
         return mask
 
     def get_image_and_label(self, index):
@@ -918,7 +957,7 @@ class SemanticFormat:
         if mask is not None:
             labels["semantic_mask"] = torch.from_numpy(mask.copy()).long()
         else:
-            labels["semantic_mask"] = torch.full((640, 640), 255, dtype=torch.long)
+            labels["semantic_mask"] = torch.full(labels["img"].shape[-2:], 255, dtype=torch.long)
 
         # Remove keys not needed downstream
         for k in ("instances", "cls", "resized_shape", "ori_shape", "ratio_pad"):
