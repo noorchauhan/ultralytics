@@ -15,7 +15,19 @@ keywords: Ultralytics, tuner, hyperparameter tuning, Ray Tune, YOLO, machine lea
 
 <br><br><hr><br>
 
+## ::: ultralytics.utils.tuner._get_ray_search_alg_kind
+
+<br><br><hr><br>
+
+## ::: ultralytics.utils.tuner._validate_ax_search_space
+
+<br><br><hr><br>
+
 ## ::: ultralytics.utils.tuner._create_ax_search
+
+<br><br><hr><br>
+
+## ::: ultralytics.utils.tuner._convert_bohb_search_space
 
 <br><br><hr><br>
 
@@ -24,6 +36,10 @@ keywords: Ultralytics, tuner, hyperparameter tuning, Ray Tune, YOLO, machine lea
 <br><br><hr><br>
 
 ## ::: ultralytics.utils.tuner._create_nevergrad_search
+
+<br><br><hr><br>
+
+## ::: ultralytics.utils.tuner._convert_zoopt_search_space
 
 <br><br><hr><br>
 
