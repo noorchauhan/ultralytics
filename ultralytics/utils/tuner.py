@@ -65,13 +65,15 @@ def _validate_ax_search_space(space):
 
 def _create_ax_search(space, task):
     """Create an Ax searcher with an initialized experiment."""
+    parameters = _validate_ax_search_space(space)
+
     from ax.service.ax_client import AxClient
     from ax.service.utils.instantiation import ObjectiveProperties
     from ray.tune.search.ax.ax_search import AxSearch
 
     ax_client = AxClient()
     ax_client.create_experiment(
-        parameters=_validate_ax_search_space(space),
+        parameters=parameters,
         objectives={TASK2METRIC[task]: ObjectiveProperties(minimize=False)},
     )
     return AxSearch(ax_client=ax_client)
@@ -125,9 +127,10 @@ def _convert_bohb_search_space(space):
 
 def _create_bohb_search(space, task):
     """Create a BOHB searcher using a ConfigSpace definition compatible with current ConfigSpace versions."""
+    cs, fixed_param_space = _convert_bohb_search_space(space)
+
     from ray.tune.search.bohb.bohb_search import TuneBOHB
 
-    cs, fixed_param_space = _convert_bohb_search_space(space)
     return TuneBOHB(space=cs, metric=TASK2METRIC[task], mode="max"), fixed_param_space
 
 
@@ -158,9 +161,10 @@ def _convert_zoopt_search_space(space):
 
 def _create_zoopt_search(space, task, max_samples):
     """Create a ZOOpt searcher with required budget and converted search space."""
+    dim_dict, fixed_param_space = _convert_zoopt_search_space(space)
+
     from ray.tune.search.zoopt import ZOOptSearch
 
-    dim_dict, fixed_param_space = _convert_zoopt_search_space(space)
     return ZOOptSearch(
         algo="asracos", budget=max_samples, dim_dict=dim_dict, metric=TASK2METRIC[task], mode="max"
     ), fixed_param_space
