@@ -141,6 +141,7 @@ from ultralytics.utils.torch_utils import (
     TORCH_2_1,
     TORCH_2_3,
     TORCH_2_4,
+    TORCH_2_8,
     TORCH_2_9,
     select_device,
 )
