@@ -83,6 +83,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "coverage[toml]",
+    "ruff>=0.9.1",
     "zensical>=0.0.15; python_version >= '3.10'",
     "mkdocs-ultralytics-plugin>=0.2.4", # for meta descriptions and images, dates and authors
     "minijinja>=2.0.0", # render docs macros without mkdocs-macros-plugin
@@ -175,6 +176,11 @@ split_before_first_argument = false
 
 [tool.ruff]
 line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+extend-select = ["F", "I", "D", "UP", "RUF", "FA"]
+ignore = ["D100", "D104", "D203", "D205", "D212", "D213", "D401", "D406", "D407", "D413", "RUF001", "RUF002", "RUF012"]
 
 [tool.ruff.format]
 docstring-code-format = true
