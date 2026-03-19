@@ -37,6 +37,7 @@ class TaskAlignedAssigner(nn.Module):
         stride: list = [8, 16, 32],
         eps: float = 1e-9,
         topk2=None,
+        stal: bool = True,
     ):
         """Initialize a TaskAlignedAssigner object with customizable hyperparameters.
 
@@ -58,6 +59,7 @@ class TaskAlignedAssigner(nn.Module):
         self.stride = stride
         self.stride_val = self.stride[1] if len(self.stride) > 1 else self.stride[0]
         self.eps = eps
+        self.stal = stal
 
     @torch.no_grad()
     def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt):
@@ -302,14 +304,15 @@ class TaskAlignedAssigner(nn.Module):
             - b: batch size, n_boxes: number of ground truth boxes, h: height, w: width.
             - Bounding box format: [x_min, y_min, x_max, y_max].
         """
-        gt_bboxes_xywh = xyxy2xywh(gt_bboxes)
-        wh_mask = gt_bboxes_xywh[..., 2:] < self.stride[0]  # the smallest stride
-        gt_bboxes_xywh[..., 2:] = torch.where(
-            (wh_mask * mask_gt).bool(),
-            torch.tensor(self.stride_val, dtype=gt_bboxes_xywh.dtype, device=gt_bboxes_xywh.device),
-            gt_bboxes_xywh[..., 2:],
-        )
-        gt_bboxes = xywh2xyxy(gt_bboxes_xywh)
+        if self.stal:
+            gt_bboxes_xywh = xyxy2xywh(gt_bboxes)
+            wh_mask = gt_bboxes_xywh[..., 2:] < self.stride[0]  # the smallest stride
+            gt_bboxes_xywh[..., 2:] = torch.where(
+                (wh_mask * mask_gt).bool(),
+                torch.tensor(self.stride_val, dtype=gt_bboxes_xywh.dtype, device=gt_bboxes_xywh.device),
+                gt_bboxes_xywh[..., 2:],
+            )
+            gt_bboxes = xywh2xyxy(gt_bboxes_xywh)
 
         n_anchors = xy_centers.shape[0]
         bs, n_boxes, _ = gt_bboxes.shape
