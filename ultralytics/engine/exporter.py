@@ -1168,9 +1168,9 @@ class Exporter:
     @try_export
     def export_axelera(self, prefix=colorstr("Axelera:")):
         """Export YOLO model to Axelera format."""
-        assert LINUX, f"export only supported on Linux."
+        assert LINUX, "export only supported on Linux."
         assert TORCH_2_8, "export requires torch>=2.8.0."
-        
+
         return torch2axelera(
             model=self.model,
             file=self.file,
