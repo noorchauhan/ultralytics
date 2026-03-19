@@ -1169,7 +1169,7 @@ class Exporter:
         """Export YOLO model to Axelera format."""
         assert LINUX, "export only supported on Linux."
         assert TORCH_2_8, "Axelera export requires torch>=2.8.0."
-        
+
         return torch2axelera(
             model=self.model,
             file=self.file,
