@@ -749,6 +749,7 @@ nav:
               - axelera: reference/nn/backends/axelera.md
               - base: reference/nn/backends/base.md
               - coreml: reference/nn/backends/coreml.md
+              - deepx: reference/nn/backends/deepx.md
               - executorch: reference/nn/backends/executorch.md
               - mnn: reference/nn/backends/mnn.md
               - ncnn: reference/nn/backends/ncnn.md

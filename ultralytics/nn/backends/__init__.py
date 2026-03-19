@@ -8,8 +8,8 @@ Each backend implements the `BaseBackend` interface and can be used independentl
 
 from .axelera import AxeleraBackend
 from .base import BaseBackend
-from .deepx import DeepXBackend
 from .coreml import CoreMLBackend
+from .deepx import DeepXBackend
 from .executorch import ExecuTorchBackend
 from .mnn import MNNBackend
 from .ncnn import NCNNBackend
@@ -25,8 +25,8 @@ from .triton import TritonBackend
 __all__ = [
     "AxeleraBackend",
     "BaseBackend",
-    "DeepXBackend",
     "CoreMLBackend",
+    "DeepXBackend",
     "ExecuTorchBackend",
     "MNNBackend",
     "NCNNBackend",
