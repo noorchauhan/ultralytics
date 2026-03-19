@@ -1272,6 +1272,12 @@ class SemanticSegLoss(nn.Module):
             return F.interpolate(masks.float().unsqueeze(1), size=target_shape, mode="nearest").squeeze(1).long()
         return masks
 
+    def _ce_loss(self, preds, masks):
+        """Compute cross-entropy on flattened pixels to avoid the CUDA nll_loss2d path."""
+        logits = preds.permute(0, 2, 3, 1).reshape(-1, self.nc)
+        target = masks.reshape(-1)
+        return self.ce(logits, target)
+
     def _dice_loss(self, preds, masks):
         """Compute Dice loss excluding ignore pixels."""
         valid = masks != 255
@@ -1298,18 +1304,20 @@ class SemanticSegLoss(nn.Module):
             preds, aux_logits = preds
 
         masks = batch["semantic_mask"].to(preds.device).long()
-        main_masks = self._resize_masks(masks, preds.shape[2:])
+        if preds.shape[2:] != masks.shape[1:]:
+            preds = F.interpolate(preds, size=masks.shape[1:], mode="bilinear", align_corners=False)
 
         # Main CE + Dice
-        ce_loss = self.ce(preds, main_masks)
-        dice_loss = self._dice_loss(preds, main_masks)
+        ce_loss = self._ce_loss(preds, masks)
+        dice_loss = self._dice_loss(preds, masks)
         total = ce_loss + self.dice_weight * dice_loss
 
         # Auxiliary CE loss
         aux_loss = torch.tensor(0.0, device=preds.device)
         if aux_logits is not None:
-            aux_masks = self._resize_masks(masks, aux_logits.shape[2:])
-            aux_loss = self.ce(aux_logits, aux_masks)
+            if aux_logits.shape[2:] != masks.shape[1:]:
+                aux_logits = F.interpolate(aux_logits, size=masks.shape[1:], mode="bilinear", align_corners=False)
+            aux_loss = self._ce_loss(aux_logits, masks)
             total = total + self.aux_weight * aux_loss
 
         loss_items = torch.stack([ce_loss, dice_loss, aux_loss]).detach()
