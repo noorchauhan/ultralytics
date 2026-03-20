@@ -298,12 +298,23 @@ def test_export_imx():
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
-@pytest.mark.skipif(not checks.IS_PYTHON_3_10, reason="Axelera export requires Python 3.10")
 def test_export_axelera():
     """Test YOLO export to Axelera format."""
     # For faster testing, use a smaller calibration dataset (32 image size crashes axelera export, so 64 is used)
     file = YOLO(MODEL).export(format="axelera", imgsz=64, data="coco8.yaml")
     assert Path(file).exists(), f"Axelera export failed, directory not found: {file}"
+    shutil.rmtree(file, ignore_errors=True)  # cleanup
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
+@pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
+@pytest.mark.parametrize("task", TASKS)
+def test_export_axelera_matrix(task):
+    """Test YOLO export to Axelera format for supported tasks."""
+    # Use task-specific datasets for calibration; inference is skipped because it requires Axelera hardware.
+    file = YOLO(TASK2MODEL[task]).export(format="axelera", imgsz=64, data=TASK2DATA[task])
+    assert Path(file).exists(), f"Axelera export failed for task '{task}', directory not found: {file}"
     shutil.rmtree(file, ignore_errors=True)  # cleanup
 
 
