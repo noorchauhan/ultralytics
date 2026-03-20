@@ -306,6 +306,7 @@ def test_export_axelera():
     # For faster testing, use a smaller calibration dataset (32 image size crashes axelera export, so 64 is used)
     file = YOLO(MODEL).export(format="axelera", imgsz=64, data="coco8.yaml")
     assert Path(file).exists(), f"Axelera export failed, directory not found: {file}"
+    # Note: Inference testing skipped as it requires Axelera hardware
     shutil.rmtree(file, ignore_errors=True)  # cleanup
 
 
@@ -319,9 +320,9 @@ def test_export_axelera():
 @pytest.mark.parametrize("task", [task for task in TASKS if task != "segment"])
 def test_export_axelera_matrix(task):
     """Test YOLO export to Axelera format for supported tasks."""
-    # Use task-specific datasets for calibration; inference is skipped because it requires Axelera hardware.
     file = YOLO(TASK2MODEL[task]).export(format="axelera", imgsz=64, data=TASK2DATA[task])
     assert Path(file).exists(), f"Axelera export failed for task '{task}', directory not found: {file}"
+    # Note: Inference testing skipped as it requires Axelera hardware
     shutil.rmtree(file, ignore_errors=True)  # cleanup
 
 
