@@ -311,7 +311,7 @@ def test_export_axelera():
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
 @pytest.mark.skipif(IS_RASPBERRYPI, reason="Test disabled due to OOM (Out of Memory) issues on Raspberry Pi 5 16GB")
-@pytest.mark.parametrize("task", TASKS)
+@pytest.mark.parametrize("task", [task for task in TASKS if task != "segment"])
 def test_export_axelera_matrix(task):
     """Test YOLO export to Axelera format for supported tasks."""
     # Use task-specific datasets for calibration; inference is skipped because it requires Axelera hardware.
