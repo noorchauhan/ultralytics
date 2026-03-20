@@ -298,6 +298,7 @@ def test_export_imx():
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
+@pytest.mark.skipif(IS_RASPBERRYPI, reason="Test disabled due to OOM (Out of Memory) issues on Raspberry Pi 5 16GB")
 def test_export_axelera():
     """Test YOLO export to Axelera format."""
     # For faster testing, use a smaller calibration dataset (32 image size crashes axelera export, so 64 is used)
@@ -309,6 +310,7 @@ def test_export_axelera():
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
+@pytest.mark.skipif(IS_RASPBERRYPI, reason="Test disabled due to OOM (Out of Memory) issues on Raspberry Pi 5 16GB")
 @pytest.mark.parametrize("task", TASKS)
 def test_export_axelera_matrix(task):
     """Test YOLO export to Axelera format for supported tasks."""
