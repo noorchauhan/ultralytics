@@ -295,7 +295,6 @@ def test_export_imx():
     YOLO(file)(SOURCE, imgsz=32)
 
 
-@pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
 @pytest.mark.skipif(IS_RASPBERRYPI, reason="Test disabled due to OOM (Out of Memory) issues on Raspberry Pi 5 16GB")
