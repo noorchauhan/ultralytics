@@ -69,11 +69,13 @@ The following tasks are supported across YOLOv8, YOLO11, and YOLO26 models.
 | :----------------------------------------------------------------- | :----------- | :----------- | :---------------------- |
 | [Object Detection](https://docs.ultralytics.com/tasks/detect/)     | ✅ Supported | ✅ Supported | ✅ Supported            |
 | [Pose Estimation](https://docs.ultralytics.com/tasks/pose/)        | ✅ Supported | ✅ Supported | ✅ Supported            |
-| [Segmentation](https://docs.ultralytics.com/tasks/segment/)        | ✅ Supported | ✅ Supported | ⚠️ Voyager SDK only[^1] |
+| [Segmentation](https://docs.ultralytics.com/tasks/segment/)        | ✅ Supported | ✅ Supported | ⚠️ Voyager SDK only |
 | [Oriented Bounding Boxes](https://docs.ultralytics.com/tasks/obb/) | ✅ Supported | ✅ Supported | ✅ Supported            |
 | [Classification](https://docs.ultralytics.com/tasks/classify/)     | ✅ Supported | ✅ Supported | ✅ Supported            |
 
-[^1]: YOLO26 segmentation is not yet supported through the Ultralytics `export` command. Users who need YOLO26-seg can deploy via the [Voyager SDK](https://github.com/axelera-ai-hub/voyager-sdk) using `deploy.py`, which provides a user-space workaround. Native compiler support will be added in a future release.
+!!! note
+
+    YOLO26 segmentation is not yet supported through the Ultralytics `export` command. Users who need YOLO26-seg can deploy via the [Voyager SDK](https://github.com/axelera-ai-hub/voyager-sdk) using `deploy.py`, which provides a user-space workaround. Native compiler support will be added in a future release.
 
 ## Installation
 
