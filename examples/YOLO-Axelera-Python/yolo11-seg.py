@@ -16,7 +16,6 @@ import argparse
 
 import cv2
 import numpy as np
-
 from axelera.runtime import op
 
 # fmt: off
@@ -118,7 +117,7 @@ def draw_segmentation(
 
 
 def main():
-    """ YOLO11 Instance Segmentation example """
+    """YOLO11 Instance Segmentation example."""
     parser = argparse.ArgumentParser(description="YOLO11 Instance Segmentation -- Axelera Voyager SDK")
     parser.add_argument("--model", type=str, required=True, help="Path to compiled .axm model")
     parser.add_argument("--source", type=str, default="0", help="Image, video path, or camera index")
