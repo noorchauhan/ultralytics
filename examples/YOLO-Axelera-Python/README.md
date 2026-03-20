@@ -1,50 +1,37 @@
 # YOLO on Axelera Voyager SDK
 
-You've trained and exported your YOLO model -- these examples show how to build
-complete inference pipelines around it using `axelera-rt`.
+This document explains how to build and run complete inference pipelines on Axelera Metis devices using the Axelera runtime.
 
 The typical workflow has two phases:
 
 1. **Model preparation.** You use Ultralytics, PyTorch, and the Voyager SDK
    compiler to train, export, and compile your model to `.axm` format.
-2. **Application development.** You build your video pipeline and business
-   logic using only `axelera-rt` -- a lightweight, self-contained
-   package with minimal dependencies.
+2. **Application development.** You use `axelera-rt` to build and run an end-to-end video pipeline. `axelera-rt` is a lightweight, self-contained library with minimal package dependencies. It lets you describe pipelines that read frames from a camera, preprocess them, run model inference, and postprocess the results. The runtime can also fuse pipeline stages together automatically to minimise computation and data transfers.
 
-**Why a pipeline SDK?** A real application does more than run a model -- it
-reads camera or video frames, preprocesses them, runs AIPU inference, and
-postprocesses the results. The runtime fuses all of these stages into a
-single optimized pipeline, giving you high end-to-end FPS with low CPU
-overhead.
+A pipeline looks like this:
 
 ```python
 pipeline = op.seq(
-    op.colorconvert("RGB", src="BGR"),  # OpenCV reads BGR; models expect RGB
+    op.colorconvert('RGB', src='BGR'),  # OpenCV reads BGR; models expect RGB
     op.letterbox(640, 640),
     op.totensor(),
     op.load("yolo26n-pose.axm"),
-    ConfidenceFilter(threshold=0.25),  # custom operator — see below
+    ConfidenceFilter(threshold=0.25),   # custom operator — see below
     op.to_image_space(keypoint_cols=range(6, 57, 3)),
-).optimized()  # runtime fuses ops for maximum throughput
+).optimized()                           # runtime fuses ops for maximum throughput
 
-poses = pipeline(frame)  # frame in, results out
+poses = pipeline(frame)                 # frame in, results out
 ```
 
 ## Examples
 
-We have written three examples, ordered from simple to advanced. It should be straightforward for you to repurpose them for other models and tasks.
+Three examples are provided below, ordered from simple to advanced. It should be straightforward to apply them to other models and tasks.
 
-| Script                   | Task                                    | Model                   |
-| ------------------------ | --------------------------------------- | ----------------------- |
-| `yolo26-pose.py`         | Pose estimation — 17 COCO keypoints     | YOLO26n-pose (NMS-free) |
-| `yolo26-pose-tracker.py` | Pose estimation + multi-object tracking | YOLO26n-pose (NMS-free) |
-| `yolo11-seg.py`          | Instance segmentation                   | YOLO11n-seg             |
-
-**Suggested reading order:**
-
-1. **`yolo26-pose.py`** -- Start here. Linear `op.seq()` pipeline with a custom operator.
-2. **`yolo11-seg.py`** -- Branching with `op.par()` for multi-head models (detections + masks).
-3. **`yolo26-pose-tracker.py`** -- Adds stateful `op.tracker()` for multi-object tracking.
+| Script | Task | Model | Description |
+|--------|------|-------|-------------|
+| `yolo26-pose.py` | Pose estimation — 17 COCO keypoints | YOLO26n-pose (NMS-free) | Start here. Linear `op.seq()` pipeline with a custom operator. |
+| `yolo11-seg.py` | Instance segmentation | YOLO11n-seg | Branching with `op.par()` for multi-head models (detections + masks). |
+| `yolo26-pose-tracker.py` | Pose estimation + multi-object tracking | YOLO26n-pose (NMS-free) | Adds stateful `op.tracker()` for multi-object tracking. |
 
 ## Quick Start
 
@@ -53,7 +40,7 @@ We have written three examples, ordered from simple to advanced. It should be st
 If you followed the [Axelera integration guide](../../docs/en/integrations/axelera.md), `axelera-rt` is already installed — running `yolo predict` or `yolo val` with an Axelera model auto-installs the runtime dependencies. If you need to install manually:
 
 ```bash
-pip install axelera-rt==1.6.0rc2 --no-cache-dir --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple
+pip install axelera-rt==1.6.0rc3 --no-cache-dir --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple
 ```
 
 You will also need `opencv-python` and `numpy` (likely already present).
@@ -70,10 +57,10 @@ To reproduce these examples, export the pretrained Ultralytics models:
 
 ```bash
 yolo export model=yolo26n-pose.pt format=axelera
-yolo export model=yolo11n-seg.pt format=axelera
+yolo export model=yolo11n-seg.pt  format=axelera
 ```
 
-The compiled models are written to `yolo26n-pose_axelera_model/` and
+The compiled models are saved to `yolo26n-pose_axelera_model/` and
 `yolo11n-seg_axelera_model/` respectively. Pass the `.axm` file inside to `--model`.
 
 ### Run
@@ -81,9 +68,9 @@ The compiled models are written to `yolo26n-pose_axelera_model/` and
 #### Pose Estimation (YOLO26)
 
 ```bash
-python yolo26-pose.py --model yolo26n-pose.axm --source 0         # webcam
-python yolo26-pose.py --model yolo26n-pose.axm --source video.mp4 # video
-python yolo26-pose.py --model yolo26n-pose.axm --source image.jpg # image
+python yolo26-pose.py --model yolo26n-pose.axm --source 0           # webcam
+python yolo26-pose.py --model yolo26n-pose.axm --source video.mp4   # video
+python yolo26-pose.py --model yolo26n-pose.axm --source image.jpg   # image
 ```
 
 #### Pose Tracking (YOLO26 + TrackTrack)
@@ -102,13 +89,13 @@ python yolo11-seg.py --model yolo11n-seg.axm --source video.mp4 --conf 0.3 --iou
 
 ### Arguments
 
-| Argument    | Default      | Description                                                                            |
-| ----------- | ------------ | -------------------------------------------------------------------------------------- |
-| `--model`   | _required_   | Path to compiled `.axm` model                                                          |
-| `--source`  | `0`          | Image path, video path, or webcam index                                                |
-| `--conf`    | `0.25`       | Confidence threshold                                                                   |
-| `--iou`     | `0.45`       | NMS IoU threshold _(segmentation only)_                                                |
-| `--tracker` | `tracktrack` | Tracking algorithm: `bytetrack`, `oc-sort`, `sort`, `tracktrack` _(pose-tracker only)_ |
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model` | *required* | Path to compiled `.axm` model |
+| `--source` | `0` | Image path, video path, or webcam index |
+| `--conf` | `0.25` | Confidence threshold |
+| `--iou` | `0.45` | NMS IoU threshold *(segmentation only)* |
+| `--tracker` | `tracktrack` | Tracking algorithm: `bytetrack`, `oc-sort`, `sort`, `tracktrack` *(pose-tracker only)* |
 
 ## What You'll See in the Code
 
@@ -132,7 +119,7 @@ class ConfidenceFilter(op.Operator):
         return x[x[:, 4] >= self.threshold]
 ```
 
-The runtime treats custom operators as first-class citizens alongside the built-in ones.
+This means they are fused, scheduled, and optimized alongside built-in ops like `op.letterbox` and the model itself — adding a custom filter carries no special overhead.
 
 ### Multi-Object Tracking
 
@@ -141,16 +128,16 @@ Adding tracking to any detection or pose pipeline is a single line via `op.track
 ```python
 pipeline = op.seq(
     # ... your detection or pose pipeline ...
-    op.tracker(algo="tracktrack"),  # one line adds tracking
+    op.tracker(algo='tracktrack'),   # one line adds tracking
 )
 ```
 
-| Algorithm  | Key Strength                                         | Reference                |
-| ---------- | ---------------------------------------------------- | ------------------------ |
-| TrackTrack | Iterative matching with track-aware NMS (SOTA)       | CVPR 2025                |
-| ByteTrack  | Handles low-confidence detections via dual threshold | Zhang et al., ECCV 2022  |
-| OC-SORT    | Observation-centric re-update + virtual trajectory   | Cao et al., CVPR 2023    |
-| SORT       | Simple, fast IoU-only baseline                       | Bewley et al., ICIP 2016 |
+| Algorithm | Key Strength | Reference |
+|-----------|-------------|-----------|
+| TrackTrack | Iterative matching with track-aware NMS (SOTA) | CVPR 2025 |
+| ByteTrack | Handles low-confidence detections via dual threshold | Zhang et al., ECCV 2022 |
+| OC-SORT | Observation-centric re-update + virtual trajectory | Cao et al., CVPR 2023 |
+| SORT | Simple, fast IoU-only baseline | Bewley et al., ICIP 2016 |
 
 The tracker operates on bounding boxes, but the original detection (with all its
 metadata) is preserved — use `tracked.tracked` on each result to access the
