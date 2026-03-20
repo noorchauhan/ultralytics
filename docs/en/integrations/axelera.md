@@ -65,13 +65,13 @@ For turnkey solutions, Axelera partners with manufacturers to provide systems pr
 
 The following tasks are supported across YOLOv8, YOLO11, and YOLO26 models.
 
-| Task                                                               | YOLOv8       | YOLO11       | YOLO26                  |
-| :----------------------------------------------------------------- | :----------- | :----------- | :---------------------- |
-| [Object Detection](https://docs.ultralytics.com/tasks/detect/)     | ✅ Supported | ✅ Supported | ✅ Supported            |
-| [Pose Estimation](https://docs.ultralytics.com/tasks/pose/)        | ✅ Supported | ✅ Supported | ✅ Supported            |
+| Task                                                               | YOLOv8       | YOLO11       | YOLO26              |
+| :----------------------------------------------------------------- | :----------- | :----------- | :------------------ |
+| [Object Detection](https://docs.ultralytics.com/tasks/detect/)     | ✅ Supported | ✅ Supported | ✅ Supported        |
+| [Pose Estimation](https://docs.ultralytics.com/tasks/pose/)        | ✅ Supported | ✅ Supported | ✅ Supported        |
 | [Segmentation](https://docs.ultralytics.com/tasks/segment/)        | ✅ Supported | ✅ Supported | ⚠️ Voyager SDK only |
-| [Oriented Bounding Boxes](https://docs.ultralytics.com/tasks/obb/) | ✅ Supported | ✅ Supported | ✅ Supported            |
-| [Classification](https://docs.ultralytics.com/tasks/classify/)     | ✅ Supported | ✅ Supported | ✅ Supported            |
+| [Oriented Bounding Boxes](https://docs.ultralytics.com/tasks/obb/) | ✅ Supported | ✅ Supported | ✅ Supported        |
+| [Classification](https://docs.ultralytics.com/tasks/classify/)     | ✅ Supported | ✅ Supported | ✅ Supported        |
 
 !!! note
 
