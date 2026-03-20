@@ -81,7 +81,7 @@ from ultralytics.data import build_dataloader
 from ultralytics.data.dataset import YOLODataset
 from ultralytics.data.utils import check_cls_dataset, check_det_dataset
 from ultralytics.nn.autobackend import check_class_names, default_class_names
-from ultralytics.nn.modules import C2f, Classify, Detect, RTDETRDecoder
+from ultralytics.nn.modules import C2f, Classify, Detect, RTDETRDecoder, Segment26
 from ultralytics.nn.tasks import ClassificationModel, DetectionModel, SegmentationModel, WorldModel
 from ultralytics.utils import (
     ARM64,
@@ -393,8 +393,8 @@ class Exporter:
         fmt_keys = fmts_dict["Arguments"][flags.index(True) + 1]
         validate_args(fmt, self.args, fmt_keys)
         if axelera:
-            if model.task not in {"detect", "classify", "pose", "obb"}:
-                raise ValueError("Axelera export only supported for detection, classification, pose, and OBB models.")
+            if model.task == "segment" and any(isinstance(m, Segment26) for m in model.modules()):
+                raise ValueError("Axelera export does not currently support YOLO26 segmentation models.")
             if not self.args.int8:
                 LOGGER.warning("Setting int8=True for Axelera mixed-precision export.")
                 self.args.int8 = True

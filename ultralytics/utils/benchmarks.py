@@ -45,6 +45,7 @@ import torch.cuda
 from ultralytics import YOLO, YOLOWorld
 from ultralytics.cfg import TASK2DATA, TASK2METRIC
 from ultralytics.engine.exporter import export_formats
+from ultralytics.nn.modules import Segment26
 from ultralytics.utils import ARM64, ASSETS, ASSETS_URL, IS_JETSON, LINUX, LOGGER, MACOS, TQDM, WEIGHTS_DIR, YAML
 from ultralytics.utils.checks import IS_PYTHON_3_13, check_imgsz, check_requirements, check_yolo, is_rockchip
 from ultralytics.utils.downloads import safe_download
@@ -158,8 +159,8 @@ def benchmark(
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 ExecuTorch exports not supported yet"
             if format == "axelera":
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 Axelera exports not supported"
-                assert model.task in {"detect", "classify", "pose", "obb"}, (
-                    "Axelera export is only supported for detection, classification, pose, and OBB tasks"
+                assert not (model.task == "segment" and any(isinstance(m, Segment26) for m in model.model.modules())), (
+                    "Axelera export does not currently support YOLO26 segmentation models"
                 )
             if "cpu" in device.type:
                 assert cpu, "inference not supported on CPU"

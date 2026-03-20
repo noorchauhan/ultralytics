@@ -309,9 +309,9 @@ def test_export_axelera():
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
-@pytest.mark.parametrize("task", [task for task in TASKS if task != "segment"])
+@pytest.mark.parametrize("task", TASKS)
 def test_export_axelera_matrix(task):
-    """Test YOLO export to Axelera format for supported non-segmentation tasks."""
+    """Test YOLO export to Axelera format for supported tasks."""
     # Use task-specific datasets for calibration; inference is skipped because it requires Axelera hardware.
     file = YOLO(TASK2MODEL[task]).export(format="axelera", imgsz=64, data=TASK2DATA[task])
     assert Path(file).exists(), f"Axelera export failed for task '{task}', directory not found: {file}"
