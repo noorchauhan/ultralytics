@@ -63,6 +63,9 @@ yolo export model=yolo11n-seg.pt format=axelera
 The compiled models are saved to `yolo26n-pose_axelera_model/` and
 `yolo11n-seg_axelera_model/` respectively. Pass the `.axm` file inside to `--model`.
 
+> [!NOTE]
+> Each model directory also contains `metadata.yaml` with the model's class names and configuration. You can load this info directly to avoid manual label entry in your own application.
+
 ### Run
 
 #### Pose Estimation (YOLO26)
