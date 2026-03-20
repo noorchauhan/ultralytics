@@ -19,28 +19,29 @@ overhead.
 
 ```python
 pipeline = op.seq(
-    op.colorconvert('RGB', src='BGR'),  # OpenCV reads BGR; models expect RGB
+    op.colorconvert("RGB", src="BGR"),  # OpenCV reads BGR; models expect RGB
     op.letterbox(640, 640),
     op.totensor(),
     op.load("yolo26n-pose.axm"),
-    ConfidenceFilter(threshold=0.25),   # custom operator — see below
+    ConfidenceFilter(threshold=0.25),  # custom operator — see below
     op.to_image_space(keypoint_cols=range(6, 57, 3)),
-).optimized()                           # runtime fuses ops for maximum throughput
+).optimized()  # runtime fuses ops for maximum throughput
 
-poses = pipeline(frame)                 # frame in, results out
+poses = pipeline(frame)  # frame in, results out
 ```
 
 ## Examples
 
 We have written three examples, ordered from simple to advanced. It should be straightforward for you to repurpose them for other models and tasks.
 
-| Script | Task | Model |
-|--------|------|-------|
-| `yolo26-pose.py` | Pose estimation — 17 COCO keypoints | YOLO26n-pose (NMS-free) |
+| Script                   | Task                                    | Model                   |
+| ------------------------ | --------------------------------------- | ----------------------- |
+| `yolo26-pose.py`         | Pose estimation — 17 COCO keypoints     | YOLO26n-pose (NMS-free) |
 | `yolo26-pose-tracker.py` | Pose estimation + multi-object tracking | YOLO26n-pose (NMS-free) |
-| `yolo11-seg.py` | Instance segmentation | YOLO11n-seg |
+| `yolo11-seg.py`          | Instance segmentation                   | YOLO11n-seg             |
 
 **Suggested reading order:**
+
 1. **`yolo26-pose.py`** -- Start here. Linear `op.seq()` pipeline with a custom operator.
 2. **`yolo11-seg.py`** -- Branching with `op.par()` for multi-head models (detections + masks).
 3. **`yolo26-pose-tracker.py`** -- Adds stateful `op.tracker()` for multi-object tracking.
@@ -69,7 +70,7 @@ To reproduce these examples, export the pretrained Ultralytics models:
 
 ```bash
 yolo export model=yolo26n-pose.pt format=axelera
-yolo export model=yolo11n-seg.pt  format=axelera
+yolo export model=yolo11n-seg.pt format=axelera
 ```
 
 The compiled models are written to `yolo26n-pose_axelera_model/` and
@@ -80,9 +81,9 @@ The compiled models are written to `yolo26n-pose_axelera_model/` and
 #### Pose Estimation (YOLO26)
 
 ```bash
-python yolo26-pose.py --model yolo26n-pose.axm --source 0           # webcam
-python yolo26-pose.py --model yolo26n-pose.axm --source video.mp4   # video
-python yolo26-pose.py --model yolo26n-pose.axm --source image.jpg   # image
+python yolo26-pose.py --model yolo26n-pose.axm --source 0         # webcam
+python yolo26-pose.py --model yolo26n-pose.axm --source video.mp4 # video
+python yolo26-pose.py --model yolo26n-pose.axm --source image.jpg # image
 ```
 
 #### Pose Tracking (YOLO26 + TrackTrack)
@@ -101,13 +102,13 @@ python yolo11-seg.py --model yolo11n-seg.axm --source video.mp4 --conf 0.3 --iou
 
 ### Arguments
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--model` | *required* | Path to compiled `.axm` model |
-| `--source` | `0` | Image path, video path, or webcam index |
-| `--conf` | `0.25` | Confidence threshold |
-| `--iou` | `0.45` | NMS IoU threshold *(segmentation only)* |
-| `--tracker` | `tracktrack` | Tracking algorithm: `bytetrack`, `oc-sort`, `sort`, `tracktrack` *(pose-tracker only)* |
+| Argument    | Default      | Description                                                                            |
+| ----------- | ------------ | -------------------------------------------------------------------------------------- |
+| `--model`   | _required_   | Path to compiled `.axm` model                                                          |
+| `--source`  | `0`          | Image path, video path, or webcam index                                                |
+| `--conf`    | `0.25`       | Confidence threshold                                                                   |
+| `--iou`     | `0.45`       | NMS IoU threshold _(segmentation only)_                                                |
+| `--tracker` | `tracktrack` | Tracking algorithm: `bytetrack`, `oc-sort`, `sort`, `tracktrack` _(pose-tracker only)_ |
 
 ## What You'll See in the Code
 
@@ -140,16 +141,16 @@ Adding tracking to any detection or pose pipeline is a single line via `op.track
 ```python
 pipeline = op.seq(
     # ... your detection or pose pipeline ...
-    op.tracker(algo='tracktrack'),   # one line adds tracking
+    op.tracker(algo="tracktrack"),  # one line adds tracking
 )
 ```
 
-| Algorithm | Key Strength | Reference |
-|-----------|-------------|-----------|
-| TrackTrack | Iterative matching with track-aware NMS (SOTA) | CVPR 2025 |
-| ByteTrack | Handles low-confidence detections via dual threshold | Zhang et al., ECCV 2022 |
-| OC-SORT | Observation-centric re-update + virtual trajectory | Cao et al., CVPR 2023 |
-| SORT | Simple, fast IoU-only baseline | Bewley et al., ICIP 2016 |
+| Algorithm  | Key Strength                                         | Reference                |
+| ---------- | ---------------------------------------------------- | ------------------------ |
+| TrackTrack | Iterative matching with track-aware NMS (SOTA)       | CVPR 2025                |
+| ByteTrack  | Handles low-confidence detections via dual threshold | Zhang et al., ECCV 2022  |
+| OC-SORT    | Observation-centric re-update + virtual trajectory   | Cao et al., CVPR 2023    |
+| SORT       | Simple, fast IoU-only baseline                       | Bewley et al., ICIP 2016 |
 
 The tracker operates on bounding boxes, but the original detection (with all its
 metadata) is preserved — use `tracked.tracked` on each result to access the
