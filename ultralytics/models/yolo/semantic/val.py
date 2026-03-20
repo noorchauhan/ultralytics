@@ -5,14 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+from PIL import Image
 
 from ultralytics.data.build import build_dataloader
 from ultralytics.data.dataset import SemanticDataset
 from ultralytics.engine.validator import BaseValidator
-from ultralytics.utils import LOGGER, ops
+from ultralytics.utils import LOGGER
 from ultralytics.utils.metrics import SemanticMetrics
 
 
@@ -43,6 +45,9 @@ class SemanticValidator(BaseValidator):
         super().__init__(dataloader, save_dir, args, _callbacks)
         self.args.task = "semantic"
         self.metrics = SemanticMetrics()
+        self.dataset = None
+        self.results_dir = None
+        self.image_shapes = {}
 
     def init_metrics(self, model):
         """Initialize metrics with model class names.
@@ -53,6 +58,13 @@ class SemanticValidator(BaseValidator):
         self.names = model.names
         self.nc = len(self.names)
         self.metrics = SemanticMetrics(names=self.names)
+        self.dataset = getattr(self.dataloader, "dataset", None)
+        labels = getattr(self.dataset, "labels", []) if self.dataset is not None else []
+        self.image_shapes = {lb["im_file"]: tuple(lb["shape"]) for lb in labels if "im_file" in lb and "shape" in lb}
+        self.results_dir = None
+        if self.args.save_mask:
+            self.results_dir = self.save_dir / "results"
+            self.results_dir.mkdir(parents=True, exist_ok=True)
 
     def preprocess(self, batch):
         """Preprocess a batch of images and masks.
@@ -92,7 +104,29 @@ class SemanticValidator(BaseValidator):
         # Resize preds to match target if needed (preds may be at stride-4 during training)
         if preds.shape[1:] != targets.shape[1:]:
             preds = F.interpolate(preds.float().unsqueeze(1), targets.shape[1:], mode="nearest").squeeze(1).long()
+        if self.args.save_mask:
+            self.save_pred_masks(preds, batch)
         self.metrics.process(preds.cpu().numpy(), targets.cpu().numpy())
+
+    def save_pred_masks(self, preds: torch.Tensor, batch: dict[str, Any]) -> None:
+        """Save semantic predictions as single-channel PNG masks."""
+        if self.results_dir is None:
+            return
+
+        im_files = batch.get("im_file", [])
+        if not im_files:
+            return
+
+        preds = preds.cpu().numpy()
+        if isinstance(self.dataset, SemanticDataset) and self.dataset.label_mapping:
+            preds = self.dataset.convert_label(preds, inverse=True)
+        preds = preds.astype(np.uint8, copy=False)
+        for pred, im_file in zip(preds, im_files):
+            orig_shape = self.image_shapes.get(im_file)
+            if orig_shape and pred.shape != orig_shape:
+                pred = cv2.resize(pred, (orig_shape[1], orig_shape[0]), interpolation=cv2.INTER_NEAREST)
+            save_path = self.results_dir / Path(im_file).with_suffix(".png").name
+            Image.fromarray(pred).save(save_path)
 
     def get_stats(self):
         """Return validation statistics.
@@ -119,6 +153,8 @@ class SemanticValidator(BaseValidator):
         for i, name in self.names.items():
             if i < len(per_class):
                 LOGGER.info(f"  {name}: IoU={per_class[i]:.4f}")
+        if self.args.save_mask and self.results_dir is not None:
+            LOGGER.info(f"Semantic prediction masks saved to {self.results_dir}")
 
     def build_dataset(self, img_path, mode="val", batch=None):
         """Build semantic segmentation dataset.
@@ -137,10 +173,12 @@ class SemanticValidator(BaseValidator):
             imgsz=self.args.imgsz,
             augment=False,
             hyp=self.args,
+            cache=self.args.cache or None,
             data=self.data,
             rect=use_rect,
             batch_size=batch,
             stride=self.stride,
+            pad=0,
             prefix=f"{mode}: ",
         )
 
