@@ -12,7 +12,7 @@ import pytest
 from tests import MODEL, SOURCE
 from ultralytics import YOLO
 from ultralytics.cfg import TASK2DATA, TASK2MODEL, TASKS
-from ultralytics.utils import ARM64, IS_RASPBERRYPI, LINUX, MACOS, MACOS_VERSION, WINDOWS, checks
+from ultralytics.utils import ARM64, IS_DOCKER, IS_RASPBERRYPI, LINUX, MACOS, MACOS_VERSION, WINDOWS, checks
 from ultralytics.utils.torch_utils import TORCH_1_10, TORCH_1_11, TORCH_1_13, TORCH_2_0, TORCH_2_1, TORCH_2_8, TORCH_2_9
 
 
@@ -296,7 +296,10 @@ def test_export_imx():
 
 
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
-@pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
+@pytest.mark.skipif(
+    not LINUX or (ARM64 and IS_DOCKER),
+    reason="Axelera export is only supported on Linux and is not supported on ARM64 Docker",
+)
 @pytest.mark.skipif(IS_RASPBERRYPI, reason="Test disabled due to OOM (Out of Memory) issues on Raspberry Pi 5 16GB")
 def test_export_axelera():
     """Test YOLO export to Axelera format."""
@@ -308,7 +311,10 @@ def test_export_axelera():
 
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
-@pytest.mark.skipif(not LINUX, reason="Axelera export only supported on Linux")
+@pytest.mark.skipif(
+    not LINUX or (ARM64 and IS_DOCKER),
+    reason="Axelera export is only supported on Linux and is not supported on ARM64 Docker",
+)
 @pytest.mark.skipif(IS_RASPBERRYPI, reason="Test disabled due to OOM (Out of Memory) issues on Raspberry Pi 5 16GB")
 @pytest.mark.parametrize("task", [task for task in TASKS if task != "segment"])
 def test_export_axelera_matrix(task):
