@@ -50,33 +50,29 @@ def build_pipeline(model_path: str, conf: float = 0.25, iou: float = 0.45):
     """
     model_op = op.load(model_path)
     return op.seq(
-        op.colorconvert('RGB', src='BGR'),  # OpenCV reads BGR; models expect RGB
+        op.colorconvert("RGB", src="BGR"),  # OpenCV reads BGR; models expect RGB
         op.letterbox(640, 640),
         op.totensor(),
         model_op,
-        op.decode_segmentation(algo="yolo11", num_classes=80, num_mask_coeffs=32,
-                               confidence_threshold=conf),
+        op.decode_segmentation(algo="yolo11", num_classes=80, num_mask_coeffs=32, confidence_threshold=conf),
         # decode_segmentation returns (detections, protos) as a tuple
         op.par(
             op.seq(op.itemgetter(0), op.nms(iou_threshold=iou, max_boxes=300)),  # NMS on detections
-            op.itemgetter(1),                                                     # pass protos through
+            op.itemgetter(1),  # pass protos through
         ),
         # par() unpacks its result, so the next par() receives (filtered_dets, protos) as two args
         op.par(
             op.seq(op.pack(), op.itemgetter(0), op.to_image_space()),  # re-pack, extract dets, rescale
-            op.proto_to_mask(),                                         # (dets, protos) -> masks
+            op.proto_to_mask(),  # (dets, protos) -> masks
         ),
     ).optimized()
 
 
-def draw_segmentation(
-    image: np.ndarray, detections: np.ndarray, masks: list, conf: float = 0.25
-) -> np.ndarray:
+def draw_segmentation(image: np.ndarray, detections: np.ndarray, masks: list, conf: float = 0.25) -> np.ndarray:
     """Draw instance segmentation results on the image.
 
-    proto_to_mask() returns bbox-cropped masks at prototype resolution.
-    Each mask must be resized to its detection's bounding box and placed
-    at the correct image coordinates.
+    proto_to_mask() returns bbox-cropped masks at prototype resolution. Each mask must be resized to its detection's
+    bounding box and placed at the correct image coordinates.
     """
     overlay = image.copy()  # one copy for mask blending
     h, w = image.shape[:2]
