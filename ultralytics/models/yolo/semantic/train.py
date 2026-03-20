@@ -62,6 +62,7 @@ class SemanticTrainer(BaseTrainer):
             imgsz=self.args.imgsz,
             augment=mode == "train",
             hyp=self.args,
+            cache=self.args.cache or None,
             data=self.data,
             rect=use_rect,
             batch_size=batch,
