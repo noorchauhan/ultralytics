@@ -59,6 +59,7 @@ class ReidValidator(BaseValidator):
 
     def init_metrics(self, model: torch.nn.Module) -> None:
         """Initialize tracking containers."""
+        self._model = model  # store reference for gallery feature extraction
         self.names = model.names
         self.nc = len(model.names)
         self._feats = []
@@ -140,7 +141,7 @@ class ReidValidator(BaseValidator):
             batch["img"] = batch["img"].half() if self.args.half else batch["img"].float()
 
             with torch.no_grad():
-                preds = self.model(batch["img"])
+                preds = self._model(batch["img"])
             emb = preds[0] if isinstance(preds, (list, tuple)) else preds
             feats.append(emb.cpu())
             pids.append(batch["cls"])
