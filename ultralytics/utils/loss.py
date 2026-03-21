@@ -990,6 +990,11 @@ class ReIDLoss:
         self.center_momentum = center_momentum
         self.focal_gamma = focal_gamma
         self.centers = None  # lazily initialized (nc, feat_dim)
+        # Cross-batch memory for triplet mining (FIFO queue of recent features)
+        self.xbm_size = 4096  # memory bank size
+        self.xbm_feats = None  # lazily initialized
+        self.xbm_labels = None
+        self.xbm_ptr = 0
 
     def __call__(self, preds, batch):
         """Compute the ReID loss between predictions and true labels.
@@ -1064,11 +1069,35 @@ class ReIDLoss:
         center_loss = 0.5 * ((features - batch_centers) ** 2).sum(1).mean()
         return center_loss
 
+    def _update_xbm(self, features, labels):
+        """Update cross-batch memory with current batch features (FIFO queue)."""
+        feat_dim = features.shape[1]
+        if self.xbm_feats is None or self.xbm_feats.shape[1] != feat_dim:
+            self.xbm_feats = torch.zeros(self.xbm_size, feat_dim, device=features.device)
+            self.xbm_labels = torch.full((self.xbm_size,), -1, dtype=torch.long, device=features.device)
+            self.xbm_ptr = 0
+
+        self.xbm_feats = self.xbm_feats.to(features.device)
+        self.xbm_labels = self.xbm_labels.to(features.device)
+
+        b = features.shape[0]
+        with torch.no_grad():
+            if self.xbm_ptr + b <= self.xbm_size:
+                self.xbm_feats[self.xbm_ptr : self.xbm_ptr + b] = features.detach()
+                self.xbm_labels[self.xbm_ptr : self.xbm_ptr + b] = labels.detach()
+            else:
+                overflow = (self.xbm_ptr + b) - self.xbm_size
+                self.xbm_feats[self.xbm_ptr :] = features[: b - overflow].detach()
+                self.xbm_labels[self.xbm_ptr :] = labels[: b - overflow].detach()
+                self.xbm_feats[:overflow] = features[b - overflow :].detach()
+                self.xbm_labels[:overflow] = labels[b - overflow :].detach()
+            self.xbm_ptr = (self.xbm_ptr + b) % self.xbm_size
+
     def _batch_hard_triplet_loss(self, features, labels):
-        """Compute batch-hard triplet loss.
+        """Compute batch-hard triplet loss with cross-batch memory.
 
         For each anchor, find the hardest positive (max distance same ID) and hardest negative
-        (min distance different ID).
+        (min distance different ID), searching both the current batch and the memory bank.
 
         Args:
             features (torch.Tensor): Feature vectors (B, D).
@@ -1078,22 +1107,36 @@ class ReIDLoss:
             (torch.Tensor): Triplet loss scalar.
         """
         # Normalize features before computing distances (cosine-based triplet)
-        features = F.normalize(features, dim=1)
-        # Pairwise L2 distance on unit sphere (equivalent to sqrt(2 - 2*cos_sim))
-        dist_mat = torch.cdist(features, features, p=2)  # (B, B)
+        features_norm = F.normalize(features, dim=1)
+
+        # Combine current batch with cross-batch memory for mining
+        valid_xbm = self.xbm_labels is not None and (self.xbm_labels >= 0).any()
+        if valid_xbm:
+            xbm_mask = self.xbm_labels >= 0
+            xbm_feats = F.normalize(self.xbm_feats[xbm_mask], dim=1)
+            xbm_labs = self.xbm_labels[xbm_mask]
+            all_feats = torch.cat([features_norm, xbm_feats.detach()], dim=0)
+            all_labels = torch.cat([labels, xbm_labs], dim=0)
+        else:
+            all_feats = features_norm
+            all_labels = labels
+
+        # Update memory with current batch
+        self._update_xbm(features_norm, labels)
+
+        b = features_norm.shape[0]
+        # Distance from current batch anchors to all candidates (batch + memory)
+        dist_mat = torch.cdist(features_norm, all_feats, p=2)  # (B, B+M)
 
         # Masks
-        same_id = labels.unsqueeze(0) == labels.unsqueeze(1)  # (B, B)
-        diff_id = ~same_id
+        same_id = labels.unsqueeze(1) == all_labels.unsqueeze(0)  # (B, B+M)
 
-        # For each anchor, hardest positive = max dist among same identity
-        # Set non-same to -inf so they don't affect max
+        # Hardest positive: max dist among same identity
         pos_dist = dist_mat.clone()
         pos_dist[~same_id] = 0.0
         hardest_pos, _ = pos_dist.max(dim=1)  # (B,)
 
-        # For each anchor, hardest negative = min dist among different identity
-        # Set same-id to +inf so they don't affect min
+        # Hardest negative: min dist among different identity
         neg_dist = dist_mat.clone()
         neg_dist[same_id] = float("inf")
         hardest_neg, _ = neg_dist.min(dim=1)  # (B,)
