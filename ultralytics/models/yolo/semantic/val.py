@@ -8,13 +8,14 @@ from typing import Any
 import cv2
 import numpy as np
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from PIL import Image
 
 from ultralytics.data.build import build_dataloader
 from ultralytics.data.dataset import SemanticDataset
 from ultralytics.engine.validator import BaseValidator
-from ultralytics.utils import LOGGER
+from ultralytics.utils import LOGGER, RANK
 from ultralytics.utils.metrics import SemanticMetrics
 
 
@@ -57,7 +58,7 @@ class SemanticValidator(BaseValidator):
         """
         self.names = model.names
         self.nc = len(self.names)
-        self.metrics = SemanticMetrics(names=self.names)
+        self.metrics = SemanticMetrics(names=self.names, device=self.device)
         self.dataset = getattr(self.dataloader, "dataset", None)
         labels = getattr(self.dataset, "labels", []) if self.dataset is not None else []
         self.image_shapes = {lb["im_file"]: tuple(lb["shape"]) for lb in labels if "im_file" in lb and "shape" in lb}
@@ -106,7 +107,20 @@ class SemanticValidator(BaseValidator):
             preds = F.interpolate(preds.float().unsqueeze(1), targets.shape[1:], mode="nearest").squeeze(1).long()
         if self.args.save_mask:
             self.save_pred_masks(preds, batch)
-        self.metrics.process(preds.cpu().numpy(), targets.cpu().numpy())
+        self.metrics.process(preds, targets)
+
+    def finalize_metrics(self):
+        """Set final values on semantic metrics."""
+        self.metrics.speed = self.speed
+        self.metrics.save_dir = self.save_dir
+
+    def gather_stats(self):
+        """Reduce semantic confusion matrix to rank 0 during DDP validation."""
+        if RANK == -1 or not dist.is_available() or not dist.is_initialized():
+            return
+        if self.metrics.confusion_matrix is None:
+            self.metrics.confusion_matrix = torch.zeros((self.nc, self.nc), device=self.device, dtype=torch.int64)
+        dist.reduce(self.metrics.confusion_matrix, dst=0, op=dist.ReduceOp.SUM)
 
     def save_pred_masks(self, preds: torch.Tensor, batch: dict[str, Any]) -> None:
         """Save semantic predictions as single-channel PNG masks."""

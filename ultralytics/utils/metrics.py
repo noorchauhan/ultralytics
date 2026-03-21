@@ -1572,19 +1572,23 @@ class SemanticMetrics(SimpleClass, DataExportMixin):
     Attributes:
         names (dict): Class names mapping.
         nc (int): Number of classes.
-        confusion_matrix (np.ndarray): Accumulated confusion matrix of shape (nc, nc).
+        device (torch.device | None): Device used for confusion matrix accumulation.
+        ignore_index (int): Label value to ignore during metric accumulation.
+        confusion_matrix (torch.Tensor | None): Accumulated confusion matrix of shape (nc, nc).
         speed (dict): Processing speed statistics.
         task (str): Task type identifier.
     """
 
-    def __init__(self, names=None):
+    def __init__(self, names=None, device=None):
         """Initialize SemanticMetrics.
 
         Args:
             names (dict, optional): Dictionary mapping class indices to names.
+            device (torch.device | str | None, optional): Device for metric accumulation.
         """
         self.names = names or {}
         self.nc = len(self.names)
+        self.device = torch.device(device) if device is not None else None
         self.confusion_matrix = None
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "semantic"
@@ -1593,45 +1597,66 @@ class SemanticMetrics(SimpleClass, DataExportMixin):
         """Accumulate confusion matrix from predictions and targets.
 
         Args:
-            preds (np.ndarray): Predicted class IDs [B, H, W].
-            targets (np.ndarray): Ground truth class IDs [B, H, W].
+            preds (torch.Tensor | np.ndarray): Predicted class IDs [B, H, W].
+            targets (torch.Tensor | np.ndarray): Ground truth class IDs [B, H, W].
         """
+        if self.nc == 0:
+            return
+
+        if not isinstance(preds, torch.Tensor):
+            preds = torch.as_tensor(preds, device=self.device)
+        if not isinstance(targets, torch.Tensor):
+            targets = torch.as_tensor(targets, device=self.device)
+
+        metric_device = self.confusion_matrix.device if self.confusion_matrix is not None else (self.device or preds.device)
+        self.device = metric_device
+        preds = preds.to(metric_device, non_blocking=True).long()
+        targets = targets.to(metric_device, non_blocking=True).long()
         if self.confusion_matrix is None:
-            self.confusion_matrix = np.zeros((self.nc, self.nc), dtype=np.int64)
-        valid = targets != 255
-        preds_valid = preds[valid].astype(np.int64)
-        targets_valid = targets[valid].astype(np.int64)
-        # Clamp to valid range
-        mask = (preds_valid >= 0) & (preds_valid < self.nc) & (targets_valid >= 0) & (targets_valid < self.nc)
-        self.confusion_matrix += np.bincount(
-            self.nc * targets_valid[mask] + preds_valid[mask], minlength=self.nc**2
-        ).reshape(self.nc, self.nc)
+            self.confusion_matrix = torch.zeros((self.nc, self.nc), device=metric_device, dtype=torch.int64)
+
+        valid = (
+            (targets != 255)
+            & (preds >= 0)
+            & (preds < self.nc)
+            & (targets >= 0)
+            & (targets < self.nc)
+        )
+        hist = torch.bincount(self.nc * targets[valid] + preds[valid], minlength=self.nc**2).reshape(self.nc, self.nc)
+        self.confusion_matrix += hist.to(self.confusion_matrix.dtype)
+
+    def _compute_iou(self) -> torch.Tensor | None:
+        """Compute per-class IoU tensor on the confusion matrix device."""
+        if self.confusion_matrix is None:
+            return None
+        confusion_matrix = self.confusion_matrix.to(torch.float64)
+        intersection = torch.diagonal(confusion_matrix)
+        union = confusion_matrix.sum(1) + confusion_matrix.sum(0) - intersection
+        return intersection / (union + 1e-10)
 
     @property
     def miou(self):
         """Compute mean Intersection over Union across all classes."""
-        if self.confusion_matrix is None:
+        iou = self._compute_iou()
+        if iou is None:
             return 0.0
-        intersection = np.diag(self.confusion_matrix)
-        union = self.confusion_matrix.sum(1) + self.confusion_matrix.sum(0) - intersection
-        iou = intersection / (union + 1e-10)
-        return float(np.nanmean(iou))
+        return float(torch.nanmean(iou).item())
 
     @property
     def pixel_accuracy(self):
         """Compute overall pixel accuracy."""
         if self.confusion_matrix is None:
             return 0.0
-        return float(np.diag(self.confusion_matrix).sum() / (self.confusion_matrix.sum() + 1e-10))
+        confusion_matrix = self.confusion_matrix.to(torch.float64)
+        return float((torch.diagonal(confusion_matrix).sum() / (confusion_matrix.sum() + 1e-10)).item())
 
     @property
     def per_class_iou(self):
         """Compute per-class IoU values."""
-        if self.confusion_matrix is None:
-            return np.zeros(self.nc)
-        intersection = np.diag(self.confusion_matrix)
-        union = self.confusion_matrix.sum(1) + self.confusion_matrix.sum(0) - intersection
-        return intersection / (union + 1e-10)
+        iou = self._compute_iou()
+        if iou is None:
+            return np.zeros(self.nc, dtype=np.float64)
+        return iou.cpu().numpy()
 
     @property
     def fitness(self):
