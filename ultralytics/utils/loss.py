@@ -968,18 +968,19 @@ class ReIDLoss:
 
     def __init__(self, nc: int, triplet_margin: float = 0.3, label_smooth: float = 0.1,
                  triplet_weight: float = 1.0, ce_weight: float = 1.0, center_weight: float = 0.0,
-                 center_momentum: float = 0.9, focal_gamma: float = 0.0):
+                 center_momentum: float = 0.9, focal_gamma: float = 0.0, supcon_temp: float = 0.0):
         """Initialize ReID loss with label-smoothed CE, batch-hard triplet, and center loss.
 
         Args:
             nc (int): Number of identity classes.
             triplet_margin (float): Margin for triplet loss.
             label_smooth (float): Label smoothing factor for CE loss.
-            triplet_weight (float): Weight for triplet loss.
+            triplet_weight (float): Weight for triplet loss (also used for supcon if enabled).
             ce_weight (float): Weight for cross-entropy loss.
             center_weight (float): Weight for center loss (0 = disabled).
             center_momentum (float): EMA momentum for updating class centers.
             focal_gamma (float): Focal loss gamma (0 = standard CE, >0 = focal).
+            supcon_temp (float): Supervised contrastive loss temperature (0 = use triplet instead).
         """
         self.nc = nc
         self.triplet_margin = triplet_margin
@@ -989,6 +990,7 @@ class ReIDLoss:
         self.center_weight = center_weight
         self.center_momentum = center_momentum
         self.focal_gamma = focal_gamma
+        self.supcon_temp = supcon_temp
         self.centers = None  # lazily initialized (nc, feat_dim)
 
     def __call__(self, preds, batch):
@@ -1017,8 +1019,11 @@ class ReIDLoss:
         else:
             ce_loss = F.cross_entropy(cls_logits, labels, label_smoothing=self.label_smooth)
 
-        # Batch-hard triplet loss on raw features (before BNNeck)
-        tri_loss = self._batch_hard_triplet_loss(raw_feat, labels)
+        # Metric loss on raw features (before BNNeck)
+        if self.supcon_temp > 0:
+            tri_loss = self._supcon_loss(raw_feat, labels, self.supcon_temp)
+        else:
+            tri_loss = self._batch_hard_triplet_loss(raw_feat, labels)
 
         total = self.ce_weight * ce_loss + self.triplet_weight * tri_loss
 
@@ -1102,6 +1107,46 @@ class ReIDLoss:
 
         triplet_loss = F.relu(hardest_pos[valid] - hardest_neg[valid] + self.triplet_margin)
         return triplet_loss.mean()
+
+    def _supcon_loss(self, features, labels, temperature=0.1):
+        """Supervised contrastive loss (Khosla et al., 2020).
+
+        Uses all positive pairs in the batch for richer gradients than triplet loss.
+
+        Args:
+            features (torch.Tensor): Feature vectors (B, D).
+            labels (torch.Tensor): Identity labels (B,).
+            temperature (float): Temperature scaling for cosine similarities.
+
+        Returns:
+            (torch.Tensor): SupCon loss scalar.
+        """
+        features = F.normalize(features, dim=1)
+        B = features.shape[0]
+        # Cosine similarity matrix scaled by temperature
+        sim = features @ features.t() / temperature  # (B, B)
+
+        # Masks
+        same_id = labels.unsqueeze(0) == labels.unsqueeze(1)  # (B, B)
+        self_mask = ~torch.eye(B, dtype=torch.bool, device=features.device)
+        pos_mask = same_id & self_mask  # positive pairs (same ID, not self)
+        n_pos = pos_mask.sum(dim=1)  # positives per anchor
+
+        # Numerical stability: subtract max per row
+        sim = sim - sim.max(dim=1, keepdim=True).values.detach()
+
+        # Log-softmax over all non-self entries (denominator includes pos+neg)
+        exp_sim = torch.exp(sim) * self_mask.float()
+        log_denom = torch.log(exp_sim.sum(dim=1, keepdim=True) + 1e-6)
+        log_prob = sim - log_denom  # log(exp(sim_ij/t) / sum_k!=i(exp(sim_ik/t)))
+
+        # Average log-prob over positive pairs per anchor
+        valid = n_pos > 0
+        if valid.sum() == 0:
+            return torch.tensor(0.0, device=features.device, requires_grad=True)
+
+        loss = -(log_prob * pos_mask.float()).sum(dim=1) / n_pos.clamp(min=1)
+        return loss[valid].mean()
 
 
 class v8OBBLoss(v8DetectionLoss):

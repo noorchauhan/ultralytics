@@ -135,6 +135,7 @@ ce_weight: 1.0 # (float) weight for cross-entropy ID loss
 center_weight: 0.0 # (float) weight for center loss (0 = disabled)
 center_momentum: 0.9 # (float) EMA momentum for center loss class centers
 focal_gamma: 0.0 # (float) focal loss gamma for ReID CE (0 = standard CE)
+supcon_temp: 0.0 # (float) supervised contrastive loss temperature (0 = use triplet loss)
 
 # Custom config.yaml ---------------------------------------------------------------------------------------------------
 cfg: # (str, optional) path to a config.yaml that overrides defaults
