@@ -1023,7 +1023,9 @@ class ReIDLoss:
         Returns:
             (torch.Tensor): Triplet loss scalar.
         """
-        # Pairwise L2 distance matrix
+        # Normalize features before computing distances (cosine-based triplet)
+        features = F.normalize(features, dim=1)
+        # Pairwise L2 distance on unit sphere (equivalent to sqrt(2 - 2*cos_sim))
         dist_mat = torch.cdist(features, features, p=2)  # (B, B)
 
         # Masks
