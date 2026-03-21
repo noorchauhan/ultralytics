@@ -854,7 +854,8 @@ class ReID(nn.Module):
         super().__init__()
         c_ = 1280  # intermediate channels (same as Classify)
         self.conv = Conv(c1, c_, k, s, p, g)
-        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.pool_avg = nn.AdaptiveAvgPool2d(1)
+        self.pool_max = nn.AdaptiveMaxPool2d(1)
         self.drop = nn.Dropout(p=0.0, inplace=True)
         self.embed = nn.Linear(c_, embed_dim)
         self.bottleneck = nn.BatchNorm1d(embed_dim)
@@ -866,7 +867,8 @@ class ReID(nn.Module):
         """Perform forward pass of the ReID head."""
         if isinstance(x, list):
             x = torch.cat(x, 1)
-        feat = self.embed(self.drop(self.pool(self.conv(x)).flatten(1)))  # global feature
+        x = self.conv(x)
+        feat = self.embed(self.drop((self.pool_avg(x) + self.pool_max(x)).flatten(1)))  # avg+max pooling
         feat_bn = self.bottleneck(feat)  # BNNeck feature
         if self.training:
             cls_logits = self.classifier(feat_bn)
