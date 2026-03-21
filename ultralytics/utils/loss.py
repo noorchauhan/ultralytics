@@ -1047,7 +1047,8 @@ class ReIDLoss:
         if valid.sum() == 0:
             return torch.tensor(0.0, device=features.device, requires_grad=True)
 
-        triplet_loss = F.relu(hardest_pos[valid] - hardest_neg[valid] + self.triplet_margin)
+        diff = hardest_pos[valid] - hardest_neg[valid]
+        triplet_loss = F.softplus(diff)  # soft-margin: log(1 + exp(dp - dn))
         return triplet_loss.mean()
 
 
