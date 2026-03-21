@@ -30,4 +30,4 @@ backbone:
 
 # YOLO26n head
 head:
-  - [-1, 1, ReID, [nc, 256]] # ReID head (embed_dim=256)
+  - [-1, 1, ReID, [nc]] # ReID head
