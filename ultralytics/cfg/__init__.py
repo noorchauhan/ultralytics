@@ -61,7 +61,7 @@ TASK2DATA = {
     "pose": "coco8-pose.yaml",
     "obb": "dota8.yaml",
 }
-# Default representative datasets for export backends that require calibration.
+# Representative datasets for exports that default to INT8 calibration.
 TASK2CALIBRATIONDATA = {
     "detect": "coco128.yaml",
     "segment": "coco128-seg.yaml",
