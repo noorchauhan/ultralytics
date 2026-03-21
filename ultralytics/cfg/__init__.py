@@ -61,6 +61,14 @@ TASK2DATA = {
     "pose": "coco8-pose.yaml",
     "obb": "dota8.yaml",
 }
+# Default representative datasets for export backends that require calibration.
+TASK2CALIBRATIONDATA = {
+    "detect": "coco128.yaml",
+    "segment": "coco128-seg.yaml",
+    "classify": "imagenet100",
+    "pose": "coco8-pose.yaml",
+    "obb": "dota128.yaml",
+}
 TASK2MODEL = {
     "detect": "yolo26n.pt",
     "segment": "yolo26n-seg.pt",

@@ -76,7 +76,7 @@ import numpy as np
 import torch
 
 from ultralytics import __version__
-from ultralytics.cfg import TASK2DATA, get_cfg
+from ultralytics.cfg import TASK2CALIBRATIONDATA, TASK2DATA, get_cfg
 from ultralytics.data import build_dataloader
 from ultralytics.data.dataset import YOLODataset
 from ultralytics.data.utils import check_cls_dataset, check_det_dataset
@@ -400,11 +400,13 @@ class Exporter:
             if model.task not in {"detect"}:
                 raise ValueError("Axelera export only supported for detection models.")
             if not self.args.data:
-                self.args.data = "coco128.yaml"  # Axelera default to coco128.yaml
+                self.args.data = TASK2CALIBRATIONDATA.get(model.task, TASK2DATA.get(model.task))
         if imx:
             if not self.args.int8:
                 LOGGER.warning("IMX export requires int8=True, setting int8=True.")
                 self.args.int8 = True
+            if not self.args.data:
+                self.args.data = TASK2CALIBRATIONDATA.get(model.task, TASK2DATA.get(model.task))
             if not self.args.nms and model.task in {"detect", "pose", "segment"}:
                 LOGGER.warning("IMX export requires nms=True, setting nms=True.")
                 self.args.nms = True
