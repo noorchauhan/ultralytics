@@ -853,27 +853,62 @@ class ReID(nn.Module):
         """
         super().__init__()
         c_ = 1280  # intermediate channels (same as Classify)
+        self.n_parts = 2  # number of horizontal strips
         self.conv = Conv(c1, c_, k, s, p, g)
         self.pool_avg = nn.AdaptiveAvgPool2d(1)
         self.pool_max = nn.AdaptiveMaxPool2d(1)
         self.drop = nn.Dropout(p=0.0, inplace=True)
+        # Global branch
         self.embed = nn.Linear(c_, embed_dim)
         self.bottleneck = nn.BatchNorm1d(embed_dim)
-        self.bottleneck.bias.requires_grad_(False)  # no shift per BoT paper
+        self.bottleneck.bias.requires_grad_(False)
         self.classifier = nn.Linear(embed_dim, c2, bias=False)
+        # Part branches (shared embed dim, separate BNNeck + classifier)
+        self.part_embeds = nn.ModuleList([nn.Linear(c_, embed_dim) for _ in range(self.n_parts)])
+        self.part_bns = nn.ModuleList([nn.BatchNorm1d(embed_dim) for _ in range(self.n_parts)])
+        for bn in self.part_bns:
+            bn.bias.requires_grad_(False)
+        self.part_classifiers = nn.ModuleList([nn.Linear(embed_dim, c2, bias=False) for _ in range(self.n_parts)])
         self.embed_dim = embed_dim
 
     def forward(self, x: list[torch.Tensor] | torch.Tensor) -> torch.Tensor | tuple:
-        """Perform forward pass of the ReID head."""
+        """Perform forward pass of the ReID head with global + part features."""
         if isinstance(x, list):
             x = torch.cat(x, 1)
         x = self.conv(x)
-        feat = self.embed(self.drop((self.pool_avg(x) + self.pool_max(x)).flatten(1)))  # avg+max pooling
-        feat_bn = self.bottleneck(feat)  # BNNeck feature
+
+        # Global features (avg + max pooling)
+        global_pooled = (self.pool_avg(x) + self.pool_max(x)).flatten(1)
+        feat = self.embed(self.drop(global_pooled))
+        feat_bn = self.bottleneck(feat)
+
+        # Part features: split into horizontal strips
+        h = x.shape[2]
+        strip_h = max(h // self.n_parts, 1)
+        part_feats_bn = []
+        part_logits = []
+        for i in range(self.n_parts):
+            start = i * strip_h
+            end = h if i == self.n_parts - 1 else (i + 1) * strip_h
+            part = x[:, :, start:end, :]
+            part_pooled = torch.nn.functional.adaptive_avg_pool2d(part, 1).flatten(1)
+            part_feat = self.part_embeds[i](self.drop(part_pooled))
+            part_feat_bn = self.part_bns[i](part_feat)
+            part_feats_bn.append(part_feat_bn)
+            if self.training:
+                part_logits.append(self.part_classifiers[i](part_feat_bn))
+
         if self.training:
+            # Sum global + part logits for CE loss
             cls_logits = self.classifier(feat_bn)
-            return cls_logits, feat_bn, feat  # (logits, bn_feat, raw_feat)
-        emb = torch.nn.functional.normalize(feat_bn, dim=1)
+            for pl in part_logits:
+                cls_logits = cls_logits + pl
+            return cls_logits, feat_bn, feat  # triplet on global raw feat
+
+        # Eval: concat global + part BNNeck features for richer embedding
+        all_feats = [feat_bn] + part_feats_bn
+        combined = torch.cat(all_feats, dim=1)
+        emb = torch.nn.functional.normalize(combined, dim=1)
         return emb if self.export else (emb, feat_bn)
 
 
