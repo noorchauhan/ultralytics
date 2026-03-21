@@ -963,6 +963,89 @@ class v8ClassificationLoss:
         return loss, loss.detach()
 
 
+class ReIDLoss:
+    """Criterion class for computing ReID training losses (cross-entropy + batch-hard triplet)."""
+
+    def __init__(self, nc: int, triplet_margin: float = 0.3, label_smooth: float = 0.1,
+                 triplet_weight: float = 1.0, ce_weight: float = 1.0):
+        """Initialize ReID loss with label-smoothed CE and batch-hard triplet loss.
+
+        Args:
+            nc (int): Number of identity classes.
+            triplet_margin (float): Margin for triplet loss.
+            label_smooth (float): Label smoothing factor for CE loss.
+            triplet_weight (float): Weight for triplet loss.
+            ce_weight (float): Weight for cross-entropy loss.
+        """
+        self.nc = nc
+        self.triplet_margin = triplet_margin
+        self.label_smooth = label_smooth
+        self.triplet_weight = triplet_weight
+        self.ce_weight = ce_weight
+
+    def __call__(self, preds, batch):
+        """Compute the ReID loss between predictions and true labels.
+
+        Args:
+            preds: Tuple of (cls_logits, bn_feat, raw_feat) from ReID head.
+            batch (dict): Batch dict with 'cls' key containing identity labels.
+
+        Returns:
+            (tuple[torch.Tensor, torch.Tensor]): Total loss and detached component losses [ce, triplet].
+        """
+        cls_logits, bn_feat, raw_feat = preds
+        labels = batch["cls"]
+
+        # Cross-entropy with label smoothing
+        ce_loss = F.cross_entropy(cls_logits, labels, label_smoothing=self.label_smooth)
+
+        # Batch-hard triplet loss on raw features (before BNNeck)
+        tri_loss = self._batch_hard_triplet_loss(raw_feat, labels)
+
+        total = self.ce_weight * ce_loss + self.triplet_weight * tri_loss
+        return total, torch.stack([ce_loss.detach(), tri_loss.detach()])
+
+    def _batch_hard_triplet_loss(self, features, labels):
+        """Compute batch-hard triplet loss.
+
+        For each anchor, find the hardest positive (max distance same ID) and hardest negative
+        (min distance different ID).
+
+        Args:
+            features (torch.Tensor): Feature vectors (B, D).
+            labels (torch.Tensor): Identity labels (B,).
+
+        Returns:
+            (torch.Tensor): Triplet loss scalar.
+        """
+        # Pairwise L2 distance matrix
+        dist_mat = torch.cdist(features, features, p=2)  # (B, B)
+
+        # Masks
+        same_id = labels.unsqueeze(0) == labels.unsqueeze(1)  # (B, B)
+        diff_id = ~same_id
+
+        # For each anchor, hardest positive = max dist among same identity
+        # Set non-same to -inf so they don't affect max
+        pos_dist = dist_mat.clone()
+        pos_dist[~same_id] = 0.0
+        hardest_pos, _ = pos_dist.max(dim=1)  # (B,)
+
+        # For each anchor, hardest negative = min dist among different identity
+        # Set same-id to +inf so they don't affect min
+        neg_dist = dist_mat.clone()
+        neg_dist[same_id] = float("inf")
+        hardest_neg, _ = neg_dist.min(dim=1)  # (B,)
+
+        # Filter out anchors that have no valid positive or negative
+        valid = (hardest_pos > 0) & (hardest_neg < float("inf"))
+        if valid.sum() == 0:
+            return torch.tensor(0.0, device=features.device, requires_grad=True)
+
+        triplet_loss = F.relu(hardest_pos[valid] - hardest_neg[valid] + self.triplet_margin)
+        return triplet_loss.mean()
+
+
 class v8OBBLoss(v8DetectionLoss):
     """Calculates losses for object detection, classification, and box distribution in rotated YOLO models."""
 
