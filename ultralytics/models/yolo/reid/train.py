@@ -50,8 +50,18 @@ class ReidTrainer(BaseTrainer):
         super().__init__(cfg, overrides, _callbacks)
 
     def set_model_attributes(self):
-        """Set the model's identity names from the loaded dataset."""
+        """Set the model's identity names and configure loss from trainer args."""
         self.model.names = self.data["names"]
+        # Configure loss criterion with trainer args
+        from ultralytics.utils.loss import ReIDLoss
+
+        self.model.criterion = ReIDLoss(
+            nc=self.data["nc"],
+            triplet_margin=getattr(self.args, "triplet_margin", 0.3),
+            label_smooth=getattr(self.args, "label_smoothing", 0.1),
+            triplet_weight=getattr(self.args, "triplet_weight", 1.0),
+            ce_weight=getattr(self.args, "ce_weight", 1.0),
+        )
 
     def get_model(self, cfg=None, weights=None, verbose: bool = True):
         """Return a ReidModel configured for training.

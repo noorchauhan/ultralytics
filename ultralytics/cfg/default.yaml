@@ -129,6 +129,9 @@ erasing: 0.4 # (float) random erasing probability for classification (0.0–1.0)
 # ReID settings --------------------------------------------------------------------------------------------------------
 reid_p: 16 # (int) number of identities per batch for PK sampling
 reid_k: 4 # (int) number of images per identity for PK sampling
+triplet_margin: 0.3 # (float) margin for batch-hard triplet loss
+triplet_weight: 1.0 # (float) weight for triplet loss
+ce_weight: 1.0 # (float) weight for cross-entropy ID loss
 
 # Custom config.yaml ---------------------------------------------------------------------------------------------------
 cfg: # (str, optional) path to a config.yaml that overrides defaults
