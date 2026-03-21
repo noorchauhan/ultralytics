@@ -993,6 +993,11 @@ class ReIDLoss:
         Returns:
             (tuple[torch.Tensor, torch.Tensor]): Total loss and detached component losses [ce, triplet].
         """
+        # In eval mode the head returns (emb, feat_bn) — skip loss computation
+        if not isinstance(preds, (list, tuple)) or len(preds) != 3:
+            zero = torch.tensor(0.0, device=batch["cls"].device)
+            return zero, torch.stack([zero, zero])
+
         cls_logits, bn_feat, raw_feat = preds
         labels = batch["cls"]
 
