@@ -852,7 +852,7 @@ class ReID(nn.Module):
             g (int): Groups.
         """
         super().__init__()
-        c_ = 1280  # intermediate channels (same as Classify)
+        c_ = max(c1, embed_dim)  # proportional to model size (not hardcoded 1280)
         self.conv = Conv(c1, c_, k, s, p, g)
         self.pool_avg = nn.AdaptiveAvgPool2d(1)
         self.pool_max = nn.AdaptiveMaxPool2d(1)
