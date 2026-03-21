@@ -860,7 +860,6 @@ class ReID(nn.Module):
         self.bottleneck = nn.BatchNorm1d(embed_dim)
         self.bottleneck.bias.requires_grad_(False)  # no shift per BoT paper
         self.classifier = nn.Linear(embed_dim, c2, bias=False)
-        self.cls_scale = nn.Parameter(torch.tensor(16.0))  # learnable temperature for cosine classifier
         self.embed_dim = embed_dim
 
     def forward(self, x: list[torch.Tensor] | torch.Tensor) -> torch.Tensor | tuple:
@@ -870,10 +869,7 @@ class ReID(nn.Module):
         feat = self.embed(self.drop(self.pool(self.conv(x)).flatten(1)))  # global feature
         feat_bn = self.bottleneck(feat)  # BNNeck feature
         if self.training:
-            # Cosine classifier: normalize features and weights, scale by temperature
-            feat_norm = torch.nn.functional.normalize(feat_bn, dim=1)
-            w_norm = torch.nn.functional.normalize(self.classifier.weight, dim=1)
-            cls_logits = self.cls_scale * feat_norm @ w_norm.t()
+            cls_logits = self.classifier(feat_bn)
             return cls_logits, feat_bn, feat  # (logits, bn_feat, raw_feat)
         emb = torch.nn.functional.normalize(feat_bn, dim=1)
         return emb if self.export else (emb, feat_bn)
