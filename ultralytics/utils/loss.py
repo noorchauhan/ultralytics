@@ -1065,10 +1065,10 @@ class ReIDLoss:
         return center_loss
 
     def _batch_hard_triplet_loss(self, features, labels):
-        """Compute soft batch-hard triplet loss using LogSumExp mining.
+        """Compute batch-hard triplet loss.
 
-        Uses soft max/min (LogSumExp) instead of hard max/min to consider all pairs
-        with smooth weighting — more robust than pure batch-hard.
+        For each anchor, find the hardest positive (max distance same ID) and hardest negative
+        (min distance different ID).
 
         Args:
             features (torch.Tensor): Feature vectors (B, D).
@@ -1084,28 +1084,23 @@ class ReIDLoss:
 
         # Masks
         same_id = labels.unsqueeze(0) == labels.unsqueeze(1)  # (B, B)
-        diff_id = ~same_id
 
-        # Soft-hardest positive: LogSumExp over positive distances (smooth max)
-        # Large temp T → hard mining, small T → average of all positives
-        T = 10.0  # temperature for soft mining
+        # Hardest positive: max dist among same identity
         pos_dist = dist_mat.clone()
-        pos_dist[diff_id] = -1e9  # mask out negatives
-        soft_pos = (T * pos_dist).logsumexp(dim=1) / T  # (B,)
+        pos_dist[~same_id] = 0.0
+        hardest_pos, _ = pos_dist.max(dim=1)  # (B,)
 
-        # Soft-hardest negative: -LogSumExp(-neg_dist) (smooth min)
+        # Hardest negative: min dist among different identity
         neg_dist = dist_mat.clone()
-        neg_dist[same_id] = 1e9  # mask out positives
-        soft_neg = -(T * (-neg_dist)).logsumexp(dim=1) / T  # (B,)
+        neg_dist[same_id] = float("inf")
+        hardest_neg, _ = neg_dist.min(dim=1)  # (B,)
 
-        # Filter valid (has both positive and negative)
-        has_pos = same_id.sum(1) > 1  # at least one other positive
-        has_neg = diff_id.any(1)
-        valid = has_pos & has_neg
+        # Filter out anchors that have no valid positive or negative
+        valid = (hardest_pos > 0) & (hardest_neg < float("inf"))
         if valid.sum() == 0:
             return torch.tensor(0.0, device=features.device, requires_grad=True)
 
-        triplet_loss = F.relu(soft_pos[valid] - soft_neg[valid] + self.triplet_margin)
+        triplet_loss = F.relu(hardest_pos[valid] - hardest_neg[valid] + self.triplet_margin)
         return triplet_loss.mean()
 
 
