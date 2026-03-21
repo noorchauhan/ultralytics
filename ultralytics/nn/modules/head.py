@@ -855,7 +855,6 @@ class ReID(nn.Module):
         c_ = 1280  # intermediate channels (same as Classify)
         self.conv = Conv(c1, c_, k, s, p, g)
         self.pool = nn.AdaptiveAvgPool2d(1)
-        self.gem_p = nn.Parameter(torch.ones(1) * 3.0)  # GeM pooling exponent (learnable)
         self.drop = nn.Dropout(p=0.0, inplace=True)
         self.embed = nn.Linear(c_, embed_dim)
         self.bottleneck = nn.BatchNorm1d(embed_dim)
@@ -867,10 +866,7 @@ class ReID(nn.Module):
         """Perform forward pass of the ReID head."""
         if isinstance(x, list):
             x = torch.cat(x, 1)
-        x = self.conv(x)
-        x = x.clamp(min=1e-6).pow(self.gem_p)  # GeM: raise to power p
-        x = self.pool(x).pow(1.0 / self.gem_p)  # GeM: mean then root
-        feat = self.embed(self.drop(x.flatten(1)))  # global feature
+        feat = self.embed(self.drop(self.pool(self.conv(x)).flatten(1)))  # global feature
         feat_bn = self.bottleneck(feat)  # BNNeck feature
         if self.training:
             cls_logits = self.classifier(feat_bn)
