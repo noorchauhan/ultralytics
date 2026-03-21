@@ -866,7 +866,16 @@ class ReID(nn.Module):
         """Perform forward pass of the ReID head."""
         if isinstance(x, list):
             x = torch.cat(x, 1)
-        feat = self.embed(self.drop(self.pool(self.conv(x)).flatten(1)))  # global feature
+        x = self.conv(x)
+        if self.training:
+            # Batch DropBlock: randomly drop bottom portion of feature map
+            h = x.size(2)
+            drop_h = h // 3  # drop ~33% of height
+            if drop_h > 0:
+                start = torch.randint(0, h - drop_h + 1, (1,)).item()
+                x = x.clone()
+                x[:, :, start : start + drop_h, :] = 0
+        feat = self.embed(self.drop(self.pool(x).flatten(1)))  # global feature
         feat_bn = self.bottleneck(feat)  # BNNeck feature
         if self.training:
             cls_logits = self.classifier(feat_bn)
