@@ -63,6 +63,7 @@ class ReidTrainer(BaseTrainer):
             ce_weight=getattr(self.args, "ce_weight", 1.0),
             center_weight=getattr(self.args, "center_weight", 0.0),
             center_momentum=getattr(self.args, "center_momentum", 0.9),
+            focal_gamma=getattr(self.args, "focal_gamma", 0.0),
         )
 
     def get_model(self, cfg=None, weights=None, verbose: bool = True):

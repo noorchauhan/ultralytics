@@ -968,7 +968,7 @@ class ReIDLoss:
 
     def __init__(self, nc: int, triplet_margin: float = 0.3, label_smooth: float = 0.1,
                  triplet_weight: float = 1.0, ce_weight: float = 1.0, center_weight: float = 0.0,
-                 center_momentum: float = 0.9):
+                 center_momentum: float = 0.9, focal_gamma: float = 0.0):
         """Initialize ReID loss with label-smoothed CE, batch-hard triplet, and center loss.
 
         Args:
@@ -979,6 +979,7 @@ class ReIDLoss:
             ce_weight (float): Weight for cross-entropy loss.
             center_weight (float): Weight for center loss (0 = disabled).
             center_momentum (float): EMA momentum for updating class centers.
+            focal_gamma (float): Focal loss gamma (0 = standard CE, >0 = focal).
         """
         self.nc = nc
         self.triplet_margin = triplet_margin
@@ -987,6 +988,7 @@ class ReIDLoss:
         self.ce_weight = ce_weight
         self.center_weight = center_weight
         self.center_momentum = center_momentum
+        self.focal_gamma = focal_gamma
         self.centers = None  # lazily initialized (nc, feat_dim)
 
     def __call__(self, preds, batch):
@@ -1007,8 +1009,13 @@ class ReIDLoss:
         cls_logits, bn_feat, raw_feat = preds
         labels = batch["cls"]
 
-        # Cross-entropy with label smoothing
-        ce_loss = F.cross_entropy(cls_logits, labels, label_smoothing=self.label_smooth)
+        # Cross-entropy with label smoothing (optionally focal)
+        if self.focal_gamma > 0:
+            ce_per_sample = F.cross_entropy(cls_logits, labels, label_smoothing=self.label_smooth, reduction="none")
+            pt = torch.exp(-ce_per_sample)
+            ce_loss = ((1 - pt) ** self.focal_gamma * ce_per_sample).mean()
+        else:
+            ce_loss = F.cross_entropy(cls_logits, labels, label_smoothing=self.label_smooth)
 
         # Batch-hard triplet loss on raw features (before BNNeck)
         tri_loss = self._batch_hard_triplet_loss(raw_feat, labels)
