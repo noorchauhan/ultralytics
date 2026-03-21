@@ -400,13 +400,13 @@ class Exporter:
             if model.task not in {"detect"}:
                 raise ValueError("Axelera export only supported for detection models.")
             if not self.args.data:
-                self.args.data = TASK2CALIBRATIONDATA.get(model.task, TASK2DATA.get(model.task))
+                self.args.data = TASK2CALIBRATIONDATA.get(model.task)
         if imx:
             if not self.args.int8:
                 LOGGER.warning("IMX export requires int8=True, setting int8=True.")
                 self.args.int8 = True
             if not self.args.data:
-                self.args.data = TASK2CALIBRATIONDATA.get(model.task, TASK2DATA.get(model.task))
+                self.args.data = TASK2CALIBRATIONDATA.get(model.task)
             if not self.args.nms and model.task in {"detect", "pose", "segment"}:
                 LOGGER.warning("IMX export requires nms=True, setting nms=True.")
                 self.args.nms = True
