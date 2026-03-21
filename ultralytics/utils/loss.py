@@ -1019,9 +1019,9 @@ class ReIDLoss:
         else:
             ce_loss = F.cross_entropy(cls_logits, labels, label_smoothing=self.label_smooth)
 
-        # Metric loss: SupCon on bn_feat (after BNNeck, better normalized), triplet on raw_feat
+        # Metric loss on raw features (before BNNeck)
         if self.supcon_temp > 0:
-            tri_loss = self._supcon_loss(bn_feat, labels, self.supcon_temp)
+            tri_loss = self._supcon_loss(raw_feat, labels, self.supcon_temp)
         else:
             tri_loss = self._batch_hard_triplet_loss(raw_feat, labels)
 
