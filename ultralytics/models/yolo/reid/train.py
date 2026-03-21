@@ -61,6 +61,8 @@ class ReidTrainer(BaseTrainer):
             label_smooth=getattr(self.args, "label_smoothing", 0.1),
             triplet_weight=getattr(self.args, "triplet_weight", 1.0),
             ce_weight=getattr(self.args, "ce_weight", 1.0),
+            center_weight=getattr(self.args, "center_weight", 0.0),
+            center_momentum=getattr(self.args, "center_momentum", 0.9),
         )
 
     def get_model(self, cfg=None, weights=None, verbose: bool = True):

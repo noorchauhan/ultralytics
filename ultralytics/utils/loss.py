@@ -964,11 +964,12 @@ class v8ClassificationLoss:
 
 
 class ReIDLoss:
-    """Criterion class for computing ReID training losses (cross-entropy + batch-hard triplet)."""
+    """Criterion class for computing ReID training losses (cross-entropy + batch-hard triplet + center)."""
 
     def __init__(self, nc: int, triplet_margin: float = 0.3, label_smooth: float = 0.1,
-                 triplet_weight: float = 1.0, ce_weight: float = 1.0):
-        """Initialize ReID loss with label-smoothed CE and batch-hard triplet loss.
+                 triplet_weight: float = 1.0, ce_weight: float = 1.0, center_weight: float = 0.0,
+                 center_momentum: float = 0.9):
+        """Initialize ReID loss with label-smoothed CE, batch-hard triplet, and center loss.
 
         Args:
             nc (int): Number of identity classes.
@@ -976,12 +977,17 @@ class ReIDLoss:
             label_smooth (float): Label smoothing factor for CE loss.
             triplet_weight (float): Weight for triplet loss.
             ce_weight (float): Weight for cross-entropy loss.
+            center_weight (float): Weight for center loss (0 = disabled).
+            center_momentum (float): EMA momentum for updating class centers.
         """
         self.nc = nc
         self.triplet_margin = triplet_margin
         self.label_smooth = label_smooth
         self.triplet_weight = triplet_weight
         self.ce_weight = ce_weight
+        self.center_weight = center_weight
+        self.center_momentum = center_momentum
+        self.centers = None  # lazily initialized (nc, feat_dim)
 
     def __call__(self, preds, batch):
         """Compute the ReID loss between predictions and true labels.
@@ -1008,7 +1014,48 @@ class ReIDLoss:
         tri_loss = self._batch_hard_triplet_loss(raw_feat, labels)
 
         total = self.ce_weight * ce_loss + self.triplet_weight * tri_loss
+
+        # Center loss: pull features toward their class centers
+        if self.center_weight > 0:
+            ctr_loss = self._center_loss(bn_feat, labels)
+            total = total + self.center_weight * ctr_loss
+
         return total, torch.stack([ce_loss.detach(), tri_loss.detach()])
+
+    def _center_loss(self, features, labels):
+        """Compute center loss with EMA-updated class centers.
+
+        Pulls each feature toward the running average center of its class.
+        Centers are updated as exponential moving averages (no gradient).
+
+        Args:
+            features (torch.Tensor): Feature vectors (B, D).
+            labels (torch.Tensor): Identity labels (B,).
+
+        Returns:
+            (torch.Tensor): Center loss scalar.
+        """
+        feat_dim = features.shape[1]
+        # Lazy init centers
+        if self.centers is None or self.centers.shape[1] != feat_dim:
+            self.centers = torch.zeros(self.nc, feat_dim, device=features.device)
+
+        self.centers = self.centers.to(features.device)
+
+        # Update centers via EMA (no gradient)
+        with torch.no_grad():
+            for cls_id in labels.unique():
+                mask = labels == cls_id
+                cls_feat = features[mask].mean(0)
+                self.centers[cls_id] = (
+                    self.center_momentum * self.centers[cls_id]
+                    + (1 - self.center_momentum) * cls_feat
+                )
+
+        # Compute center loss: 0.5 * mean(||f - c_y||^2)
+        batch_centers = self.centers[labels].detach()  # detach so gradient only flows to features
+        center_loss = 0.5 * ((features - batch_centers) ** 2).sum(1).mean()
+        return center_loss
 
     def _batch_hard_triplet_loss(self, features, labels):
         """Compute batch-hard triplet loss.
