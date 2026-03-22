@@ -1021,9 +1021,7 @@ class ReIDLoss:
 
         # Metric loss on raw features (before BNNeck)
         if self.supcon_temp > 0:
-            supcon_loss = self._supcon_loss(raw_feat, labels, self.supcon_temp)
-            triplet_loss = self._batch_hard_triplet_loss(raw_feat, labels)
-            tri_loss = supcon_loss + 0.5 * triplet_loss  # combine both
+            tri_loss = self._supcon_loss(raw_feat, labels, self.supcon_temp)
         else:
             tri_loss = self._batch_hard_triplet_loss(raw_feat, labels)
 
