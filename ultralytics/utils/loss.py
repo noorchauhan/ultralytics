@@ -1027,9 +1027,9 @@ class ReIDLoss:
 
         total = self.ce_weight * ce_loss + self.triplet_weight * tri_loss
 
-        # Center loss: pull features toward their class centers
+        # Center loss on raw features (same space as SupCon for consistency)
         if self.center_weight > 0:
-            ctr_loss = self._center_loss(bn_feat, labels)
+            ctr_loss = self._center_loss(raw_feat, labels)
             total = total + self.center_weight * ctr_loss
 
         return total, torch.stack([ce_loss.detach(), tri_loss.detach()])
