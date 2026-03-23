@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import torch
 
 from ultralytics.engine.predictor import BasePredictor
@@ -48,8 +47,8 @@ class SemanticPredictor(BasePredictor):
         if isinstance(preds, (tuple, list)):
             preds = preds[0]
 
-        if not isinstance(orig_imgs, list):
-            orig_imgs = [orig_imgs] if isinstance(orig_imgs, np.ndarray) else list(orig_imgs.cpu().numpy())
+        if not isinstance(orig_imgs, list):  # input images are a torch.Tensor, not a list
+            orig_imgs = ops.convert_torch2numpy_batch(orig_imgs)[..., ::-1]
 
         results = []
         for i, (pred, orig_img) in enumerate(zip(preds, orig_imgs)):
