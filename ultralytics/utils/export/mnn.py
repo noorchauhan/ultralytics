@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 from ultralytics.utils import LOGGER
 
@@ -12,7 +11,8 @@ from ultralytics.utils import LOGGER
 def onnx2mnn(
     f_onnx: str,
     file: Path | str,
-    args: SimpleNamespace,
+    half: bool = False,
+    int8: bool = False,
     metadata: dict | None = None,
     prefix: str = "",
 ) -> str:
@@ -21,7 +21,8 @@ def onnx2mnn(
     Args:
         f_onnx (str): Path to the source ONNX file.
         file (Path | str): Source model path used to derive the output ``.mnn`` path.
-        args (SimpleNamespace): Export arguments with ``int8`` and ``half`` attributes.
+        half (bool): Whether to enable FP16 conversion.
+        int8 (bool): Whether to enable INT8 weight quantization.
         metadata (dict | None): Optional metadata embedded via ``--bizCode``.
         prefix (str): Prefix for log messages.
 
@@ -42,9 +43,9 @@ def onnx2mnn(
     file = Path(file)
     f = str(file.with_suffix(".mnn"))  # MNN model file
     mnn_args = ["", "-f", "ONNX", "--modelFile", f_onnx, "--MNNModel", f, "--bizCode", json.dumps(metadata or {})]
-    if args.int8:
+    if int8:
         mnn_args.extend(("--weightQuantBits", "8"))
-    if args.half:
+    if half:
         mnn_args.append("--fp16")
     mnnconvert.convert(mnn_args)
     # Remove scratch file created during model convert optimize
