@@ -77,11 +77,22 @@ class ReidValidator(BaseValidator):
     def update_metrics(self, preds, batch: dict[str, Any]) -> None:
         """Accumulate embeddings and metadata.
 
+        When reid_tta is enabled, also forwards horizontally-flipped images through the model
+        and averages the two embeddings for improved accuracy.
+
         Args:
             preds: Model output (embedding, feat_bn) tuple or just embedding.
             batch (dict): Batch with 'cls' and 'camid' keys.
         """
         emb = preds[0] if isinstance(preds, (list, tuple)) else preds
+
+        # Flip TTA: average original + horizontally flipped embeddings
+        if getattr(self.args, "reid_tta", False):
+            with torch.no_grad():
+                preds_flip = self._model(batch["img"].flip(dims=[3]))
+            emb_flip = preds_flip[0] if isinstance(preds_flip, (list, tuple)) else preds_flip
+            emb = (emb + emb_flip) / 2
+
         self._feats.append(emb.cpu())
         self._pids.append(batch["cls"].cpu())
         self._camids.append(torch.tensor([batch["camid"][i] for i in range(len(batch["camid"]))]) if isinstance(batch["camid"], list) else batch["camid"].cpu())
@@ -120,9 +131,12 @@ class ReidValidator(BaseValidator):
                 gallery_path = str(Path(data["path"]) / gallery_path)
             gallery_feats, gallery_pids, gallery_camids = self._extract_gallery_features(gallery_path)
 
-        LOGGER.info(f"{'Computing metrics':>22s}   {len(query_pids)} query x {len(gallery_pids)} gallery ...")
+        reranking = getattr(self.args, "reid_reranking", False)
+        tag = " (re-ranking)" if reranking else ""
+        LOGGER.info(f"{'Computing metrics':>22s}   {len(query_pids)} query x {len(gallery_pids)} gallery{tag} ...")
         self.metrics.process(query_feats, query_pids, query_camids,
-                            gallery_feats, gallery_pids, gallery_camids)
+                            gallery_feats, gallery_pids, gallery_camids,
+                            reranking=reranking)
         return self.metrics.results_dict
 
     def _extract_gallery_features(self, gallery_path: str):
@@ -137,6 +151,7 @@ class ReidValidator(BaseValidator):
         dataset = ReidDataset(root=gallery_path, args=self.args, augment=False, prefix="gallery")
         loader = build_dataloader(dataset, self.args.batch, self.args.workers, rank=-1)
 
+        tta = getattr(self.args, "reid_tta", False)
         feats, pids, camids = [], [], []
         bar = TQDM(loader, desc=f"{'Extracting gallery':>22s}", total=len(loader))
         for batch in bar:
@@ -146,6 +161,13 @@ class ReidValidator(BaseValidator):
             with torch.no_grad():
                 preds = self._model(batch["img"])
             emb = preds[0] if isinstance(preds, (list, tuple)) else preds
+
+            if tta:
+                with torch.no_grad():
+                    preds_flip = self._model(batch["img"].flip(dims=[3]))
+                emb_flip = preds_flip[0] if isinstance(preds_flip, (list, tuple)) else preds_flip
+                emb = (emb + emb_flip) / 2
+
             feats.append(emb.cpu())
             pids.append(batch["cls"])
             camids.append(
