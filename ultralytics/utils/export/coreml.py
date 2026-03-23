@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import torch
@@ -50,7 +49,10 @@ def _pipeline_coreml(
     model: Any,
     output_shape: tuple,
     metadata: dict,
-    args: SimpleNamespace,
+    fmt: str = "mlpackage",
+    iou: float = 0.45,
+    conf: float = 0.25,
+    agnostic_nms: bool = False,
     weights_dir: Path | str | None = None,
     prefix: str = "",
 ):
@@ -60,7 +62,10 @@ def _pipeline_coreml(
         model: CoreML model.
         output_shape (tuple): Output shape tuple from the exporter.
         metadata (dict): Model metadata.
-        args: Export arguments with ``iou``, ``conf``, ``agnostic_nms``, ``format`` attributes.
+        fmt (str): Export format (``"mlmodel"`` or ``"mlpackage"``).
+        iou (float): IoU threshold for NMS.
+        conf (float): Confidence threshold for NMS.
+        agnostic_nms (bool): Whether to use class-agnostic NMS.
         weights_dir: Weights directory for MLProgram models.
         prefix (str): Prefix for log messages.
 
@@ -73,7 +78,7 @@ def _pipeline_coreml(
 
     spec = model.get_spec()
     outs = list(iter(spec.description.output))
-    if args.format == "mlmodel":  # mlmodel doesn't infer shapes automatically
+    if fmt == "mlmodel":  # mlmodel doesn't infer shapes automatically
         outs[0].type.multiArrayType.shape[:] = output_shape[2], output_shape[1] - 4
         outs[1].type.multiArrayType.shape[:] = output_shape[2], 4
 
@@ -117,9 +122,9 @@ def _pipeline_coreml(
     nms.coordinatesOutputFeatureName = output_names[1]
     nms.iouThresholdInputFeatureName = "iouThreshold"
     nms.confidenceThresholdInputFeatureName = "confidenceThreshold"
-    nms.iouThreshold = args.iou
-    nms.confidenceThreshold = args.conf
-    nms.pickTop.perClass = not args.agnostic_nms
+    nms.iouThreshold = iou
+    nms.confidenceThreshold = conf
+    nms.pickTop.perClass = not agnostic_nms
     nms.stringClassLabels.vector.extend(names.values())
     nms_model = ct.models.MLModel(nms_spec)
 
@@ -163,8 +168,16 @@ def torch2coreml(
     model: nn.Module,
     im: torch.Tensor,
     file: Path | str,
-    args: SimpleNamespace,
     output_shape: tuple,
+    fmt: str = "mlpackage",
+    batch: int = 1,
+    dynamic: bool = False,
+    nms: bool = False,
+    half: bool = False,
+    int8: bool = False,
+    iou: float = 0.45,
+    conf: float = 0.25,
+    agnostic_nms: bool = False,
     metadata: dict | None = None,
     imgsz: list | None = None,
     prefix: str = "",
@@ -175,8 +188,16 @@ def torch2coreml(
         model (nn.Module): The PyTorch model to export.
         im (torch.Tensor): Example input tensor.
         file (Path | str): Source model path used to derive the output path.
-        args (SimpleNamespace): Export arguments (``format``, ``batch``, ``dynamic``, ``nms``, ``int8``, ``half``).
         output_shape (tuple): Model output shape used by the NMS pipeline.
+        fmt (str): Export format (``"mlmodel"`` or ``"mlpackage"``).
+        batch (int): Batch size.
+        dynamic (bool): Whether to use dynamic input shapes.
+        nms (bool): Whether to add NMS pipeline.
+        half (bool): Whether to quantize to FP16.
+        int8 (bool): Whether to quantize to INT8.
+        iou (float): IoU threshold for NMS pipeline.
+        conf (float): Confidence threshold for NMS pipeline.
+        agnostic_nms (bool): Whether to use class-agnostic NMS.
         metadata (dict | None): Metadata to embed in the CoreML model.
         imgsz (list | None): Image size ``[h, w]``.
         prefix (str): Prefix for log messages.
@@ -187,23 +208,13 @@ def torch2coreml(
     from ultralytics.utils.checks import check_requirements
     from ultralytics.utils.torch_utils import TORCH_1_11
 
-    mlmodel = args.format.lower() == "mlmodel"  # legacy *.mlmodel export format requested
+    mlmodel = fmt.lower() == "mlmodel"  # legacy *.mlmodel export format requested
     check_requirements(["coremltools>=9.0", "numpy>=1.14.5,<=2.3.5"])
     import coremltools as ct
 
     LOGGER.info(f"\n{prefix} starting export with coremltools {ct.__version__}...")
     assert not WINDOWS, "CoreML export is not supported on Windows, please run on macOS or Linux."
     assert TORCH_1_11, "CoreML export requires torch>=1.11"
-    if args.batch > 1:
-        assert args.dynamic, (
-            "batch sizes > 1 are not supported without 'dynamic=True' for CoreML export. "
-            "Please retry at 'dynamic=True'."
-        )
-    if args.dynamic:
-        assert not args.nms, (
-            "'nms=True' cannot be used together with 'dynamic=True' for CoreML export. Please disable one of them."
-        )
-        assert model.task != "classify", "'dynamic=True' is not supported for CoreML classification models."
 
     file = Path(file)
     f = file.with_suffix(".mlmodel" if mlmodel else ".mlpackage")
@@ -216,18 +227,18 @@ def torch2coreml(
         classifier_config = ct.ClassifierConfig(list(model.names.values()))
         export_model = model
     elif model.task == "detect":
-        export_model = IOSDetectModel(model, im, mlprogram=not mlmodel) if args.nms else model
+        export_model = IOSDetectModel(model, im, mlprogram=not mlmodel) if nms else model
     else:
-        if args.nms:
+        if nms:
             LOGGER.warning(f"{prefix} 'nms=True' is only available for Detect models like 'yolo26n.pt'.")
         export_model = model
 
     ts = torch.jit.trace(export_model.eval(), im, strict=False)  # TorchScript model
 
-    if args.dynamic:
+    if dynamic:
         input_shape = ct.Shape(
             shape=(
-                ct.RangeDim(lower_bound=1, upper_bound=args.batch, default=1),
+                ct.RangeDim(lower_bound=1, upper_bound=batch, default=1),
                 im.shape[1],
                 ct.RangeDim(lower_bound=32, upper_bound=imgsz[0] * 2, default=imgsz[0]),
                 ct.RangeDim(lower_bound=32, upper_bound=imgsz[1] * 2, default=imgsz[1]),
@@ -243,7 +254,7 @@ def torch2coreml(
         classifier_config=classifier_config,
         convert_to="neuralnetwork" if mlmodel else "mlprogram",
     )
-    bits, mode = (8, "kmeans") if args.int8 else (16, "linear") if args.half else (32, None)
+    bits, mode = (8, "kmeans") if int8 else (16, "linear") if half else (32, None)
     if bits < 32:
         if "kmeans" in mode:
             check_requirements("scikit-learn")
@@ -255,12 +266,15 @@ def torch2coreml(
             op_config = cto.OpPalettizerConfig(mode="kmeans", nbits=bits, weight_threshold=512)
             config = cto.OptimizationConfig(global_config=op_config)
             ct_model = cto.palettize_weights(ct_model, config=config)
-    if args.nms and model.task == "detect":
+    if nms and model.task == "detect":
         ct_model = _pipeline_coreml(
             ct_model,
             output_shape=output_shape,
             metadata=metadata or {},
-            args=args,
+            fmt=fmt,
+            iou=iou,
+            conf=conf,
+            agnostic_nms=agnostic_nms,
             weights_dir=None if mlmodel else ct_model.weights_dir,
             prefix=prefix,
         )
