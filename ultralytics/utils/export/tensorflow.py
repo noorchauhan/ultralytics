@@ -7,7 +7,6 @@ import shutil
 import subprocess
 from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -251,8 +250,9 @@ def add_tflite_metadata(file: str | Path, metadata: dict) -> None:
 def torch2saved_model(
     f_onnx: str,
     file: Path,
-    args: SimpleNamespace,
-    metadata: dict,
+    int8: bool = False,
+    fmt: str = "",
+    metadata: dict | None = None,
     images: np.ndarray | None = None,
     prefix: str = "",
 ) -> tuple[str, object]:
@@ -261,8 +261,9 @@ def torch2saved_model(
     Args:
         f_onnx (str): Path to the source ONNX file (already exported).
         file (Path): Source model path used to derive the ``_saved_model`` output directory.
-        args: Export arguments. Uses ``args.int8``, ``args.format``, and ``args.imgsz``.
-        metadata (dict): Metadata saved as ``metadata.yaml`` and embedded in TFLite files.
+        int8 (bool): Whether to enable INT8 quantization.
+        fmt (str): Export format name (e.g. ``"tfjs"``, ``"edgetpu"``).
+        metadata (dict | None): Metadata saved as ``metadata.yaml`` and embedded in TFLite files.
         images (np.ndarray | None): BHWC float32 calibration images for INT8 quantization.
         prefix (str): Prefix for log messages.
 
@@ -312,12 +313,13 @@ def torch2saved_model(
     if f.is_dir():
         shutil.rmtree(f)
 
+    metadata = metadata or {}
     keras_model = onnx2saved_model(
         f_onnx,
         f,
-        int8=args.int8,
+        int8=int8,
         images=images,
-        disable_group_convolution=getattr(args, "format", "") in {"tfjs", "edgetpu"},
+        disable_group_convolution=fmt in {"tfjs", "edgetpu"},
         prefix=prefix,
     )
     YAML.save(f / "metadata.yaml", metadata)
