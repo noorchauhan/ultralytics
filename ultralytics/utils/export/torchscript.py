@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import torch
 
@@ -15,7 +14,7 @@ def torch2torchscript(
     model: torch.nn.Module,
     im: torch.Tensor,
     file: Path | str,
-    args: SimpleNamespace,
+    optimize: bool = False,
     metadata: dict | None = None,
     prefix: str = "",
 ) -> Path:
@@ -25,7 +24,7 @@ def torch2torchscript(
         model (torch.nn.Module): The PyTorch model to export (may be NMS-wrapped).
         im (torch.Tensor): Example input tensor for tracing.
         file (Path | str): Source model file path used to derive output path.
-        args (SimpleNamespace): Export arguments with ``optimize`` attribute.
+        optimize (bool): Whether to optimize for mobile deployment.
         metadata (dict | None): Optional metadata to embed in the TorchScript archive.
         prefix (str): Prefix for log messages.
 
@@ -38,7 +37,7 @@ def torch2torchscript(
 
     ts = torch.jit.trace(model, im, strict=False)
     extra_files = {"config.txt": json.dumps(metadata or {})}  # torch._C.ExtraFilesMap()
-    if args.optimize:  # https://pytorch.org/tutorials/recipes/mobile_interpreter.html
+    if optimize:  # https://pytorch.org/tutorials/recipes/mobile_interpreter.html
         LOGGER.info(f"{prefix} optimizing for mobile...")
         from torch.utils.mobile_optimizer import optimize_for_mobile
 
