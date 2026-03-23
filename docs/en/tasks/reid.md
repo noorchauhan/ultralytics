@@ -86,7 +86,7 @@ YOLO ReID dataset format can be found in detail in the [Dataset Guide](../datase
 
 ## Val
 
-Validate a trained YOLO26n-reid model on the Market-1501 dataset. The evaluation uses the standard Market-1501 protocol: L2 distance between query and gallery embeddings, excluding same-pid-same-camid matches. Reports mAP and Rank-1 accuracy.
+Validate a trained YOLO26n-reid model on the Market-1501 dataset. The evaluation uses the standard Market-1501 protocol: L2 distance between query and gallery embeddings, excluding same-pid-same-camid matches. Reports mAP and Rank-1/5/10 accuracy.
 
 !!! example
 
@@ -111,6 +111,57 @@ Validate a trained YOLO26n-reid model on the Market-1501 dataset. The evaluation
         yolo reid val model=yolo26n-reid.pt  # val official model
         yolo reid val model=path/to/best.pt  # val custom model
         ```
+
+### Test-Time Augmentation (TTA)
+
+Enable horizontal flip TTA with `reid_tta=True` to average embeddings from original and horizontally-flipped images. This typically improves mAP by 1-2% at the cost of doubling inference time.
+
+!!! example
+
+    === "Python"
+
+        ```python
+        from ultralytics import YOLO
+
+        model = YOLO("path/to/best.pt")
+        metrics = model.val(reid_tta=True)
+        ```
+
+    === "CLI"
+
+        ```bash
+        yolo reid val model=path/to/best.pt reid_tta=True
+        ```
+
+### K-Reciprocal Re-Ranking
+
+Enable [k-reciprocal re-ranking](https://arxiv.org/abs/1701.08398) with `reid_reranking=True` to refine distance rankings using neighborhood structure. This post-processing technique (Zhong et al., CVPR 2017) can improve mAP by **15-17%** with no additional training — it only modifies the distance matrix at evaluation time. Re-ranking increases evaluation time due to the additional pairwise computations.
+
+For best results, combine both TTA and re-ranking:
+
+!!! example
+
+    === "Python"
+
+        ```python
+        from ultralytics import YOLO
+
+        model = YOLO("path/to/best.pt")
+        metrics = model.val(reid_tta=True, reid_reranking=True)
+        ```
+
+    === "CLI"
+
+        ```bash
+        yolo reid val model=path/to/best.pt reid_tta=True reid_reranking=True
+        ```
+
+### ReID evaluation arguments
+
+| Argument         | Default | Description                                                                  |
+| ---------------- | ------- | ---------------------------------------------------------------------------- |
+| `reid_tta`       | `False` | Enable horizontal flip TTA (+1-2% mAP, 2x inference time)                   |
+| `reid_reranking` | `False` | Enable k-reciprocal re-ranking (+15-17% mAP, increases eval time)            |
 
 ## Predict
 
@@ -208,6 +259,17 @@ Currently, the [Market-1501](../datasets/reid/market1501.md) dataset is the prim
 ### What is PK batch sampling in ReID training?
 
 PK sampling is a batch construction strategy where each batch contains P randomly selected identities, each with K randomly sampled images. This ensures every batch has multiple images per identity, which is essential for computing meaningful triplet losses that require positive pairs (same identity) and negative pairs (different identities) within each batch.
+
+### How can I improve ReID evaluation accuracy without retraining?
+
+Two post-processing techniques are available that improve mAP at evaluation time with no retraining needed:
+
+1. **Flip TTA** (`reid_tta=True`): Averages embeddings from original and horizontally-flipped images. Typically +1-2% mAP.
+2. **K-reciprocal re-ranking** (`reid_reranking=True`): Refines distance rankings using neighborhood structure ([Zhong et al., CVPR 2017](https://arxiv.org/abs/1701.08398)). Typically +15-17% mAP.
+
+```bash
+yolo reid val model=path/to/best.pt reid_tta=True reid_reranking=True
+```
 
 ### How does ReID differ from image classification?
 
