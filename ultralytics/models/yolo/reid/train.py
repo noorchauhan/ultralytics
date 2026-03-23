@@ -51,7 +51,8 @@ class ReidTrainer(BaseTrainer):
 
     def set_model_attributes(self):
         """Set the model's identity names and configure loss from trainer args."""
-        self.model.names = self.data["names"]
+        nc = self.data["nc"]
+        self.model.names = {i: str(i) for i in range(nc)}
         # Configure loss criterion with trainer args
         from ultralytics.utils.loss import ReIDLoss
 
