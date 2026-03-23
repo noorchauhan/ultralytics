@@ -643,7 +643,9 @@ class Exporter:
         from ultralytics.utils.export.torchscript import torch2torchscript
 
         model = NMSModel(self.model, self.args) if self.args.nms else self.model
-        return torch2torchscript(model, self.im, self.file, optimize=self.args.optimize, metadata=self.metadata, prefix=prefix)
+        return torch2torchscript(
+            model, self.im, self.file, optimize=self.args.optimize, metadata=self.metadata, prefix=prefix
+        )
 
     @try_export
     def export_onnx(self, prefix=colorstr("ONNX:")):
@@ -719,14 +721,24 @@ class Exporter:
         from ultralytics.utils.export.mnn import onnx2mnn
 
         f_onnx = self.export_onnx()
-        return onnx2mnn(f_onnx, self.file, half=self.args.half, int8=self.args.int8, metadata=self.metadata, prefix=prefix)
+        return onnx2mnn(
+            f_onnx, self.file, half=self.args.half, int8=self.args.int8, metadata=self.metadata, prefix=prefix
+        )
 
     @try_export
     def export_ncnn(self, prefix=colorstr("NCNN:")):
         """Export YOLO model to NCNN format using PNNX https://github.com/pnnx/pnnx."""
         from ultralytics.utils.export.ncnn import torch2ncnn
 
-        return torch2ncnn(self.model, self.im, self.file, half=self.args.half, metadata=self.metadata, device=self.device, prefix=prefix)
+        return torch2ncnn(
+            self.model,
+            self.im,
+            self.file,
+            half=self.args.half,
+            metadata=self.metadata,
+            device=self.device,
+            prefix=prefix,
+        )
 
     @try_export
     def export_coreml(self, prefix=colorstr("CoreML:")):
@@ -825,7 +837,15 @@ class Exporter:
             assert 16 <= self.args.opset <= 19, "RTDETR export requires opset>=16;<=19"
         self.args.simplify = True
         f_onnx = self.export_onnx()
-        return torch2saved_model(f_onnx, self.file, int8=self.args.int8, fmt=self.args.format, metadata=self.metadata, images=images, prefix=prefix)
+        return torch2saved_model(
+            f_onnx,
+            self.file,
+            int8=self.args.int8,
+            fmt=self.args.format,
+            metadata=self.metadata,
+            images=images,
+            prefix=prefix,
+        )
 
     @try_export
     def export_pb(self, keras_model, prefix=colorstr("TensorFlow GraphDef:")):
