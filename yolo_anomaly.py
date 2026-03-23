@@ -27,12 +27,132 @@ from ultralytics.engine import model
 
 from ultra_ext.utils import open_in_vscode
 
+
+def vertical_concat_images(img_paths, save_path="./runs/temp/concat.png", layout="grid", grid_cols=2, texts=None):
+	from PIL import Image, ImageDraw, ImageFont
+
+	# Keep input order. If a path is None or invalid, use a gray placeholder image.
+	valid_images = [Image.open(p).convert("RGB") for p in img_paths if p and os.path.exists(p)]
+	if valid_images:
+		width = max(img.width for img in valid_images)
+		default_height = max(1, int(sum(img.height for img in valid_images) / len(valid_images)))
+	else:
+		width, default_height = 640, 480
+
+	resized_images = []
+	for p in img_paths:
+		if p and os.path.exists(p):
+			img = Image.open(p).convert("RGB")
+			resized_images.append(img.resize((width, int(img.height * width / img.width))))
+		else:
+			resized_images.append(Image.new("RGB", (width, default_height), (0, 0, 0)))
+
+	# Build title strips (gray bars) above each image
+	title_h = int(width*0.075)
+	if texts is None:
+		texts = []
+
+	# Try to load a system font scaled to title_h, fallback to default
+	font_size = max(10, int(title_h * 0.65))
+	font = None
+	try:
+		# macOS font paths
+		for font_path in ["/Library/Fonts/Arial.ttf", "/System/Library/Fonts/Helvetica.ttc", 
+							"/Library/Fonts/Helvetica.ttf", "/System/Library/Fonts/Arial.ttf"]:
+			if os.path.exists(font_path):
+				font = ImageFont.truetype(font_path, font_size)
+				break
+	except:
+		pass
+	if font is None:
+		font = ImageFont.load_default()
+
+	tiles = []
+	for i, img in enumerate(resized_images):
+		title = str(texts[i]) if i < len(texts) and texts[i] is not None else ""
+		title_bar = Image.new("RGB", (width, title_h), (160, 160, 160))
+		draw = ImageDraw.Draw(title_bar)
+		# Vertically center text in title bar
+		bbox = draw.textbbox((0, 0), title, font=font)
+		text_h = bbox[3] - bbox[1]
+		y = max(0, (title_h - text_h) // 2)
+		draw.text((10, y), title, fill=(20, 20, 20), font=font)
+
+		tile = Image.new("RGB", (width, title_h + img.height), (0, 0, 0))
+		tile.paste(title_bar, (0, 0))
+		tile.paste(img, (0, title_h))
+		tiles.append(tile)
+
+	if layout == "grid":
+		grid_cols = max(1, int(grid_cols))
+		n = len(tiles)
+		rows = (n + grid_cols - 1) // grid_cols
+
+		# Use unified cell height for a cleaner grid
+		cell_h = max(img.height for img in tiles)
+		new_img = Image.new("RGB", (width * grid_cols, cell_h * rows), (0, 0, 0))
+
+		for i, img in enumerate(tiles):
+			r, c = divmod(i, grid_cols)
+			# Top align each tile in its cell
+			new_img.paste(img, (c * width, r * cell_h))
+	else:
+		# Default vertical concat behavior
+		total_height = sum(img.height for img in tiles)
+		new_img = Image.new("RGB", (width, total_height))
+
+		y_offset = 0
+		for img in tiles:
+			new_img.paste(img, (0, y_offset))
+			y_offset += img.height
+
+	new_img.save(save_path)
+
 def test_leather_ad_func():
+
+
+
+	def build_support_images(max_n=100):
+		return [
+			os.path.join(train_dir, img)
+			for img in os.listdir(train_dir)
+			if img.endswith((".png", ".jpg", ".jpeg"))
+		][:max_n]
+
+
+
+	# ── Pick test images (single or batch) ───────────────────────────────
+	def get_test_images_from_dir(dir_path, num_images=1, random_pick=False):
+		import random
+		all_files=[]
+		for root, dirs, files in os.walk(dir_path):
+			for file in files:
+				if file.endswith((".png", ".jpg", ".jpeg")):
+					all_files.append(os.path.join(root, file))
+		all_files = sorted(all_files)
+		if not all_files:
+			return []
+		if random_pick:
+			random.shuffle(all_files)
+		if num_images == "all":
+			return all_files
+		return all_files[: max(1, num_images)]
+	
+	def get_test_img_mask(test_img):
+		import cv2
+		import numpy as np
+		mask_path=test_img.replace("test","ground_truth").replace(".png","_mask.png")
+
+		if os.path.exists(mask_path):
+			return mask_path
+		else:
+			return None 
+		
 
 	category="leather"
 	# category="grid"
 	# category="bottle"
-	# category="cable"
+	# category="leather"
 	# category="carpet"
 	# category="toothbrush"
 	# category="metal_nut"
@@ -50,140 +170,81 @@ def test_leather_ad_func():
 	# model = YOLOAnomaly("yolo11n.pt")
 	# model_arg=dict(conf=0.00000001,iou=0.001, imgsz=640)
 
-	model = YOLOAnomaly("yolo26x-seg.pt")
-	model_arg=dict(conf=0.00000001,iou=0.001,max_det=3, imgsz=640)
-
-	model.setup(["anomaly"], conf=0.1)
-
-	# ── Populate memory bank from support set (normal images) ─────────────
-	support_images = [
-		os.path.join(train_dir, img)
-		for img in os.listdir(train_dir)
-		if img.endswith((".png", ".jpg", ".jpeg"))
-	][:10]
-	model.load_support_set(support_images, imgsz=model_arg["imgsz"])
-
-	model.set_mode("anomaly")
-	# ── Pick a random test image ─────────────────────────────────────────
-	def get_random_one_from_dir(dir_path):
-		import random
-		all_files=[]
-		for root, dirs, files in os.walk(dir_path):
-			for file in files:
-				if file.endswith((".png", ".jpg", ".jpeg")):
-					all_files.append(os.path.join(root, file))
-		return all_files[1]
-		return random.choice(all_files)
-
-	test_img=get_random_one_from_dir(test_dir)
+	# base_weights = "yolo26x-seg.pt"
+	base_weights = "yolo11l-seg.pt"
+	cache_ckpt = f"./runs/temp/{category}_admb_cache.pt"
+	os.makedirs("./runs/temp", exist_ok=True)
 
 
-	def get_test_img_mask(test_img):
-		import cv2
-		import numpy as np
-		mask_path=test_img.replace("test","ground_truth").replace(".png","_mask.png")
-
-		if os.path.exists(mask_path):
-			return mask_path
-		else:
-			return None 
+	model_arg=dict(conf=0.1,iou=0.001,max_det=1000, imgsz=640)
 
 
-	# ── Run anomaly detection ─────────────────────────────────────────────
-	res=model.predict(test_img, **model_arg)[0]
 
-	res.save("./runs/temp/res.png")
-	from ultra_ext.utils import keep_best_detection_per_class
-	res1=keep_best_detection_per_class(res)
-	res1.save("./runs/temp/res1.png")
-	# concat images: vertical or grid, with optional title strip above each image
-	def vertical_concat_images(img_paths, save_path="./runs/temp/concat.png", layout="grid", grid_cols=2, texts=None):
-		from PIL import Image, ImageDraw, ImageFont
+	model = YOLOAnomaly(base_weights)
+	model.setup(names=["anomaly"])
 
-		# Keep input order. If a path is None or invalid, use a gray placeholder image.
-		valid_images = [Image.open(p).convert("RGB") for p in img_paths if p and os.path.exists(p)]
-		if valid_images:
-			width = max(img.width for img in valid_images)
-			default_height = max(1, int(sum(img.height for img in valid_images) / len(valid_images)))
-		else:
-			width, default_height = 640, 480
 
-		resized_images = []
-		for p in img_paths:
-			if p and os.path.exists(p):
-				img = Image.open(p).convert("RGB")
-				resized_images.append(img.resize((width, int(img.height * width / img.width))))
-			else:
-				resized_images.append(Image.new("RGB", (width, default_height), (0, 0, 0)))
 
-		# Build title strips (gray bars) above each image
-		title_h = int(width*0.075)
-		if texts is None:
-			texts = []
 
-		# Try to load a system font scaled to title_h, fallback to default
-		font_size = max(10, int(title_h * 0.65))
-		font = None
+	# if os.path.exists(cache_ckpt):
+	# 	# remove if for debugging
+	# 	os.remove(cache_ckpt)
+
+	# build or load memory bank (support set) for anomaly detection
+	if os.path.exists(cache_ckpt):
 		try:
-			# macOS font paths
-			for font_path in ["/Library/Fonts/Arial.ttf", "/System/Library/Fonts/Helvetica.ttc", 
-							   "/Library/Fonts/Helvetica.ttf", "/System/Library/Fonts/Arial.ttf"]:
-				if os.path.exists(font_path):
-					font = ImageFont.truetype(font_path, font_size)
-					break
-		except:
-			pass
-		if font is None:
-			font = ImageFont.load_default()
+			model.load_mb(cache_ckpt, freeze=True, verbose=True)
+		except Exception as e:
+			print(f"Failed to load mb cache ({e}), will rebuild support memory.")
+			support_images = build_support_images(max_n=100)
+			model.load_support_set(support_images, imgsz=model_arg["imgsz"])
+			model.save_mb(cache_ckpt)
+			print(f"Saved AD memory cache to: {cache_ckpt}")
+	else:
+		# ── Populate memory bank from support set (normal images) ─────────────
+		support_images = build_support_images(max_n=100)
+		model.load_support_set(support_images, imgsz=model_arg["imgsz"])
+		model.save_mb(cache_ckpt)
+		print(f"Saved AD memory cache to: {cache_ckpt}")
 
-		tiles = []
-		for i, img in enumerate(resized_images):
-			title = str(texts[i]) if i < len(texts) and texts[i] is not None else ""
-			title_bar = Image.new("RGB", (width, title_h), (160, 160, 160))
-			draw = ImageDraw.Draw(title_bar)
-			# Vertically center text in title bar
-			bbox = draw.textbbox((0, 0), title, font=font)
-			text_h = bbox[3] - bbox[1]
-			y = max(0, (title_h - text_h) // 2)
-			draw.text((10, y), title, fill=(20, 20, 20), font=font)
 
-			tile = Image.new("RGB", (width, title_h + img.height), (0, 0, 0))
-			tile.paste(title_bar, (0, 0))
-			tile.paste(img, (0, title_h))
-			tiles.append(tile)
 
-		if layout == "grid":
-			grid_cols = max(1, int(grid_cols))
-			n = len(tiles)
-			rows = (n + grid_cols - 1) // grid_cols
+	model.set_ad_params(ad_conf=0.5, ad_max_det=5,mode="anomaly")
 
-			# Use unified cell height for a cleaner grid
-			cell_h = max(img.height for img in tiles)
-			new_img = Image.new("RGB", (width * grid_cols, cell_h * rows), (0, 0, 0))
 
-			for i, img in enumerate(tiles):
-				r, c = divmod(i, grid_cols)
-				# Top align each tile in its cell
-				new_img.paste(img, (c * width, r * cell_h))
-		else:
-			# Default vertical concat behavior
-			total_height = sum(img.height for img in tiles)
-			new_img = Image.new("RGB", (width, total_height))
 
-			y_offset = 0
-			for img in tiles:
-				new_img.paste(img, (0, y_offset))
-				y_offset += img.height
 
-		new_img.save(save_path)
 
+
+
+	infer_mode = "single"  # "single", "batch", or "all"
+	num_test_images = 8
+	test_imgs = get_test_images_from_dir(
+		test_dir,
+		num_images="all" if infer_mode == "all" else (1 if infer_mode == "single" else num_test_images),
+		random_pick=False,
+	)
+	if not test_imgs:
+		raise RuntimeError(f"No test images found under {test_dir}")
+	test_img = test_imgs[0]
 	
+
+	# infer 
+	for i in range(10):
+		res=model.predict(test_img, **model_arg)[0]
+
+
+
+	# visualize results
+	res.save("./runs/temp/res.png")
+	print(f"Predicted {len(res)} anomalies in {test_img} with conf>{model_arg['conf']}")
+
 	test_img_mask=get_test_img_mask(test_img)
 
 
-	vertical_concat_images([test_img,test_img_mask,"./runs/temp/res.png","./runs/temp/res1.png"],
-						texts=["Test Image","Ground Truth Mask","AD Result (All Detections)","AD Result (Best per Class)"],
-						  save_path="./runs/temp/concat.png", layout="grid", grid_cols=2)
+	vertical_concat_images([test_img,test_img_mask,"./runs/temp/res.png"],
+						texts=["Test Image","Ground Truth Mask","AD Result (All Detections)"],
+						  save_path="./runs/temp/concat.png", layout="other")
 
 	# from ultra_ext.utils import open_in_vscode
 	open_in_vscode("./runs/temp/concat.png")

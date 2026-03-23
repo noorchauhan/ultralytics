@@ -10,6 +10,7 @@ import torch
 from ultralytics.data.build import load_inference_source
 from ultralytics.engine.model import Model
 from ultralytics.models import yolo
+from ultralytics.nn.modules.head import AnomalyDetection
 from ultralytics.nn.tasks import (
     ClassificationModel,
     DetectionModel,
@@ -522,9 +523,9 @@ class YOLOAnomaly(Model):
             },
         }
 
-    def setup(self, names: list[str], conf: float = 0.1) -> None:
+    def setup(self, names: list[str]) -> None:
         """
-        Configure anomaly detection with class names and detection threshold.
+        Configure anomaly detection with class names.
 
         Must be called before load_support_set() and predict().
 
@@ -532,10 +533,12 @@ class YOLOAnomaly(Model):
         scoring (nc=1).  Pass ``["detect"]`` to use the model's original classification head
         scores with the original class names — useful for baseline comparison.
 
+        Use set_ad_params() to configure the detection threshold (ad_conf) and max detections
+        (ad_max_det) independently before running predict().
+
         Args:
             names (list[str]): Anomaly class names, e.g. ["anomaly"] or ["defect", "scratch"].
                 Use ["detect"] as a special sentinel to start in original-classifier mode.
-            conf (float): Detection threshold in [0, 1]. Lower = more sensitive.
         """
         assert isinstance(self.model, YOLOAnomalyModel), (
             f"Expected YOLOAnomalyModel, got {type(self.model).__name__}. "
@@ -547,7 +550,7 @@ class YOLOAnomaly(Model):
             init_names = list(self.model.names.values())
         else:
             init_names = names
-        self.model.setup_anomaly_detection(init_names, conf)
+        self.model.setup_anomaly_detection(init_names)
         if detect_mode:
             self.model.set_anomaly_mode(False)  # confidence = original head scores
         # names are already set correctly inside setup_anomaly_detection / set_anomaly_mode
@@ -712,6 +715,26 @@ class YOLOAnomaly(Model):
         """
         assert isinstance(self.model, YOLOAnomalyModel)
         return self.model.get_memory_bank_stats()
+
+    def set_ad_params(
+        self,
+        ad_conf: float | None = None,
+        ad_max_det: int | None = None,
+        mode: str | None = None,
+    ) -> None:
+        """Set anomaly-detection inference parameters and optionally switch mode.
+
+        Args:
+            ad_conf (float | None): Confidence threshold for anomaly proposals.
+            ad_max_det (int | None): Maximum number of detections per image.
+            mode (str | None): If provided, switch to this mode ('anomaly' or 'detect').
+        """
+        assert isinstance(self.model, YOLOAnomalyModel), "Call setup() before set_ad_params()."
+        head = self.model.model[-1]
+        assert isinstance(head, AnomalyDetection), "Call setup() before set_ad_params()."
+        head.set_ad_params(ad_conf=ad_conf, ad_max_det=ad_max_det)
+        if mode is not None:
+            self.set_mode(mode)
 
     def set_mode(self, mode: str) -> None:
         """

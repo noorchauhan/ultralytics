@@ -1459,7 +1459,7 @@ class YOLOAnomalyModel(DetectionModel):
 
     # ── Anomaly detection setup ──────────────────────────────────────────────────
 
-    def setup_anomaly_detection(self, names: list, conf: float = 0.1) -> None:
+    def setup_anomaly_detection(self, names: list) -> None:
         """Initialize anomaly detection using AnomalyDetection + ADMBHead for all model types.
 
         For YOLOE checkpoints: text embeddings are fused into cv3/one2one_cv3 weights first
@@ -1487,12 +1487,12 @@ class YOLOAnomalyModel(DetectionModel):
             # We discard the returned ModuleList — build_adhead reads the same layers directly.
             self.get_vocab(names)
 
-        # ── Unified: change head class to AnomalyDetection ───────────────────
-        # build_adhead() operates on self: it saves the final conv layers BEFORE
-        # deep-copying and truncating, so no external snapshot is needed.
-        head.__class__ = AnomalyDetection
-        head.adhead = None
-        head.build_adhead(conf=conf)
+        # ── Unified: wrap head as a new AnomalyDetection instance ───────────────
+        # from_detect_head() creates a genuine new object (not an in-place class swap),
+        # preserving all trained weights via _modules / _parameters / _buffers copy.
+        head = AnomalyDetection.from_detect_head(head)
+        self.model[-1] = head  # replace the old head in the Sequential
+        head.build_adhead()
         # nc must match actual output channels: always 1 in anomaly mode.
         # head.nc is NOT set to len(names) — names are just labels for display.
         # build_adhead already saved original_nc; set_anomaly_mode enforces nc=1.
