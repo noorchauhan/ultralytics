@@ -170,7 +170,8 @@ class TextClassificationTrainer(ClassificationTrainer):
         teacher = build_image_model(f"mobileclip2:{self.teacher_variant}", device=self.device)
         n = len(dataset)
         # Detect embed dim from a probe forward pass
-        probe = teacher.encode_image(torch.randn(1, 3, 256, 256).to(self.device))
+        imgsz = teacher.image_preprocess.transforms[0].size  # get resize target from preprocessing
+        probe = teacher.encode_image(torch.randn(1, 3, imgsz, imgsz).to(self.device))
         embed_dim = probe.shape[-1]
         embeds = torch.zeros(n, embed_dim)
         batch_size = 64
