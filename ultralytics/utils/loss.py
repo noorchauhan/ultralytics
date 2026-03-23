@@ -1244,6 +1244,47 @@ class TVPSegmentLoss(TVPDetectLoss):
         return cls_loss, vp_loss[1]
 
 
+cityscapes_weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
+
+
+class OhemCELoss(nn.Module):
+    def __init__(self, thresh, ratio, ignore_index=255, use_weight=True, weight=None):
+        super().__init__()
+        self.register_buffer("thresh", torch.tensor(thresh, dtype=torch.float))
+        self.ratio = ratio
+        self.ignore_index = ignore_index
+        self.register_buffer("weight", weight.float().clone() if use_weight and weight is not None else None)
+
+    def forward(self, logits, labels):
+        valid_mask = labels.ne(self.ignore_index)
+        flat_valid_mask = valid_mask.view(-1)
+        if not flat_valid_mask.any():
+            return logits.sum() * 0.0
+
+        pixel_losses = F.cross_entropy(
+            logits,
+            labels,
+            weight=self.weight,
+            ignore_index=self.ignore_index,
+            reduction="none",
+        ).contiguous().view(-1)
+        probs = F.softmax(logits, dim=1)
+        gather_labels = labels.clone()
+        gather_labels[~valid_mask] = 0
+        probs = probs.gather(1, gather_labels.unsqueeze(1)).contiguous().view(-1)
+
+        probs, order = probs[flat_valid_mask].sort()
+        pixel_losses = pixel_losses[flat_valid_mask][order]
+
+        n_min = max(int(flat_valid_mask.sum().item() * self.ratio), 1)
+        n_min = 100000
+        threshold = torch.maximum(probs[min(n_min - 1, probs.numel() - 1)], self.thresh)
+        selected_losses = pixel_losses[probs < threshold]
+        if selected_losses.numel() == 0:
+            selected_losses = pixel_losses[:n_min]
+        return selected_losses.mean()
+
+
 class SemanticSegLoss(nn.Module):
     """Loss function for semantic segmentation: CrossEntropy + Dice.
 
@@ -1251,6 +1292,7 @@ class SemanticSegLoss(nn.Module):
         nc (int): Number of semantic classes.
         ce (nn.CrossEntropyLoss): Cross-entropy loss with ignore_index=255.
         dice_weight (float): Weight for the Dice loss component.
+        aux_weight (float): Weight for the auxiliary cross-entropy loss component.
     """
 
     def __init__(self, model):
@@ -1262,9 +1304,11 @@ class SemanticSegLoss(nn.Module):
         super().__init__()
         m = model.model[-1]
         self.nc = m.nc
+        self.device = next(model.parameters()).device
+        self.dtype = next(model.parameters()).dtype
         self.ce = nn.CrossEntropyLoss(ignore_index=255)
-        self.dice_weight = 1.0
-        self.aux_weight = 0.4
+        self.dice_weight = float(getattr(model.args, "dice_weight", 1.0))
+        self.aux_weight = float(getattr(model.args, "aux_weight", 0.4))
 
     def _resize_masks(self, masks, target_shape):
         """Resize masks to match prediction spatial dims."""
@@ -1309,16 +1353,16 @@ class SemanticSegLoss(nn.Module):
 
         # Main CE + Dice
         ce_loss = self._ce_loss(preds, masks)
-        dice_loss = self._dice_loss(preds, masks)
-        total = ce_loss + self.dice_weight * dice_loss
+        dice_loss = self._dice_loss(preds, masks) * self.dice_weight
+        total = ce_loss + dice_loss
 
         # Auxiliary CE loss
         aux_loss = torch.tensor(0.0, device=preds.device)
         if aux_logits is not None:
             if aux_logits.shape[2:] != masks.shape[1:]:
                 aux_logits = F.interpolate(aux_logits, size=masks.shape[1:], mode="bilinear", align_corners=False)
-            aux_loss = self._ce_loss(aux_logits, masks)
-            total = total + self.aux_weight * aux_loss
+            aux_loss = self._ce_loss(aux_logits, masks) * self.aux_weight
+            total = total + aux_loss
 
         loss_items = torch.stack([ce_loss, dice_loss, aux_loss]).detach()
         return total * preds.shape[0], loss_items
