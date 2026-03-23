@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import types
 from pathlib import Path
-from types import SimpleNamespace
 
 import torch
 
@@ -54,7 +53,12 @@ def export_onnx_model(
     model: torch.nn.Module,
     im: torch.Tensor,
     file: Path | str,
-    args: SimpleNamespace,
+    opset: int | None = None,
+    dynamic: bool = False,
+    half: bool = False,
+    simplify: bool = False,
+    nms: bool = False,
+    fmt: str = "onnx",
     metadata: dict | None = None,
     device: torch.device | None = None,
     task: str = "detect",
@@ -66,7 +70,12 @@ def export_onnx_model(
         model (torch.nn.Module): The model to export (may be NMS-wrapped).
         im (torch.Tensor): Example input tensor.
         file (Path | str): Source model path used to derive the ``.onnx`` output path.
-        args (SimpleNamespace): Export arguments (``dynamic``, ``nms``, ``opset``, ``simplify``, ``half``, ``format``).
+        opset (int | None): ONNX opset version. If None, auto-detected.
+        dynamic (bool): Whether to use dynamic axes.
+        half (bool): Whether to convert to FP16.
+        simplify (bool): Whether to simplify the ONNX graph.
+        nms (bool): Whether NMS is embedded in the model.
+        fmt (str): Export format name (e.g. ``"onnx"``, ``"engine"``).
         metadata (dict | None): Key-value metadata to embed in the ONNX file.
         device (torch.device | None): Device the model lives on.
         task (str): Model task, e.g. ``"detect"``, ``"segment"``.
@@ -80,37 +89,28 @@ def export_onnx_model(
     from ultralytics.utils.patches import arange_patch
 
     requirements = ["onnx>=1.12.0,<2.0.0"]
-    if args.simplify:
+    if simplify:
         requirements += ["onnxslim>=0.1.71", "onnxruntime" + ("-gpu" if torch.cuda.is_available() else "")]
     check_requirements(requirements)
     import onnx
 
-    opset = args.opset or best_onnx_opset(onnx, cuda="cuda" in str(device))
+    opset = opset or best_onnx_opset(onnx, cuda="cuda" in str(device))
     LOGGER.info(f"\n{prefix} starting export with onnx {onnx.__version__} opset {opset}...")
-
-    from ultralytics.utils.torch_utils import TORCH_1_13
-
-    if args.nms:
-        assert TORCH_1_13, f"'nms=True' ONNX export requires torch>=1.13 (found torch=={TORCH_VERSION})"
 
     f = str(Path(file).with_suffix(".onnx"))
     output_names = ["output0", "output1"] if task == "segment" else ["output0"]
-    dynamic = args.dynamic
+    dynamic_axes = None
     if dynamic:
-        dynamic = {"images": {0: "batch", 2: "height", 3: "width"}}  # shape(1,3,640,640)
+        dynamic_axes = {"images": {0: "batch", 2: "height", 3: "width"}}  # shape(1,3,640,640)
         if task == "segment":
-            dynamic["output0"] = {0: "batch", 2: "anchors"}  # shape(1, 116, 8400)
-            dynamic["output1"] = {0: "batch", 2: "mask_height", 3: "mask_width"}  # shape(1,32,160,160)
+            dynamic_axes["output0"] = {0: "batch", 2: "anchors"}  # shape(1, 116, 8400)
+            dynamic_axes["output1"] = {0: "batch", 2: "mask_height", 3: "mask_width"}  # shape(1,32,160,160)
         elif task in {"detect", "pose", "obb"}:
-            dynamic["output0"] = {0: "batch", 2: "anchors"}  # shape(1, 84, 8400)
-        if args.nms:  # only batch size is dynamic with NMS
-            dynamic["output0"].pop(2, None)
+            dynamic_axes["output0"] = {0: "batch", 2: "anchors"}  # shape(1, 84, 8400)
+        if nms:  # only batch size is dynamic with NMS
+            dynamic_axes["output0"].pop(2, None)
 
-    if args.nms and task == "obb":
-        args.opset = opset  # for NMSModel
-        args.simplify = True  # fix OBB runtime error related to topk
-
-    with arange_patch(args):
+    with arange_patch(dynamic=dynamic, half=half, fmt=fmt):
         torch2onnx(
             model,
             im,
@@ -118,14 +118,14 @@ def export_onnx_model(
             opset=opset,
             input_names=["images"],
             output_names=output_names,
-            dynamic=dynamic or None,
+            dynamic=dynamic_axes,
         )
 
     # Checks
     model_onnx = onnx.load(f)  # load onnx model
 
     # Simplify
-    if args.simplify:
+    if simplify:
         try:
             import onnxslim
 
@@ -145,7 +145,7 @@ def export_onnx_model(
         model_onnx.ir_version = 10
 
     # FP16 conversion for CPU export
-    if args.half and getattr(args, "format", "onnx") == "onnx" and device is not None and device.type == "cpu":
+    if half and fmt == "onnx" and device is not None and device.type == "cpu":
         try:
             from onnxruntime.transformers import float16
 
