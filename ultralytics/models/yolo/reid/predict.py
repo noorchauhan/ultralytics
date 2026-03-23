@@ -37,8 +37,8 @@ class ReidPredictor(BasePredictor):
         """Set up source and transforms."""
         super().setup_source(source)
         self.transforms = (
-            classify_transforms(self.imgsz) if not self.model.pt else self.model.model.transforms
-            if hasattr(self.model.model, "transforms")
+            self.model.model.transforms
+            if self.model.format == "pt" and hasattr(self.model.model, "transforms")
             else classify_transforms(self.imgsz)
         )
 

@@ -13,12 +13,6 @@ gallery: bounding_box_test # gallery images for evaluation (relative to 'path') 
 
 # Classes (identities) - Market-1501 has 751 training identities
 nc: 751
-names:
-  0: id_0001
-  1: id_0002
-  2: id_0003
-  3: id_0004
-  4: id_0005
 
 # Download script
 download: |
