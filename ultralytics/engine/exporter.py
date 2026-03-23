@@ -643,16 +643,32 @@ class Exporter:
         from ultralytics.utils.export.torchscript import torch2torchscript
 
         model = NMSModel(self.model, self.args) if self.args.nms else self.model
-        return torch2torchscript(model, self.im, self.file, self.args, self.metadata, prefix)
+        return torch2torchscript(model, self.im, self.file, optimize=self.args.optimize, metadata=self.metadata, prefix=prefix)
 
     @try_export
     def export_onnx(self, prefix=colorstr("ONNX:")):
         """Export YOLO model to ONNX format."""
         from ultralytics.utils.export.onnx import export_onnx_model
 
+        # Handle OBB NMS special case: set opset and force simplify
+        if self.args.nms and self.model.task == "obb":
+            self.args.simplify = True  # fix OBB runtime error related to topk
+
         model = NMSModel(self.model, self.args) if self.args.nms else self.model
         return export_onnx_model(
-            model, self.im, self.file, self.args, self.metadata, self.device, self.model.task, prefix
+            model,
+            self.im,
+            self.file,
+            opset=self.args.opset,
+            dynamic=self.args.dynamic,
+            half=self.args.half,
+            simplify=self.args.simplify,
+            nms=self.args.nms,
+            fmt=self.args.format,
+            metadata=self.metadata,
+            device=self.device,
+            task=self.model.task,
+            prefix=prefix,
         )
 
     @try_export
@@ -677,10 +693,13 @@ class Exporter:
             model,
             self.im,
             self.file,
-            self.args,
-            self.metadata,
-            self.model.task,
-            self.model.names,
+            dynamic=self.args.dynamic,
+            half=self.args.half,
+            int8=self.args.int8,
+            iou=self.args.iou,
+            metadata=self.metadata,
+            task=self.model.task,
+            model_names=self.model.names,
             calibration_dataset=self.get_int8_calibration_dataloader(prefix) if self.args.int8 else None,
             transform_fn=self._transform_fn,
             ignored_scope_args=ignored_scope_args,
@@ -700,22 +719,48 @@ class Exporter:
         from ultralytics.utils.export.mnn import onnx2mnn
 
         f_onnx = self.export_onnx()
-        return onnx2mnn(f_onnx, self.file, self.args, self.metadata, prefix)
+        return onnx2mnn(f_onnx, self.file, half=self.args.half, int8=self.args.int8, metadata=self.metadata, prefix=prefix)
 
     @try_export
     def export_ncnn(self, prefix=colorstr("NCNN:")):
         """Export YOLO model to NCNN format using PNNX https://github.com/pnnx/pnnx."""
         from ultralytics.utils.export.ncnn import torch2ncnn
 
-        return torch2ncnn(self.model, self.im, self.file, self.args, self.metadata, self.device, prefix)
+        return torch2ncnn(self.model, self.im, self.file, half=self.args.half, metadata=self.metadata, device=self.device, prefix=prefix)
 
     @try_export
     def export_coreml(self, prefix=colorstr("CoreML:")):
         """Export YOLO model to CoreML format."""
         from ultralytics.utils.export.coreml import torch2coreml
 
+        if self.args.batch > 1:
+            assert self.args.dynamic, (
+                "batch sizes > 1 are not supported without 'dynamic=True' for CoreML export. "
+                "Please retry at 'dynamic=True'."
+            )
+        if self.args.dynamic:
+            assert not self.args.nms, (
+                "'nms=True' cannot be used together with 'dynamic=True' for CoreML export. Please disable one of them."
+            )
+            assert self.model.task != "classify", "'dynamic=True' is not supported for CoreML classification models."
+
         return torch2coreml(
-            self.model, self.im, self.file, self.args, self.output_shape, self.metadata, self.imgsz, prefix
+            self.model,
+            self.im,
+            self.file,
+            output_shape=self.output_shape,
+            fmt=self.args.format,
+            batch=self.args.batch,
+            dynamic=self.args.dynamic,
+            nms=self.args.nms,
+            half=self.args.half,
+            int8=self.args.int8,
+            iou=self.args.iou,
+            conf=self.args.conf,
+            agnostic_nms=self.args.agnostic_nms,
+            metadata=self.metadata,
+            imgsz=self.imgsz,
+            prefix=prefix,
         )
 
     @try_export
@@ -780,7 +825,7 @@ class Exporter:
             assert 16 <= self.args.opset <= 19, "RTDETR export requires opset>=16;<=19"
         self.args.simplify = True
         f_onnx = self.export_onnx()
-        return torch2saved_model(f_onnx, self.file, self.args, self.metadata, images, prefix)
+        return torch2saved_model(f_onnx, self.file, int8=self.args.int8, fmt=self.args.format, metadata=self.metadata, images=images, prefix=prefix)
 
     @try_export
     def export_pb(self, keras_model, prefix=colorstr("TensorFlow GraphDef:")):
@@ -815,8 +860,7 @@ class Exporter:
         return torch2axelera(
             f_onnx,
             str(self.model),
-            self.args,
-            self.metadata,
+            metadata=self.metadata,
             calibration_dataset=self.get_int8_calibration_dataloader(prefix),
             transform_fn=self._transform_fn,
             prefix=prefix,
@@ -855,7 +899,7 @@ class Exporter:
 
         self.args.opset = min(self.args.opset or 19, 19)  # rknn-toolkit expects opset<=19
         f_onnx = self.export_onnx()
-        return onnx2rknn(f_onnx, self.args, self.metadata, prefix)
+        return onnx2rknn(f_onnx, name=self.args.name, metadata=self.metadata, prefix=prefix)
 
     @try_export
     def export_imx(self, prefix=colorstr("IMX:")):
