@@ -31,7 +31,6 @@ class AxeleraBackend(BaseBackend):
                 "axelera-rt==1.6.0rc3",
                 cmds="--extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
             )
-            check_requirements(["numpy<2.0.0", "onnxruntime"])
 
         from axelera.runtime import op
 
