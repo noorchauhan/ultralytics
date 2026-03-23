@@ -2507,8 +2507,8 @@ class SAM3VideoSemanticPredictor(SAM3SemanticPredictor):
         hotstart_delay=0,
         hotstart_unmatch_thresh=3,
         hotstart_dup_thresh=3,
-        init_trk_keep_alive=30,
-        max_trk_keep_alive=30,
+        init_trk_keep_alive=10,
+        max_trk_keep_alive=10,
         min_trk_keep_alive=-4,
         # Threshold for suppressing overlapping objects based on recent occlusion
         suppress_overlapping_based_on_recent_occlusion_threshold=0.0,
@@ -2520,7 +2520,7 @@ class SAM3VideoSemanticPredictor(SAM3SemanticPredictor):
         max_num_objects=-1,
         recondition_every_nth_frame=-1,
         # masket confirmation status (to suppress unconfirmed masklets)
-        masklet_confirmation_enable=False,
+        masklet_confirmation_enable=True,
         # a masklet is confirmed after being consecutively detected and matched for
         # `masklet_confirmation_consecutive_det_thresh`
         masklet_confirmation_consecutive_det_thresh=3,
