@@ -3,22 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
 from ultralytics.utils import IS_COLAB, LOGGER, YAML
 
 
 def onnx2rknn(
     f_onnx: str,
-    args: SimpleNamespace,
+    name: str = "rk3588",
     metadata: dict | None = None,
     prefix: str = "",
 ) -> Path:
     """Export an ONNX model to RKNN format for Rockchip NPUs.
 
     Args:
-        f_onnx (str): Path to the source ONNX file (already exported, opset ≤19).
-        args (SimpleNamespace): Export arguments. Must contain ``name`` for the target platform (e.g. ``"rk3588"``).
+        f_onnx (str): Path to the source ONNX file (already exported, opset <=19).
+        name (str): Target platform name (e.g. ``"rk3588"``).
         metadata (dict | None): Metadata saved as ``metadata.yaml``.
         prefix (str): Prefix for log messages.
 
@@ -43,9 +42,9 @@ def onnx2rknn(
     export_path.mkdir(exist_ok=True)
 
     rknn = RKNN(verbose=False)
-    rknn.config(mean_values=[[0, 0, 0]], std_values=[[255, 255, 255]], target_platform=args.name)
+    rknn.config(mean_values=[[0, 0, 0]], std_values=[[255, 255, 255]], target_platform=name)
     rknn.load_onnx(model=f_onnx)
     rknn.build(do_quantization=False)  # TODO: Add quantization support
-    rknn.export_rknn(str(export_path / f"{Path(f_onnx).stem}-{args.name}.rknn"))
+    rknn.export_rknn(str(export_path / f"{Path(f_onnx).stem}-{name}.rknn"))
     YAML.save(export_path / "metadata.yaml", metadata or {})
     return export_path
