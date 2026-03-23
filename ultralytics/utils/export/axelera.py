@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Callable
 
 from ultralytics.utils import YAML
@@ -12,7 +11,6 @@ from ultralytics.utils import YAML
 def torch2axelera(
     f_onnx: str,
     model_str: str,
-    args: SimpleNamespace,
     metadata: dict | None = None,
     calibration_dataset: Any | None = None,
     transform_fn: Callable | None = None,
@@ -23,7 +21,6 @@ def torch2axelera(
     Args:
         f_onnx (str): Path to the source ONNX file (already exported).
         model_str (str): String representation of the model (``str(model)``) for architecture detection.
-        args (SimpleNamespace): Export arguments. ``args.int8`` must be ``True``.
         metadata (dict | None): Metadata saved as ``metadata.yaml``.
         calibration_dataset: Dataloader for INT8 calibration.
         transform_fn: Transformation function applied to calibration batches.
