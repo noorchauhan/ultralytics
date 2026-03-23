@@ -11,7 +11,7 @@ import torch.distributed as dist
 
 from ultralytics.data import ReidDataset, build_dataloader
 from ultralytics.engine.validator import BaseValidator
-from ultralytics.utils import LOGGER, RANK
+from ultralytics.utils import LOGGER, RANK, TQDM
 from ultralytics.utils.metrics import ReidMetrics
 
 
@@ -55,7 +55,7 @@ class ReidValidator(BaseValidator):
 
     def get_desc(self) -> str:
         """Return formatted description string."""
-        return ("%22s" + "%11s" * 4) % ("classes", "mAP", "rank1", "rank5", "rank10")
+        return ("%22s" + "%11s" * 4) % ("", "mAP", "Rank-1", "Rank-5", "Rank-10")
 
     def init_metrics(self, model: torch.nn.Module) -> None:
         """Initialize tracking containers."""
@@ -119,6 +119,7 @@ class ReidValidator(BaseValidator):
                 gallery_path = str(Path(data["path"]) / gallery_path)
             gallery_feats, gallery_pids, gallery_camids = self._extract_gallery_features(gallery_path)
 
+        LOGGER.info(f"{'Computing metrics':>22s}   {len(query_pids)} query x {len(gallery_pids)} gallery ...")
         self.metrics.process(query_feats, query_pids, query_camids,
                             gallery_feats, gallery_pids, gallery_camids)
         return self.metrics.results_dict
@@ -136,7 +137,8 @@ class ReidValidator(BaseValidator):
         loader = build_dataloader(dataset, self.args.batch, self.args.workers, rank=-1)
 
         feats, pids, camids = [], [], []
-        for batch in loader:
+        bar = TQDM(loader, desc=f"{'Extracting gallery':>22s}", total=len(loader))
+        for batch in bar:
             batch["img"] = batch["img"].to(self.device, non_blocking=True)
             batch["img"] = batch["img"].half() if self.args.half else batch["img"].float()
 
@@ -174,7 +176,7 @@ class ReidValidator(BaseValidator):
 
     def build_dataset(self, img_path: str) -> ReidDataset:
         """Create a ReidDataset instance for validation."""
-        return ReidDataset(root=img_path, args=self.args, augment=False, prefix=self.args.split)
+        return ReidDataset(root=img_path, args=self.args, augment=False, prefix="query")
 
     def get_dataloader(self, dataset_path: str | Path, batch_size: int) -> torch.utils.data.DataLoader:
         """Build dataloader for validation.
@@ -191,8 +193,8 @@ class ReidValidator(BaseValidator):
 
     def print_results(self) -> None:
         """Print evaluation metrics."""
-        pf = "%22s" + "%11.3g" * len(self.metrics.keys)
-        LOGGER.info(pf % ("all", self.metrics.mAP, self.metrics.rank1, self.metrics.rank5, self.metrics.rank10))
+        pf = "%22s" + "%11.4g" * 4
+        LOGGER.info(pf % ("Results", self.metrics.mAP, self.metrics.rank1, self.metrics.rank5, self.metrics.rank10))
 
     def plot_val_samples(self, batch: dict[str, Any], ni: int) -> None:
         """Plot validation samples (no-op for ReID, not meaningful)."""
