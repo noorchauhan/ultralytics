@@ -171,6 +171,9 @@ class ReidTrainer(BaseTrainer):
     def label_loss_items(self, loss_items=None, prefix: str = "train"):
         """Return a loss dict with labeled training loss items.
 
+        ReID validation uses query-gallery mAP, not loss computation, so val-prefixed
+        loss items are omitted to keep results.csv and plots clean.
+
         Args:
             loss_items: Loss tensor items.
             prefix (str): Prefix for loss names.
@@ -178,6 +181,8 @@ class ReidTrainer(BaseTrainer):
         Returns:
             Loss keys or dict of loss items.
         """
+        if prefix == "val":
+            return [] if loss_items is None else {}
         keys = [f"{prefix}/{x}" for x in self.loss_names]
         if loss_items is None:
             return keys

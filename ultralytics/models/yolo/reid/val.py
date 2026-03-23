@@ -13,6 +13,7 @@ from ultralytics.data import ReidDataset, build_dataloader
 from ultralytics.engine.validator import BaseValidator
 from ultralytics.utils import LOGGER, RANK, TQDM
 from ultralytics.utils.metrics import ReidMetrics
+from ultralytics.utils.plotting import plot_images
 
 
 class ReidValidator(BaseValidator):
@@ -197,9 +198,15 @@ class ReidValidator(BaseValidator):
         LOGGER.info(pf % ("Results", self.metrics.mAP, self.metrics.rank1, self.metrics.rank5, self.metrics.rank10))
 
     def plot_val_samples(self, batch: dict[str, Any], ni: int) -> None:
-        """Plot validation samples (no-op for ReID, not meaningful)."""
-        pass
+        """Plot validation (query) samples with person ID labels."""
+        batch["batch_idx"] = torch.arange(batch["img"].shape[0])
+        plot_images(
+            labels=batch,
+            fname=self.save_dir / f"val_batch{ni}_labels.jpg",
+            names=self.names,
+            on_plot=self.on_plot,
+        )
 
     def plot_predictions(self, batch: dict[str, Any], preds, ni: int) -> None:
-        """Plot predictions (no-op for ReID)."""
+        """Plot predictions (no-op for ReID, embeddings are not visual)."""
         pass
