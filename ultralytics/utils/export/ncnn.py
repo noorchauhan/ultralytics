@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import torch
 
@@ -15,7 +14,7 @@ def torch2ncnn(
     model: torch.nn.Module,
     im: torch.Tensor,
     file: Path | str,
-    args: SimpleNamespace,
+    half: bool = False,
     metadata: dict | None = None,
     device: torch.device | None = None,
     prefix: str = "",
@@ -26,7 +25,7 @@ def torch2ncnn(
         model (torch.nn.Module): The PyTorch model to export.
         im (torch.Tensor): Example input tensor for tracing.
         file (Path | str): Source model path used to derive the output directory.
-        args (SimpleNamespace): Export arguments with ``half`` attribute.
+        half (bool): Whether to enable FP16 export.
         metadata (dict | None): Optional metadata saved as ``metadata.yaml``.
         device (torch.device | None): Device the model lives on.
         prefix (str): Prefix for log messages.
@@ -60,7 +59,7 @@ def torch2ncnn(
 
     f.mkdir(exist_ok=True)  # make ncnn_model directory
     device_type = device.type if device is not None else "cpu"
-    pnnx.export(model, inputs=im, **ncnn_args, **pnnx_args, fp16=args.half, device=device_type)
+    pnnx.export(model, inputs=im, **ncnn_args, **pnnx_args, fp16=half, device=device_type)
 
     for f_debug in ("debug.bin", "debug.param", "debug2.bin", "debug2.param", *pnnx_args.values()):
         Path(f_debug).unlink(missing_ok=True)
