@@ -88,6 +88,7 @@ from .head import (
     Segment,
     Segment26,
     SemanticSegment,
+    SemanticSegmentfpn,
     WorldDetect,
     YOLOEDetect,
     YOLOESegment,

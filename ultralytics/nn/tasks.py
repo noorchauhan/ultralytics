@@ -67,6 +67,7 @@ from ultralytics.nn.modules import (
     Segment,
     Segment26,
     SemanticSegment,
+    SemanticSegmentfpn,
     TorchVision,
     WorldDetect,
     YOLOEDetect,
@@ -618,7 +619,7 @@ class SemanticModel(BaseModel):
 
         # Build strides — SemanticSegment outputs at stride 4 during training
         m = self.model[-1]
-        if isinstance(m, SemanticSegment):
+        if isinstance(m, SemanticSegment) or isinstance(m, SemanticSegmentfpn):
             s = 256
             self.model.eval()
             m.training = True  # get training output (stride-4)
@@ -644,7 +645,7 @@ class SemanticModel(BaseModel):
         """Apply a function to all tensors in the model."""
         self = super()._apply(fn)
         m = self.model[-1]
-        if isinstance(m, SemanticSegment):
+        if isinstance(m, SemanticSegment) or isinstance(m, SemanticSegmentfpn):
             m.stride = fn(m.stride)
         return self
 
@@ -1769,7 +1770,7 @@ def parse_model(d, ch, verbose=True):
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
             if m in {Detect, YOLOEDetect, Segment, Segment26, YOLOESegment, YOLOESegment26, Pose, Pose26, OBB, OBB26}:
                 m.legacy = legacy
-        elif m is SemanticSegment:
+        elif m in [SemanticSegment, SemanticSegmentfpn]:
             args.append([ch[x] for x in f])  # nc, ch tuple
         elif m is v10Detect:
             args.append([ch[x] for x in f])
@@ -1859,7 +1860,7 @@ def guess_model_task(model):
             return "classify"
         if "detect" in m:
             return "detect"
-        if "semanticsegment" in m:
+        if "semanticsegment" in m or "semanticsegmentfpn" in m:
             return "semantic"
         if "segment" in m:
             return "segment"
@@ -1881,7 +1882,7 @@ def guess_model_task(model):
             with contextlib.suppress(Exception):
                 return cfg2task(eval(x))  # nosec B307: safe eval of known attribute paths
         for m in model.modules():
-            if isinstance(m, SemanticSegment):
+            if isinstance(m, (SemanticSegment, SemanticSegmentfpn)):
                 return "semantic"
             elif isinstance(m, (Segment, YOLOESegment)):
                 return "segment"
