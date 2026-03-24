@@ -18,15 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - model: yolo26n
-            data: coco8.yaml
-          - model: yolo26n-pose
-            data: coco8-pose.yaml
-          - model: yolo26n-cls
-            data: imagenet10
-          - model: yolo26n-obb
-            data: dota8.yaml
+        model: [yolo26n, yolo26n-pose, yolo26n-cls, yolo26n-obb]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -36,4 +28,4 @@ jobs:
       - name: Install requirements
         run: uv pip install -e ".[export]" --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
       - name: Run Axelera export
-        run: yolo export model=${{ matrix.model }}.pt format=axelera data=${{ matrix.data }}
+        run: yolo export model=${{ matrix.model }}.pt format=axelera
