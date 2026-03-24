@@ -306,6 +306,61 @@ div.highlight {
 }
 /* MkDocs Ultralytics Plugin ---------------------------------------------------------------------------------------- */
 
+/* Nav CTA Buttons -------------------------------------------------------------------------------------------------- */
+.md-tabs__list {
+  position: relative;
+}
+li.ult-nav-cta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+.ult-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.9rem;
+  border-radius: 0.375rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-decoration: none !important;
+  white-space: nowrap;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+.ult-nav-btn:hover {
+  opacity: 0.85;
+}
+/* Light mode */
+[data-md-color-scheme="default"] .ult-nav-btn--filled {
+  background: #111f68;
+  color: #fff;
+  border: 1px solid #111f68;
+}
+[data-md-color-scheme="default"] .ult-nav-btn--outline {
+  background: #fff;
+  color: #111f68;
+  border: 1px solid #111f68;
+}
+/* Dark mode */
+[data-md-color-scheme="slate"] .ult-nav-btn--filled {
+  background: #fff;
+  color: #2d2d2d;
+  border: 1px solid #fff;
+}
+[data-md-color-scheme="slate"] .ult-nav-btn--outline {
+  background: transparent;
+  color: #fff;
+  border: 1px solid #fff;
+}
+@media (max-width: 768px) {
+  li.ult-nav-cta {
+    display: none;
+  }
+}
+/* Nav CTA Buttons -------------------------------------------------------------------------------------------------- */
+
 /* Logo switching for light/dark mode ------------------------------------------------------------------------------- */
 [data-md-color-scheme="default"] .md-header__button.md-logo img {
   content: url("https://cdn.prod.website-files.com/680a070c3b99253410dd3dcf/68e4eb1e9893320b26cc02c3_Ultralytics%20Logo.png.svg");

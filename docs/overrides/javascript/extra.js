@@ -79,6 +79,20 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
+// Nav CTA Buttons -----------------------------------------------------------------------------------------------------
+document.addEventListener("DOMContentLoaded", () => {
+  const tabsList = document.querySelector(".md-tabs__list");
+  if (tabsList) {
+    const ctaItem = document.createElement("li");
+    ctaItem.className = "md-tabs__item ult-nav-cta";
+    ctaItem.innerHTML = `
+      <a href="" class="ult-nav-btn ult-nav-btn--outline">Contact Sales</a>
+      <a href="" class="ult-nav-btn ult-nav-btn--filled">Get Started</a>
+    `;
+    tabsList.appendChild(ctaItem);
+  }
+});
+
 // Ultralytics Chat Widget ---------------------------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", () => {
   const ultralyticsChat = new UltralyticsChat({
