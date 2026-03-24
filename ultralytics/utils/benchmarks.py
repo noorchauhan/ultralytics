@@ -26,6 +26,7 @@ NCNN                    | `ncnn`                    | yolo26n_ncnn_model/
 IMX                     | `imx`                     | yolo26n_imx_model/
 RKNN                    | `rknn`                    | yolo26n_rknn_model/
 ExecuTorch              | `executorch`              | yolo26n_executorch_model/
+Axelera AI              | `axelera`                 | yolo26n_axelera_model/
 """
 
 from __future__ import annotations
