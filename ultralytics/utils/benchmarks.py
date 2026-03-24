@@ -168,7 +168,7 @@ def benchmark(
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 ExecuTorch exports not supported yet"
             if format == "axelera":
                 assert not isinstance(model, YOLOWorld), "YOLOWorldv2 Axelera exports not supported"
-                assert LINUX and not IS_DOCKER, "Axelera export only supported on Linux host systems"
+                assert LINUX and not (ARM64 and IS_DOCKER), "export is only supported on Linux and is not supported on ARM64 Docker."
                 assert not (model.task == "segment" and any(isinstance(m, Segment26) for m in model.model.modules())), (
                     "Axelera export does not currently support YOLO26 segmentation models"
                 )
