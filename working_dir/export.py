@@ -33,6 +33,9 @@ MODEL_NAME_TO_FILE = {
     "xlarge-nms": ("yolo26nms_weights", "yolo26x_nms.pt"),
     "dinov3l": ("dinov3_weights", "rtdetr_dinov3sta_detrl3_640.pt"),
     "dinov3x": ("dinov3_weights", "rtdetr_dinov3sta_detrl6_640.pt"),
+    "deimv2l": ("dinov3_weights", "rtdetr_deimv2L_v3_PreEpc25_lrf05_deimaug_24epc.pt"),
+    "deimv2l_w": ("dinov3_weights", "deim_deimV2L_windowed.pt"),
+    "deimv2l_rtdetr": ("dinov3_weights", "rtdetr_deimV2L.pt"),
 }
 
 
