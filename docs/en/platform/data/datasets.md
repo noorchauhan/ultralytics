@@ -243,7 +243,7 @@ Click any image to open the fullscreen viewer with:
 - **Edit**: Enter annotation mode to add or modify labels
 - **Download**: Download the original image file
 - **Delete**: Delete the image from the dataset
-- **Zoom**: `Cmd/Ctrl+Scroll` to zoom in/out
+- **Zoom**: Scroll to zoom in/out, `Space+Drag` to pan
 - **Pixel view**: Toggle pixelated rendering for close inspection
 
 ![Ultralytics Platform Datasets Fullscreen Viewer With Metadata Panel](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/platform/platform-datasets-fullscreen-viewer-with-metadata-panel.avif)

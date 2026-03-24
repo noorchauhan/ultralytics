@@ -421,7 +421,8 @@ Efficient annotation with keyboard shortcuts:
     | `Escape`               | Save / Deselect / Exit     |
     | `Delete` / `Backspace` | Delete selected annotation |
     | `1-9`                  | Select class 1-9           |
-    | `Cmd/Ctrl+Scroll`      | Zoom in/out                |
+    | `Scroll`               | Zoom in/out                |
+    | `Space+Drag`           | Pan image                  |
     | `Shift+Click`          | Multi-select annotations   |
     | `Cmd/Ctrl+A`           | Select all annotations     |
 
