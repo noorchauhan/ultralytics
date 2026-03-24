@@ -1384,8 +1384,65 @@ class SafeClass:
         pass
 
 
+# Module prefixes allowed in pickle streams. Each entry matches exactly or as a dot-separated prefix
+# (e.g. "torch" matches "torch.nn.modules.conv" but not "torchevil").
+_SAFE_MODULES = frozenset(
+    {
+        "torch",
+        "ultralytics.nn",
+        "numpy",
+        "collections",
+        "pathlib",
+        "_codecs",
+        "copyreg",
+        "math",
+    }
+)
+
+# Specific builtin names allowed — blocks dangerous builtins like getattr, eval, exec, __import__.
+_SAFE_BUILTIN_NAMES = frozenset(
+    {
+        "set",
+        "frozenset",
+        "dict",
+        "list",
+        "tuple",
+        "bytes",
+        "bytearray",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "complex",
+        "slice",
+        "range",
+        "enumerate",
+        "zip",
+        "map",
+        "filter",
+        "reversed",
+        "sorted",
+    }
+)
+
+
+def _is_module_allowed(module):
+    """Check if a module is in the allowlist (exact match or dot-separated prefix)."""
+    return module in _SAFE_MODULES or any(module.startswith(m + ".") for m in _SAFE_MODULES)
+
+
 class SafeUnpickler(pickle.Unpickler):
-    """Custom Unpickler that replaces unknown classes with SafeClass."""
+    """Custom Unpickler that validates pickle class references against a module allowlist.
+
+    Validates pickle class references by only allowing known-safe modules (torch, ultralytics.nn, numpy, etc.)
+    and filtering dangerous builtins (getattr, eval, exec, __import__). Unknown classes are replaced with SafeClass,
+    or rejected with ValueError when strict=True.
+
+    Attributes:
+        strict (bool): If True, raise ValueError on blocked classes instead of returning SafeClass.
+    """
+
+    strict = False
 
     def find_class(self, module, name):
         """Attempt to find a class, returning SafeClass if not among safe modules.
@@ -1396,20 +1453,20 @@ class SafeUnpickler(pickle.Unpickler):
 
         Returns:
             (type): Found class or SafeClass.
+
+        Raises:
+            ValueError: If strict=True and the module or builtin name is not in the allowlist.
         """
-        safe_modules = (
-            "torch",
-            "collections",
-            "collections.abc",
-            "builtins",
-            "math",
-            "numpy",
-            # Add other modules considered safe
-        )
-        if module in safe_modules:
-            return super().find_class(module, name)
-        else:
+        if module in ("__builtin__", "builtins"):
+            if name not in _SAFE_BUILTIN_NAMES:
+                if self.strict:
+                    raise ValueError(f"Unsafe pickle: blocked builtin '{module}.{name}'")
+                return SafeClass
+        elif not _is_module_allowed(module):
+            if self.strict:
+                raise ValueError(f"Unsafe pickle: blocked module '{module}.{name}'")
             return SafeClass
+        return super().find_class(module, name)
 
 
 def torch_safe_load(weight, safe_only=False):
@@ -1419,7 +1476,8 @@ def torch_safe_load(weight, safe_only=False):
 
     Args:
         weight (str | Path): The file path of the PyTorch model.
-        safe_only (bool): If True, replace unknown classes with SafeClass during loading.
+        safe_only (bool | str): If True, use SafeUnpickler to validate pickle against module allowlist (blocked classes
+            become SafeClass). If "strict", raise ValueError on blocked classes instead of replacing them.
 
     Returns:
         (dict): The loaded model checkpoint.
@@ -1428,6 +1486,7 @@ def torch_safe_load(weight, safe_only=False):
     Examples:
         >>> from ultralytics.nn.tasks import torch_safe_load
         >>> ckpt, file = torch_safe_load("path/to/best.pt", safe_only=True)
+        >>> ckpt, file = torch_safe_load("path/to/best.pt", safe_only="strict")
     """
     from ultralytics.utils.downloads import attempt_download_asset
 
@@ -1453,12 +1512,14 @@ def torch_safe_load(weight, safe_only=False):
             },
         ):
             if safe_only:
-                # Load via custom pickle module
+                # Load via SafeUnpickler — use a subclass to set strict as class attr
+                # so torch's internal UnpicklerWrapper inherits it (thread-safe)
+                strict = safe_only == "strict"
+                unpickler_cls = type("SafeUnpickler", (SafeUnpickler,), {"strict": strict})
                 safe_pickle = types.ModuleType("safe_pickle")
-                safe_pickle.Unpickler = SafeUnpickler
-                safe_pickle.load = lambda file_obj: SafeUnpickler(file_obj).load()
+                safe_pickle.Unpickler = unpickler_cls
                 with open(file, "rb") as f:
-                    ckpt = torch_load(f, pickle_module=safe_pickle)
+                    ckpt = torch_load(f, pickle_module=safe_pickle, map_location="cpu")
             else:
                 ckpt = torch_load(file, map_location="cpu")
 
@@ -1486,7 +1547,15 @@ def torch_safe_load(weight, safe_only=False):
             f"run a command with an official Ultralytics model, i.e. 'yolo predict model=yolo26n.pt'"
         )
         check_requirements(e.name)  # install missing module
-        ckpt = torch_load(file, map_location="cpu")
+        if safe_only:
+            strict = safe_only == "strict"
+            unpickler_cls = type("SafeUnpickler", (SafeUnpickler,), {"strict": strict})
+            safe_pickle = types.ModuleType("safe_pickle")
+            safe_pickle.Unpickler = unpickler_cls
+            with open(file, "rb") as f:
+                ckpt = torch_load(f, pickle_module=safe_pickle, map_location="cpu")
+        else:
+            ckpt = torch_load(file, map_location="cpu")
 
     if not isinstance(ckpt, dict):
         # File is likely a YOLO instance saved with i.e. torch.save(model, "saved_model.pt")
@@ -1499,7 +1568,7 @@ def torch_safe_load(weight, safe_only=False):
     return ckpt, file
 
 
-def load_checkpoint(weight, device=None, inplace=True, fuse=False):
+def load_checkpoint(weight, device=None, inplace=True, fuse=False, safe_only=False):
     """Load single model weights.
 
     Args:
@@ -1507,12 +1576,14 @@ def load_checkpoint(weight, device=None, inplace=True, fuse=False):
         device (torch.device, optional): Device to load model to.
         inplace (bool): Whether to do inplace operations.
         fuse (bool): Whether to fuse model.
+        safe_only (bool | str): If True, use SafeUnpickler to validate pickle against module allowlist. If "strict",
+            raise ValueError on blocked classes instead of replacing them.
 
     Returns:
         (torch.nn.Module): Loaded model.
         (dict): Model checkpoint dictionary.
     """
-    ckpt, weight = torch_safe_load(weight)  # load ckpt
+    ckpt, weight = torch_safe_load(weight, safe_only=safe_only)  # load ckpt
     args = {**DEFAULT_CFG_DICT, **(ckpt.get("train_args", {}))}  # combine model and default args, preferring model args
     model = (ckpt.get("ema") or ckpt["model"]).float()  # FP32 model
 
