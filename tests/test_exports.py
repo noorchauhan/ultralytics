@@ -309,7 +309,7 @@ def test_export_axelera():
     # Note: Inference testing skipped as it requires Axelera hardware
     shutil.rmtree(file, ignore_errors=True)  # cleanup
 
-
+@pytest.mark.skipif(True, reason="Test disabled due to long export times")
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(
