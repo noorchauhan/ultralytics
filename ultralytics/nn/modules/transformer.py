@@ -967,7 +967,9 @@ class DeformableTransformerDecoder(nn.Module):
             shift = (n_levels - 1 - (self.num_layers - 1) % n_levels) % n_levels
         for i, layer in enumerate(self.layers):
             if not self.dab_sine_embedding:
-                query_pos = pos_mlp(refer_bbox)
+                # Flatten to 2D before MLP to ensure ONNX exports as valid Gemm nodes
+                # (prevents onnxslim from incorrectly fusing 3D MatMul+Add into 2D-only Gemm)
+                query_pos = pos_mlp(refer_bbox.flatten(0, -2)).unflatten(0, refer_bbox.shape[:-1])
             else:
                 sine_embedded_position = gen_sineembed_for_position(refer_bbox, self.hidden_dim // 2)
                 query_pos_unscaled = pos_mlp(sine_embedded_position)
