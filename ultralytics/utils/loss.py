@@ -1019,7 +1019,11 @@ class TextSimilarityLoss:
         """Compute combined CE + text-similarity KL divergence loss."""
         cls_logits = preds[0] if isinstance(preds, (list, tuple)) else preds
         ce_loss = F.cross_entropy(cls_logits, batch["cls"], reduction="mean")
-        teacher = self.soft_targets.to(cls_logits.device)[batch["cls"]]
+        cls = batch["cls"]
+        if cls.ndim == 2:
+            teacher = cls.to(cls_logits.dtype) @ self.soft_targets.to(cls_logits.device, cls_logits.dtype)
+        else:
+            teacher = self.soft_targets.to(cls_logits.device)[cls]
         kl_loss = F.kl_div(F.log_softmax(cls_logits, dim=-1), teacher, reduction="batchmean")
         loss = (1 - self.alpha) * ce_loss + self.alpha * kl_loss
         return loss, loss.detach()
