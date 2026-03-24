@@ -9,6 +9,10 @@ References:
     https://arxiv.org/pdf/2304.08069.pdf
 """
 
+from typing import Any
+
+import torch
+
 from ultralytics.engine.model import Model
 from ultralytics.nn.tasks import RTDETRDetectionModel
 from ultralytics.utils.torch_utils import TORCH_1_11
@@ -64,15 +68,38 @@ class RTDETR(Model):
         }
 
 
+class RTDETRDEIMPredictor(RTDETRPredictor):
+    """Predictor that applies ImageNet normalization when ``rtdetr_input_normalize`` is set."""
+
+    @staticmethod
+    def _normalize_input(img: torch.Tensor) -> torch.Tensor:
+        mean = img.new_tensor((0.485, 0.456, 0.406)).view(1, 3, 1, 1)
+        std = img.new_tensor((0.229, 0.224, 0.225)).view(1, 3, 1, 1)
+        return (img - mean) / std
+
+    def preprocess(self, im):
+        im = super().preprocess(im)
+        if getattr(self.args, "rtdetr_input_normalize", False):
+            im = self._normalize_input(im)
+        return im
+
+
 class RTDETRDEIM(RTDETR):
     """RT-DETR interface that routes training/validation through isolated DEIM classes."""
+
+    _EXTRA_CKPT_ARGS = {"rtdetr_input_normalize"}
+
+    @staticmethod
+    def _reset_ckpt_args(args: dict[str, Any]) -> dict[str, Any]:
+        include = {"imgsz", "data", "task", "single_cls"} | RTDETRDEIM._EXTRA_CKPT_ARGS
+        return {k: v for k, v in args.items() if k in include}
 
     @property
     def task_map(self) -> dict:
         """Return a task map that uses DEIM-specific trainer/validator implementations."""
         return {
             "detect": {
-                "predictor": RTDETRPredictor,
+                "predictor": RTDETRDEIMPredictor,
                 "validator": RTDETRDEIMValidator,
                 "trainer": RTDETRDEIMTrainer,
                 "model": RTDETRDetectionModel,
@@ -83,12 +110,17 @@ class RTDETRDEIM(RTDETR):
 class RTDETRDEIMv2(RTDETR):
     """RT-DETR interface that routes training through DEIM v2 trainer with stage-switch EMA refresh."""
 
+    @staticmethod
+    def _reset_ckpt_args(args: dict[str, Any]) -> dict[str, Any]:
+        include = {"imgsz", "data", "task", "single_cls"} | RTDETRDEIM._EXTRA_CKPT_ARGS
+        return {k: v for k, v in args.items() if k in include}
+
     @property
     def task_map(self) -> dict:
         """Return a task map that uses DEIM v2 trainer implementation."""
         return {
             "detect": {
-                "predictor": RTDETRPredictor,
+                "predictor": RTDETRDEIMPredictor,
                 "validator": RTDETRDEIMValidator,
                 "trainer": RTDETRDEIMTrainerV2,
                 "model": RTDETRDetectionModel,
