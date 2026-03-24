@@ -1170,7 +1170,7 @@ class Exporter:
     @try_export
     def export_axelera(self, prefix=colorstr("Axelera:")):
         """Export YOLO model to Axelera format."""
-        assert LINUX, "export only supported on Linux."
+        assert LINUX and not (ARM64 and IS_DOCKER), "export is only supported on Linux and is not supported on ARM64 Docker."
         assert TORCH_2_8, "export requires torch>=2.8.0."
 
         return torch2axelera(
