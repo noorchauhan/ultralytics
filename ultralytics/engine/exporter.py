@@ -93,6 +93,7 @@ from ultralytics.utils import (
     IS_RASPBERRYPI,
     IS_UBUNTU,
     LINUX,
+    IS_DOCKER,
     LOGGER,
     MACOS,
     MACOS_VERSION,
