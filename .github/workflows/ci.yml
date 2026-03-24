@@ -161,7 +161,7 @@ jobs:
         run: uv cache prune --ci
 
   SlowTestsDaily:
-    name: Slow Tests (Daily CI)
+    name: SlowTestsDaily
     if: github.event_name == 'schedule'
     timeout-minutes: 360
     runs-on: ${{ matrix.os }}
@@ -273,7 +273,7 @@ jobs:
         run: uv cache prune --ci
 
   SlowTestsDispatch:
-    name: Slow Tests (Workflow Dispatch)
+    name: SlowTestsDispatch
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.tests == 'true'
     timeout-minutes: 360
     runs-on: ${{ matrix.os }}
