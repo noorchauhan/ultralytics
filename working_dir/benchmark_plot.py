@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 # "jetson-agx-thor-cpu", "jetson-agx-orin-gpu", "jetson-agx-orin-cpu",
 # "jetson-orin-nano-super-gpu", or "jetson-orin-nano-super-cpu"
 # =============================================================================
-BENCHMARK = "t4_new"
+BENCHMARK = "t4_reported"
 
 # Default metric for Y axis.
 DEFAULT_METRIC = "ap"
@@ -200,51 +200,65 @@ BENCHMARKS = {
             ],
         },
     },
-    "t4": {
+    "t4_reported": {
         "title": "Object Detection Models: Latency vs mAP (Tesla T4 GPU, TensorRT)",
         "models": {
-            "YOLO26": [
-                ("n", 1.8, 40.9),
-                ("s", 2.7, 48.6),
-                ("m", 5.2, 53.1),
-                ("l", 7.0, 55.0),
-                ("x", 13.3, 57.5),
+            "YOLO26 (E2E)": [
+                ("n", 1.7, {"ap": 40.1, "ap50": 55.6, "ap75": 43.5, "ap_small": 19.7, "ap_medium": 44.0, "ap_large": 58.4}),
+                ("s", 2.5, {"ap": 47.8, "ap50": 64.6, "ap75": 52.2, "ap_small": 29.1, "ap_medium": 52.5, "ap_large": 64.3}),
+                ("m", 4.7, {"ap": 52.5, "ap50": 69.8, "ap75": 57.2, "ap_small": 36.2, "ap_medium": 56.9, "ap_large": 68.5}),
+                ("l", 6.2, {"ap": 54.4, "ap50": 71.5, "ap75": 59.4, "ap_small": 37.8, "ap_medium": 58.6, "ap_large": 70.3}),
+                ("x", 11.8, {"ap": 56.9, "ap50": 74.1, "ap75": 62.1, "ap_small": 41.3, "ap_medium": 61.2, "ap_large": 72.7}),
             ],
-            "YOLO26-reported": [
-                ("n", 1.7, 40.9),
-                ("s", 2.5, 48.6),
-                ("m", 4.7, 53.1),
-                ("l", 6.2, 55.0),
-                ("x", 11.8, 57.5),
+            "YOLO26 (NMS)": [
+                ("n", 1.7, {"ap": 40.9, "ap50": 56.8, "ap75": 44.3, "ap_small": 21.1, "ap_medium": 44.8, "ap_large": 59.1}),
+                ("s", 2.5, {"ap": 48.6, "ap50": 65.8, "ap75": 52.8, "ap_small": 29.5, "ap_medium": 53.2, "ap_large": 65.8}),
+                ("m", 4.7, {"ap": 53.1, "ap50": 70.7, "ap75": 57.7, "ap_small": 36.7, "ap_medium": 57.8, "ap_large": 68.9}),
+                ("l", 6.2, {"ap": 55.0, "ap50": 72.5, "ap75": 60.0, "ap_small": 38.4, "ap_medium": 59.5, "ap_large": 71.1}),
+                ("x", 11.8, {"ap": 57.5, "ap50": 75.0, "ap75": 62.7, "ap_small": 41.8, "ap_medium": 62.1, "ap_large": 73.3}),
             ],
-            "YOLO26_RTDETR": [
-                ("n", 1.7, 41.2),
-                ("ns", 2.4, 47.4),
-                ("s", 3.1, 49.5),
-                ("sm", 3.8, 50.8),
-                ("m", 5.6, 53.5),
-                ("l", 7.0, 55.2),
-                ("x", 11.6, 56.6),
+            "DEIMv2": [
+                ("pico", 1.7, {"ap": 38.5}),
+                ("n", 2.0, {"ap": 43.0}),
+                ("s", 5.78, {"ap": 50.9, "ap50": 68.3, "ap75": 55.1, "ap_small": 31.4, "ap_medium": 55.3, "ap_large": 70.3}),
+                ("m", 8.80, {"ap": 53.0, "ap50": 70.2, "ap75": 57.6, "ap_small": 34.2, "ap_medium": 57.4, "ap_large": 71.5}),
+                ("l", 10.47, {"ap": 56.0, "ap50": 73.4, "ap75": 60.9, "ap_small": 37.5, "ap_medium": 60.8, "ap_large": 75.2}),
+                ("x", 13.75, {"ap": 57.8, "ap50": 75.4, "ap75": 63.2, "ap_small": 39.2, "ap_medium": 62.9, "ap_large": 75.9}),
             ],
-            "RF-DETR": [
-                ("n", 3.0, 48.4),
-                ("s", 4.4, 53.0),
-                ("m", 5.6, 54.7),
-                ("l", 9.0, 56.5),
-                ("x", 18.1, 58.6),
-                ("xxl", 25.9, 60.1),
+            "RF-DETR (TopK)": [
+                ("n", 2.3, {"ap": 48.4, "ap50": 67.5, "ap75": 51.7, "ap_small": 25.3, "ap_medium": 53.6, "ap_large": 71.0}),
+                ("s", 3.5, {"ap": 53.0, "ap50": 72.0, "ap75": 57.1, "ap_small": 31.8, "ap_medium": 58.4, "ap_large": 73.1}),
+                ("m", 4.4, {"ap": 54.7, "ap50": 73.6, "ap75": 59.1, "ap_small": 35.9, "ap_medium": 59.8, "ap_large": 73.7}),
+                ("l", 6.8, {"ap": 56.5, "ap50": 75.1, "ap75": 61.2, "ap_small": 39.0, "ap_medium": 61.0, "ap_large": 74.0}),
+                ("x", 11.5, {"ap": 58.6, "ap50": 77.5, "ap75": 64.0, "ap_small": 40.8, "ap_medium": 64.3, "ap_large": 76.3}),
+                ("xxl", 17.2, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
             ],
-            "RF-DETR-reported": [
-                ("n", 2.3, 48.4),
-                ("s", 3.5, 53.0),
-                ("m", 4.4, 54.7),
-                ("l", 6.8, 56.5),
-                ("x", 11.5, 58.6),
-                ("xxl", 17.2, 60.1),
+            "DEIMv1 D-FINE": [
+                # DEIMv1 paper: Table 11 (nano/s/m) + Table 1 (l/x), applied to D-FINE backbone
+                ("n", 2.12, {"ap": 43.0, "ap50": 60.4, "ap75": 46.2, "ap_small": 24.5, "ap_medium": 47.1, "ap_large": 62.1}),
+                ("s", 3.49, {"ap": 49.0, "ap50": 65.9, "ap75": 53.1, "ap_small": 30.4, "ap_medium": 52.6, "ap_large": 65.7}),
+                ("m", 5.55, {"ap": 52.7, "ap50": 70.0, "ap75": 57.3, "ap_small": 35.3, "ap_medium": 56.7, "ap_large": 69.5}),
+                ("l", 8.07, {"ap": 54.7, "ap50": 72.4, "ap75": 59.4, "ap_small": 36.9, "ap_medium": 59.6, "ap_large": 71.8}),
+                ("x", 12.89, {"ap": 56.5, "ap50": 74.0, "ap75": 61.5, "ap_small": 38.8, "ap_medium": 61.4, "ap_large": 74.2}),
+            ],
+            "DEIMv1 RT-DETRv2": [
+                # DEIMv1 paper: Table 11 (s/m/m*) + Table 2 (l=R50, x=R101)
+                ("s", 4.59, {"ap": 49.0, "ap50": 66.1, "ap75": 53.3, "ap_small": 32.6, "ap_medium": 52.5, "ap_large": 64.1}),
+                ("m", 6.40, {"ap": 50.9, "ap50": 68.6, "ap75": 55.2, "ap_small": 34.3, "ap_medium": 54.4, "ap_large": 67.1}),
+                ("m*", 6.90, {"ap": 53.2, "ap50": 71.2, "ap75": 57.8, "ap_small": 35.3, "ap_medium": 57.6, "ap_large": 70.2}),
+                ("l", 9.29, {"ap": 54.3, "ap50": 72.3, "ap75": 58.8, "ap_small": 37.5, "ap_medium": 58.7, "ap_large": 70.8}),
+                ("x", 13.88, {"ap": 55.5, "ap50": 73.5, "ap75": 60.3, "ap_small": 37.9, "ap_medium": 59.9, "ap_large": 73.0}),
+            ],
+            "RT-DETR (paper, obj365)": [
+                # RT-DETR v1 paper Table C (arXiv 2304.08069): obj365 pretrain → COCO finetune
+                # Latency from main table FPS: R18=217→4.61ms, R50=108→9.26ms, R101=74→13.51ms
+                ("s", 4.61, {"ap": 49.2, "ap50": 66.6, "ap75": 53.5, "ap_small": 33.2, "ap_medium": 52.3, "ap_large": 64.8}),
+                ("l", 9.26, {"ap": 55.3, "ap50": 73.4, "ap75": 60.1, "ap_small": 37.9, "ap_medium": 59.9, "ap_large": 71.8}),
+                ("x", 13.51, {"ap": 56.2, "ap50": 74.6, "ap75": 61.3, "ap_small": 38.3, "ap_medium": 60.5, "ap_large": 73.5}),
             ],
         },
     },
-    "t4_new": {
+    "t4": {
         "title": "Object Detection Models: Latency vs mAP (Tesla T4 GPU, TensorRT)",
         "models": {
             "YOLO26 (E2E)": [
@@ -278,7 +292,7 @@ BENCHMARKS = {
                 ("xxl", 29.1, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
             ],
             "DEIMv2 (Ultralytics)": [
-                ("l", 10.1, {"ap": 55.5, "ap50": 72.8, "ap75": 60.5, "ap_small": 37.0, "ap_medium": 60.3, "ap_large": 74.5}),
+                ("l", 10.1, {"ap": 56.0, "ap50": 73.3, "ap75": 61.1, "ap_small": 38.0, "ap_medium": 60.8, "ap_large": 74.3}),
             ],
             "DEIMv2 (Ultralytics, obj365)": [
                 ("l", 10.1, {"ap": 57.6, "ap50": 75.2, "ap75": 62.7, "ap_small": 40.1, "ap_medium": 62.8, "ap_large": 75.1}),
@@ -298,13 +312,45 @@ BENCHMARKS = {
                 # Latency is kept equal to the current l6 entry until a dedicated obj365 latency measurement is available.
                 ("l6", 11.4, {"ap": 56.8, "ap50": 75.2, "ap75": 61.8, "ap_small": 39.9, "ap_medium": 61.4, "ap_large": 74.5}, 0.1),
             ],
-            "DEIMv2 (paper)": [
+            "DEIMv2": [
                 ("pico", 1.7, {"ap": 38.5}),
                 ("n", 2.0, {"ap": 43.0}),
-                ("s", 4.8, {"ap": 50.9}),
-                ("m", 7.5, {"ap": 53.0}),
-                ("l", 10.2, {"ap": 56.0}),
-                ("x", 14.5, {"ap": 57.8}),
+                ("s", 4.8, {"ap": 50.9, "ap50": 68.3, "ap75": 55.1, "ap_small": 31.4, "ap_medium": 55.3, "ap_large": 70.3}),
+                ("m", 7.5, {"ap": 53.0, "ap50": 70.2, "ap75": 57.6, "ap_small": 34.2, "ap_medium": 57.4, "ap_large": 71.5}),
+                ("l", 10.2, {"ap": 56.0, "ap50": 73.4, "ap75": 60.9, "ap_small": 37.5, "ap_medium": 60.8, "ap_large": 75.2}),
+                ("x", 14.5, {"ap": 57.8, "ap50": 75.4, "ap75": 63.2, "ap_small": 39.2, "ap_medium": 62.9, "ap_large": 75.9}),
+            ],
+            "DEIMv1 D-FINE": [
+                # DEIMv1 paper: Table 11 (nano/s/m) + Table 1 (l/x), applied to D-FINE backbone
+                ("n", 2.0, {"ap": 43.0, "ap50": 60.4, "ap75": 46.2, "ap_small": 24.5, "ap_medium": 47.1, "ap_large": 62.1}),
+                ("s", 3.8, {"ap": 49.0, "ap50": 65.9, "ap75": 53.1, "ap_small": 30.4, "ap_medium": 52.6, "ap_large": 65.7}),
+                ("m", 5.7, {"ap": 52.7, "ap50": 70.0, "ap75": 57.3, "ap_small": 35.3, "ap_medium": 56.7, "ap_large": 69.5}),
+                ("l", 7.9, {"ap": 54.7, "ap50": 72.4, "ap75": 59.4, "ap_small": 36.9, "ap_medium": 59.6, "ap_large": 71.8}),
+                ("x", 13.8, {"ap": 56.5, "ap50": 74.0, "ap75": 61.5, "ap_small": 38.8, "ap_medium": 61.4, "ap_large": 74.2}),
+            ],
+            "DEIMv1 RT-DETRv2": [
+                # DEIMv1 paper: Table 11 (s/m/m*) + Table 2 (l=R50, x=R101)
+                ("s", 4.1, {"ap": 49.0, "ap50": 66.1, "ap75": 53.3, "ap_small": 32.6, "ap_medium": 52.5, "ap_large": 64.1}),
+                ("m", 5.7, {"ap": 50.9, "ap50": 68.6, "ap75": 55.2, "ap_small": 34.3, "ap_medium": 54.4, "ap_large": 67.1}),
+                ("m*", 6.7, {"ap": 53.2, "ap50": 71.2, "ap75": 57.8, "ap_small": 35.3, "ap_medium": 57.6, "ap_large": 70.2}),
+                ("l", 8.6, {"ap": 54.3, "ap50": 72.3, "ap75": 58.8, "ap_small": 37.5, "ap_medium": 58.7, "ap_large": 70.8}),
+                ("x", 14.0, {"ap": 55.5, "ap50": 73.5, "ap75": 60.3, "ap_small": 37.9, "ap_medium": 59.9, "ap_large": 73.0}),
+            ],
+            # "RT-DETRv2 (paper)": [
+            #     # NOTE: RT-DETRv2-S AP75/S/M/L values (57.4/36.1/57.9/70.8) look suspiciously identical
+            #     # to L(=R50) in both DEIMv1 and DEIMv2 papers — likely a copy-paste error in the source papers.
+            #     ("s", 4.59, {"ap": 48.1, "ap50": 65.1, "ap75": 57.4, "ap_small": 36.1, "ap_medium": 57.9, "ap_large": 70.8}),
+            #     ("m", 6.40, {"ap": 49.9, "ap50": 67.5, "ap75": 58.6, "ap_small": 35.8, "ap_medium": 58.6, "ap_large": 72.1}),
+            #     ("m*", 6.90, {"ap": 51.9, "ap50": 69.9, "ap75": 56.5, "ap_small": 33.5, "ap_medium": 56.8, "ap_large": 69.2}),
+            #     ("l", 9.29, {"ap": 53.4, "ap50": 71.6, "ap75": 57.4, "ap_small": 36.1, "ap_medium": 57.9, "ap_large": 70.8}),
+            #     ("x", 13.88, {"ap": 54.3, "ap50": 72.8, "ap75": 58.8, "ap_small": 35.8, "ap_medium": 58.8, "ap_large": 72.1}),
+            # ],
+            "RT-DETR (paper, obj365)": [
+                # RT-DETR v1 paper Table C (arXiv 2304.08069): obj365 pretrain → COCO finetune
+                # Latency from main table FPS: R18=217→4.61ms, R50=108→9.26ms, R101=74→13.51ms
+                ("s", 4.61, {"ap": 49.2, "ap50": 66.6, "ap75": 53.5, "ap_small": 33.2, "ap_medium": 52.3, "ap_large": 64.8}),
+                ("l", 9.26, {"ap": 55.3, "ap50": 73.4, "ap75": 60.1, "ap_small": 37.9, "ap_medium": 59.9, "ap_large": 71.8}),
+                ("x", 13.51, {"ap": 56.2, "ap50": 74.6, "ap75": 61.3, "ap_small": 38.3, "ap_medium": 60.5, "ap_large": 73.5}),
             ],
         },
     },
@@ -443,12 +489,14 @@ MODEL_STYLES = {
     "DINOv3-STA-RTDETR (obj365)": ("X", 8),
     "RF-DETR": ("s", -12),
     "RF-DETR (TopK)": ("s", -12),
-    "RF-DETR-reported": ("s", 8),
     "LW-DETR": ("^", 8),
     "DEIM D-FINE": ("D", -12),
     "DEIM RT-DETRv2": ("v", 8),
     "DEIMv2": ("p", -12),
-    "DEIMv2 (paper)": ("p", -12),
+    "DEIMv1 D-FINE": ("D", 8),
+    "DEIMv1 RT-DETRv2": ("v", 8),
+    "RT-DETRv2 (paper)": ("v", -12),
+    "RT-DETR (paper, obj365)": ("v", 8),
     "DEIMv2 (Ultralytics)": ("p", 8),
     "DEIMv2 (Ultralytics, obj365)": ("p", -12),
 }
@@ -532,7 +580,7 @@ def build_plot(output_path: Path, show: bool, metric: str) -> None:
     ax.set_axisbelow(True)
     ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.6)
 
-    palette = plt.get_cmap("tab10")
+    palette = plt.get_cmap("tab20")
     plotted = False
     for i, (model_name, data) in enumerate(models.items()):
         marker, label_offset = MODEL_STYLES.get(model_name, ("o", 8))
