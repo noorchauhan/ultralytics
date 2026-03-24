@@ -20,13 +20,13 @@ jobs:
       matrix:
         include:
           - model: yolo11n.pt
-            data: coco8.yaml
+            data: coco128.yaml
           - model: yolo11n-seg.pt
-            data: coco8-seg.yaml
+            data: coco128-seg.yaml
           - model: yolo11n-pose.pt
             data: coco8-pose.yaml
           - model: yolo11n-cls.pt
-            data: imagenet10
+            data: imagenet100
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
