@@ -297,8 +297,8 @@ def test_export_imx():
 
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(
-    not LINUX or (ARM64 and IS_DOCKER),
-    reason="Axelera export is only supported on Linux and is not supported on ARM64 Docker",
+    not LINUX or IS_DOCKER,
+    reason="Axelera export is only supported on Linux host systems",
 )
 @pytest.mark.skipif(IS_RASPBERRYPI, reason="Test disabled due to OOM (Out of Memory) issues on Raspberry Pi 5 16GB")
 def test_export_axelera():
@@ -313,8 +313,8 @@ def test_export_axelera():
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(
-    not LINUX or (ARM64 and IS_DOCKER),
-    reason="Axelera export is only supported on Linux and is not supported on ARM64 Docker",
+    not LINUX or IS_DOCKER,
+    reason="Axelera export is only supported on Linux host systems",
 )
 @pytest.mark.skipif(IS_RASPBERRYPI, reason="Test disabled due to OOM (Out of Memory) issues on Raspberry Pi 5 16GB")
 @pytest.mark.parametrize("task", [task for task in TASKS if task != "segment"])
