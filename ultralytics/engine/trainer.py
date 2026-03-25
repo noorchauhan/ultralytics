@@ -62,6 +62,7 @@ from ultralytics.utils.torch_utils import (
     unset_deterministic,
     unwrap_model,
 )
+from ultralytics.nn.distill_model import DistillationModel
 
 
 class BaseTrainer:
@@ -333,8 +334,15 @@ class BaseTrainer:
         self.scaler = (
             torch.amp.GradScaler("cuda", enabled=self.amp) if TORCH_2_4 else torch.cuda.amp.GradScaler(enabled=self.amp)
         )
-        if self.world_size > 1:
-            self.model = nn.parallel.DistributedDataParallel(self.model, device_ids=[RANK], find_unused_parameters=True)
+        # if self.world_size > 1:
+        #     self.model = nn.parallel.DistributedDataParallel(self.model, device_ids=[RANK], find_unused_parameters=True)
+        if self.args.distill_model is not None:
+            self.model = DistillationModel(
+                student_model=self.model,
+                teacher_model=self.args.distill_model,
+                feats_idx=self.args.distill_layer,
+            ).to(self.device)
+            self.freeze_layer_names += [f"teacher_model."]  # handle BN layers
 
         # Check imgsz
         gs = max(int(self.model.stride.max() if hasattr(self.model, "stride") else 32), 32)  # grid size (max stride)

@@ -179,6 +179,8 @@ class ClassificationTrainer(BaseTrainer):
     def get_validator(self):
         """Return an instance of ClassificationValidator for validation."""
         self.loss_names = ["loss"]
+        if self.args.distill_model is not None:
+            self.loss_names += ("dis_loss",)
         return yolo.classify.ClassificationValidator(
             self.test_loader, self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
@@ -196,7 +198,7 @@ class ClassificationTrainer(BaseTrainer):
         keys = [f"{prefix}/{x}" for x in self.loss_names]
         if loss_items is None:
             return keys
-        loss_items = [round(float(loss_items), 5)]
+        loss_items = [round(float(loss_items.sum()), 5)]
         return dict(zip(keys, loss_items))
 
     def plot_training_samples(self, batch: dict[str, torch.Tensor], ni: int):

@@ -141,31 +141,39 @@ class BaseModel(torch.nn.Module):
             return self.loss(x, *args, **kwargs)
         return self.predict(x, *args, **kwargs)
 
-    def predict(self, x, profile=False, visualize=False, augment=False, embed=None):
-        """Perform a forward pass through the network.
+    def predict(
+        self, x, profile=False, visualize=False, augment=False, embed=None, return_feats=False, direct_return=False
+    ):
+        """
+        Perform a forward pass through the network.
 
         Args:
             x (torch.Tensor): The input tensor to the model.
             profile (bool): Print the computation time of each layer if True.
             visualize (bool): Save the feature maps of the model if True.
             augment (bool): Augment image during prediction.
-            embed (list, optional): A list of layer indices to return embeddings from.
+            embed (list, optional): A list of feature vectors/embeddings to return.
+            return_feats (bool): Whether to return all the feature maps in a list.
+            direct_return (bool): Whether to directly the features without going through all the model layers.
 
         Returns:
             (torch.Tensor): The last output of the model.
         """
         if augment:
             return self._predict_augment(x)
-        return self._predict_once(x, profile, visualize, embed)
+        return self._predict_once(x, profile, visualize, embed, return_feats, direct_return)
 
-    def _predict_once(self, x, profile=False, visualize=False, embed=None):
-        """Perform a forward pass through the network.
+    def _predict_once(self, x, profile=False, visualize=False, embed=None, return_feats=False, direct_return=False):
+        """
+        Perform a forward pass through the network.
 
         Args:
             x (torch.Tensor): The input tensor to the model.
             profile (bool): Print the computation time of each layer if True.
             visualize (bool): Save the feature maps of the model if True.
-            embed (list, optional): A list of layer indices to return embeddings from.
+            embed (list, optional): A list of feature vectors/embeddings to return.
+            return_feats (bool): Whether to return all the feature maps in a list.
+            direct_return (bool): Whether to directly the features without going through all the model layers.
 
         Returns:
             (torch.Tensor): The last output of the model.
@@ -179,14 +187,16 @@ class BaseModel(torch.nn.Module):
             if profile:
                 self._profile_one_layer(m, x, dt)
             x = m(x)  # run
-            y.append(x if m.i in self.save else None)  # save output
+            y.append(x)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
             if m.i in embed:
-                embeddings.append(torch.nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
+                embeddings.append(
+                    x if direct_return else torch.nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1)
+                )  # flatten
                 if m.i == max_idx:
-                    return torch.unbind(torch.cat(embeddings, 1), dim=0)
-        return x
+                    return embeddings if direct_return else torch.unbind(torch.cat(embeddings, 1), dim=0)
+        return (x, y) if return_feats else x
 
     def _predict_augment(self, x):
         """Perform augmentations on input image x and return augmented inference."""
