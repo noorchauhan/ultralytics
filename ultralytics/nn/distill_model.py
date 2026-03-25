@@ -1,4 +1,5 @@
 from ultralytics.utils.torch_utils import copy_attr
+from ultralytics.utils.checks import check_requirements
 from .tasks import load_checkpoint
 import torch.nn.functional as F
 from torch import nn
@@ -13,10 +14,11 @@ class DistillationModel(nn.Module):
     def __init__(self, teacher_model: str | nn.Module, student_model: nn.Module, feats_idx: int):
         """Initialize DistillationModel."""
         super().__init__()
+        self.is_timm = False
         if isinstance(feats_idx, int):
             feats_idx = [feats_idx]
         if isinstance(teacher_model, str):
-            teacher_model = load_checkpoint(teacher_model)[0]
+            teacher_model = self.get_teacher_model(teacher_model)
         device = next(student_model.parameters()).device
         # self.teacher_model = teacher_model.to(device).eval()
         self.teacher_model = teacher_model.to(device).train()
@@ -26,8 +28,9 @@ class DistillationModel(nn.Module):
         self.feats_idx = feats_idx
         # get the feature dimensions
         with torch.inference_mode():
-            teacher_output = teacher_model(torch.zeros(1, 3, 256, 256).to(device), embed=feats_idx, direct_return=True)
-            student_output = student_model(torch.zeros(1, 3, 256, 256).to(device), embed=feats_idx, direct_return=True)
+            dummy_input = torch.zeros(1, 3, 256, 256).to(device)
+            teacher_output = self.get_teacher_output(dummy_input, feats_idx=[11])  # hardcoded to one layer for now
+            student_output = student_model(dummy_input, embed=feats_idx, direct_return=True)
             assert len(teacher_output) == len(student_output), "Feature dimensions must match in length."
         self.projector = nn.ModuleList(
             nn.Linear(student_dim, teacher_dim) if student_dim != teacher_dim else nn.Identity()
@@ -49,6 +52,31 @@ class DistillationModel(nn.Module):
         # Distillation loss (Kullback-Leibler divergence)
         distillation_loss = F.kl_div(student_soft_logits, soft_targets, reduction="batchmean") * (temperature**2)
         return distillation_loss
+
+    def get_teacher_model(self, model_name: str):
+        if "dinov3" in model_name:
+            check_requirements("timm>=1.0.26")
+            import timm
+
+            model = timm.create_model(model_name, pretrained=True, global_pool="token")
+            self.is_timm = True
+        else:
+            model = load_checkpoint(model_name)[0]
+        return model
+
+    def get_teacher_output(self, dummy_input: torch.Tensor, feats_idx: list):
+        if self.is_timm:
+            _, teacher_output = self.teacher_model.forward_intermediates(
+                dummy_input,
+                indices=feats_idx,
+                output_fmt="NCHW",
+                return_prefix_tokens=False,
+                norm=True,  # Apply layer norm
+            )
+            teacher_output = teacher_output[0]
+        else:
+            teacher_output = self.teacher_model(dummy_input, embed=feats_idx, direct_return=True)
+        return teacher_output
 
     def forward(self, x, *args, **kwargs):
         """Forward pass through the student model."""
