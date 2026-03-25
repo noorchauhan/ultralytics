@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import os
 from collections import deque
 from typing import Any
 
 import numpy as np
 import torch
+
+_FEAT_HISTORY = int(os.environ.get("AUTOTRACK_FEAT_HISTORY", "100"))
+_ALPHA = float(os.environ.get("AUTOTRACK_ALPHA", "0.9"))
 
 from ultralytics.utils.ops import xywh2xyxy
 from ultralytics.utils.plotting import save_one_box
@@ -54,7 +58,7 @@ class BOTrack(STrack):
     shared_kalman = KalmanFilterXYWH()
 
     def __init__(
-        self, xywh: np.ndarray, score: float, cls: int, feat: np.ndarray | None = None, feat_history: int = 50
+        self, xywh: np.ndarray, score: float, cls: int, feat: np.ndarray | None = None, feat_history: int = _FEAT_HISTORY
     ):
         """Initialize a BOTrack object with temporal parameters, such as feature history, alpha, and current features.
 
@@ -73,7 +77,7 @@ class BOTrack(STrack):
         if feat is not None:
             self.update_features(feat)
         self.features = deque(maxlen=feat_history)
-        self.alpha = 0.9
+        self.alpha = _ALPHA
 
     def update_features(self, feat: np.ndarray) -> None:
         """Update the feature vector and apply exponential moving average smoothing."""
@@ -97,13 +101,13 @@ class BOTrack(STrack):
 
     def re_activate(self, new_track: BOTrack, frame_id: int, new_id: bool = False) -> None:
         """Reactivate a track with updated features and optionally assign a new ID."""
-        if new_track.curr_feat is not None:
+        if new_track.curr_feat is not None and new_track.score >= 0.3:
             self.update_features(new_track.curr_feat)
         super().re_activate(new_track, frame_id, new_id)
 
     def update(self, new_track: BOTrack, frame_id: int) -> None:
         """Update the track with new detection information and the current frame ID."""
-        if new_track.curr_feat is not None:
+        if new_track.curr_feat is not None and new_track.score >= 0.3:
             self.update_features(new_track.curr_feat)
         super().update(new_track, frame_id)
 
