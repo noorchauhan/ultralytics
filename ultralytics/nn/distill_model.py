@@ -116,7 +116,7 @@ class DistillationModel(nn.Module):
             batch (dict): Batch to compute loss on.
             preds (torch.Tensor | list[torch.Tensor], optional): Predictions.
         """
-        with torch.no_grad():  # need no_grad
+        with torch.no_grad():  # need no_grad over inference_mode so F.mse_loss works properly
             teacher_feats = self.get_teacher_output(batch["img"])
         preds, feats = self.student_model(batch["img"], return_feats=True)
         loss_distill = torch.zeros(1, device=batch["img"].device)
@@ -144,9 +144,9 @@ class DistillationModel(nn.Module):
             cos_sim = F.cosine_similarity(student_feat, teacher_feat, dim=-1)
             loss = (1 - cos_sim).mean()
         elif loss_type == "l2":
-            loss = F.mse_loss(student_feat, teacher_feat, reduction="none").sum(dim=(-1, -2)).mean()
+            loss = F.mse_loss(student_feat, teacher_feat)
         elif loss_type == "l1":
-            loss = F.l1_loss(student_feat, teacher_feat, reduction="none").sum(dim=(-1, -2)).mean()
+            loss = F.l1_loss(student_feat, teacher_feat)
         return loss
 
     @property
