@@ -149,26 +149,6 @@ BENCHMARKS = {
         "title": "Object Detection Models: Latency vs mAP (Intel Xeon CPU @ 2.00GHz, ONNX)",
         "models": {
             "YOLO26 (E2E)": [
-                ("n", 38.4, 40.1),
-                ("s", 84.6, 47.8),
-                ("m", 220.0, 52.5),
-                ("l", 284.2, 54.4),
-                ("x", 568.6, 56.9),
-            ],
-            "RF-DETR": [
-                ("n", 117.2, 48.4),
-                ("s", 211.1, 53.0),
-                ("m", 270.7, 54.7),
-                ("l", 427.3, 56.5),
-                ("x", 977.2, 58.6),
-                ("xxl", 1334.4, 60.1),
-            ],
-        },
-    },
-    "xeon_new": {
-        "title": "Object Detection Models: Latency vs mAP (Intel Xeon CPU @ 2.00GHz, ONNX)",
-        "models": {
-            "YOLO26 (E2E)": [
                 ("n", 38.1, 40.1),
                 ("s", 84.8, 47.8),
                 ("m", 218.5, 52.5),
@@ -225,13 +205,41 @@ BENCHMARKS = {
                 ("l", 10.47, {"ap": 56.0, "ap50": 73.4, "ap75": 60.9, "ap_small": 37.5, "ap_medium": 60.8, "ap_large": 75.2}),
                 ("x", 13.75, {"ap": 57.8, "ap50": 75.4, "ap75": 63.2, "ap_small": 39.2, "ap_medium": 62.9, "ap_large": 75.9}),
             ],
-            "RF-DETR (TopK)": [
+            "RF-DETR": [
                 ("n", 2.3, {"ap": 48.4, "ap50": 67.5, "ap75": 51.7, "ap_small": 25.3, "ap_medium": 53.6, "ap_large": 71.0}),
                 ("s", 3.5, {"ap": 53.0, "ap50": 72.0, "ap75": 57.1, "ap_small": 31.8, "ap_medium": 58.4, "ap_large": 73.1}),
                 ("m", 4.4, {"ap": 54.7, "ap50": 73.6, "ap75": 59.1, "ap_small": 35.9, "ap_medium": 59.8, "ap_large": 73.7}),
                 ("l", 6.8, {"ap": 56.5, "ap50": 75.1, "ap75": 61.2, "ap_small": 39.0, "ap_medium": 61.0, "ap_large": 74.0}),
                 ("x", 11.5, {"ap": 58.6, "ap50": 77.5, "ap75": 64.0, "ap_small": 40.8, "ap_medium": 64.3, "ap_large": 76.3}),
                 ("xxl", 17.2, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
+            ],
+            "RF-DETR (ECDet reported)": [
+                # RF-DETR obj365 results as reported in ECDet paper (arXiv 2603.18739), TRT v10.6
+                ("s", 3.65, {"ap": 52.9, "ap50": 71.9, "ap75": 57.0, "ap_small": 32.0, "ap_medium": 58.3, "ap_large": 73.0}),
+                ("m", 4.62, {"ap": 54.7, "ap50": 73.5, "ap75": 59.2, "ap_small": 36.1, "ap_medium": 59.7, "ap_large": 73.8}),
+                ("l", 7.38, {"ap": 56.5, "ap50": 75.1, "ap75": 61.3, "ap_small": 39.0, "ap_medium": 61.0, "ap_large": 73.9}),
+                ("x", 14.79, {"ap": 58.6, "ap50": 77.4, "ap75": 63.8, "ap_small": 40.3, "ap_medium": 63.9, "ap_large": 76.2}),
+            ],
+            "LW-DETR": [
+                # LW-DETR obj365 results as reported in ECDet paper (arXiv 2603.18739), TRT v10.6
+                ("s", 3.09, {"ap": 48.0, "ap50": 66.9, "ap75": 51.7, "ap_small": 26.8, "ap_medium": 52.5, "ap_large": 65.5}),
+                ("m", 5.27, {"ap": 52.6, "ap50": 69.9, "ap75": 56.7, "ap_small": 32.6, "ap_medium": 57.7, "ap_large": 70.7}),
+                ("l", 8.25, {"ap": 56.1, "ap50": 74.6, "ap75": 60.9, "ap_small": 37.2, "ap_medium": 60.4, "ap_large": 73.0}),
+                ("x", 16.06, {"ap": 58.3, "ap50": 76.9, "ap75": 63.3, "ap_small": 40.9, "ap_medium": 63.3, "ap_large": 74.8}),
+            ],
+            "RT-DETRv4": [
+                # RT-DETRv4 COCO-only results from ECDet paper (arXiv 2603.18739), TRT v10.6
+                ("s", 3.60, {"ap": 49.7, "ap50": 66.8, "ap75": 54.1, "ap_small": 30.2, "ap_medium": 53.6, "ap_large": 66.9}),
+                ("m", 5.66, {"ap": 53.5, "ap50": 71.1, "ap75": 58.1, "ap_small": 34.9, "ap_medium": 57.7, "ap_large": 72.1}),
+                ("l", 8.10, {"ap": 55.4, "ap50": 73.0, "ap75": 60.3, "ap_small": 37.1, "ap_medium": 60.1, "ap_large": 72.9}),
+                ("x", 12.90, {"ap": 57.0, "ap50": 74.6, "ap75": 62.1, "ap_small": 39.5, "ap_medium": 61.9, "ap_large": 74.8}),
+            ],
+            "ECDet": [
+                # ECDet COCO-only results from arXiv 2603.18739, TRT v10.6
+                ("s", 5.41, {"ap": 51.7, "ap50": 69.4, "ap75": 55.8, "ap_small": 32.3, "ap_medium": 56.4, "ap_large": 70.5}),
+                ("m", 7.98, {"ap": 54.3, "ap50": 72.2, "ap75": 58.7, "ap_small": 35.9, "ap_medium": 59.1, "ap_large": 72.7}),
+                ("l", 10.49, {"ap": 57.0, "ap50": 75.1, "ap75": 61.7, "ap_small": 38.7, "ap_medium": 62.5, "ap_large": 75.0}),
+                ("x", 12.70, {"ap": 57.9, "ap50": 76.0, "ap75": 62.9, "ap_small": 38.7, "ap_medium": 63.4, "ap_large": 76.1}),
             ],
             "DEIMv1 D-FINE": [
                 # DEIMv1 paper: Table 11 (nano/s/m) + Table 1 (l/x), applied to D-FINE backbone
@@ -249,7 +257,34 @@ BENCHMARKS = {
                 ("l", 9.29, {"ap": 54.3, "ap50": 72.3, "ap75": 58.8, "ap_small": 37.5, "ap_medium": 58.7, "ap_large": 70.8}),
                 ("x", 13.88, {"ap": 55.5, "ap50": 73.5, "ap75": 60.3, "ap_small": 37.9, "ap_medium": 59.9, "ap_large": 73.0}),
             ],
-            "RT-DETR (paper, obj365)": [
+            "RT-DETRv2": [
+                # NOTE: Sub-metrics for S and M are wrong in DEIM papers (copy-paste from L and X rows).
+                # ECDet paper (arXiv 2603.18739) reports correct values:
+                #   S: ap75=52.1 ap_s=30.2 ap_m=51.5 ap_l=63.9 (DEIM papers copied L's sub-metrics)
+                #   M: ap75=54.1 ap_s=32.0 ap_m=53.2 ap_l=66.5 (DEIM papers copied X's sub-metrics)
+                # m* (R50vd_m) is absent from ECDet; values here are from DEIM papers only.
+                ("s", 4.59, {"ap": 48.1, "ap50": 65.1, "ap75": 52.1, "ap_small": 30.2, "ap_medium": 51.5, "ap_large": 63.9}),
+                ("m", 6.40, {"ap": 49.9, "ap50": 67.5, "ap75": 54.1, "ap_small": 32.0, "ap_medium": 53.2, "ap_large": 66.5}),
+                ("m*", 6.90, {"ap": 51.9, "ap50": 69.9, "ap75": 56.5, "ap_small": 33.5, "ap_medium": 56.8, "ap_large": 69.2}),
+                ("l", 9.29, {"ap": 53.4, "ap50": 71.6, "ap75": 57.4, "ap_small": 36.1, "ap_medium": 57.9, "ap_large": 70.8}),
+                ("x", 13.88, {"ap": 54.3, "ap50": 72.8, "ap75": 58.8, "ap_small": 35.8, "ap_medium": 58.8, "ap_large": 72.1}),
+            ],
+            "D-FINE": [
+                # D-FINE README COCO-only results; latency from DEIMv1 D-FINE reported values (same arch)
+                ("n", 2.12, {"ap": 42.8, "ap50": 60.3, "ap75": 45.5, "ap_small": 22.9, "ap_medium": 46.8, "ap_large": 62.1}),
+                ("s", 3.49, {"ap": 48.5, "ap50": 65.6, "ap75": 52.6, "ap_small": 29.1, "ap_medium": 52.2, "ap_large": 65.4}),
+                ("m", 5.62, {"ap": 52.3, "ap50": 69.8, "ap75": 56.4, "ap_small": 33.2, "ap_medium": 56.5, "ap_large": 70.2}),
+                ("l", 8.07, {"ap": 54.0, "ap50": 71.6, "ap75": 58.4, "ap_small": 36.5, "ap_medium": 58.0, "ap_large": 71.9}),
+                ("x", 12.89, {"ap": 55.8, "ap50": 73.7, "ap75": 60.2, "ap_small": 37.3, "ap_medium": 60.5, "ap_large": 73.4}),
+            ],
+            "D-FINE (obj365)": [
+                # D-FINE README Objects365+COCO results; latency from DEIMv1 D-FINE reported values
+                ("s", 3.49, {"ap": 50.7, "ap50": 67.6, "ap75": 55.1, "ap_small": 32.7, "ap_medium": 54.6, "ap_large": 66.5}),
+                ("m", 5.62, {"ap": 55.1, "ap50": 72.6, "ap75": 59.7, "ap_small": 37.9, "ap_medium": 59.4, "ap_large": 71.7}),
+                ("l", 8.07, {"ap": 57.3, "ap50": 74.9, "ap75": 62.3, "ap_small": 40.6, "ap_medium": 61.5, "ap_large": 73.7}),
+                ("x", 12.89, {"ap": 59.3, "ap50": 76.8, "ap75": 64.6, "ap_small": 42.3, "ap_medium": 64.2, "ap_large": 76.4}),
+            ],
+            "RT-DETR (obj365)": [
                 # RT-DETR v1 paper Table C (arXiv 2304.08069): obj365 pretrain → COCO finetune
                 # Latency from main table FPS: R18=217→4.61ms, R50=108→9.26ms, R101=74→13.51ms
                 ("s", 4.61, {"ap": 49.2, "ap50": 66.6, "ap75": 53.5, "ap_small": 33.2, "ap_medium": 52.3, "ap_large": 64.8}),
@@ -263,70 +298,78 @@ BENCHMARKS = {
         "models": {
             "YOLO26 (E2E)": [
                 ("n", 1.8, {"ap": 40.1, "ap50": 55.6, "ap75": 43.5, "ap_small": 19.7, "ap_medium": 44.0, "ap_large": 58.4}),
-                ("s", 2.7, {"ap": 47.8, "ap50": 64.6, "ap75": 52.2, "ap_small": 29.1, "ap_medium": 52.5, "ap_large": 64.3}),
-                ("m", 5.3, {"ap": 52.5, "ap50": 69.8, "ap75": 57.2, "ap_small": 36.2, "ap_medium": 56.9, "ap_large": 68.5}),
-                ("l", 7.0, {"ap": 54.4, "ap50": 71.5, "ap75": 59.4, "ap_small": 37.8, "ap_medium": 58.6, "ap_large": 70.3}),
-                ("x", 13.3, {"ap": 56.9, "ap50": 74.1, "ap75": 62.1, "ap_small": 41.3, "ap_medium": 61.2, "ap_large": 72.7}),
+                ("s", 2.6, {"ap": 47.8, "ap50": 64.6, "ap75": 52.2, "ap_small": 29.1, "ap_medium": 52.5, "ap_large": 64.3}),
+                ("m", 5.0, {"ap": 52.5, "ap50": 69.8, "ap75": 57.2, "ap_small": 36.2, "ap_medium": 56.9, "ap_large": 68.5}),
+                ("l", 6.6, {"ap": 54.4, "ap50": 71.5, "ap75": 59.4, "ap_small": 37.8, "ap_medium": 58.6, "ap_large": 70.3}),
+                ("x", 12.2, {"ap": 56.9, "ap50": 74.1, "ap75": 62.1, "ap_small": 41.3, "ap_medium": 61.2, "ap_large": 72.7}),
             ],
             "YOLO26 (NMS)": [
                 ("n", 1.9, {"ap": 40.9, "ap50": 56.8, "ap75": 44.3, "ap_small": 21.1, "ap_medium": 44.8, "ap_large": 59.1}),
                 ("s", 2.7, {"ap": 48.6, "ap50": 65.8, "ap75": 52.8, "ap_small": 29.5, "ap_medium": 53.2, "ap_large": 65.8}),
-                ("m", 5.1, {"ap": 53.1, "ap50": 70.7, "ap75": 57.7, "ap_small": 36.7, "ap_medium": 57.8, "ap_large": 68.9}),
-                ("l", 6.8, {"ap": 55.0, "ap50": 72.5, "ap75": 60.0, "ap_small": 38.4, "ap_medium": 59.5, "ap_large": 71.1}),
-                ("x", 13.3, {"ap": 57.5, "ap50": 75.0, "ap75": 62.7, "ap_small": 41.8, "ap_medium": 62.1, "ap_large": 73.3}),
+                ("m", 5.0, {"ap": 53.1, "ap50": 70.7, "ap75": 57.7, "ap_small": 36.7, "ap_medium": 57.8, "ap_large": 68.9}),
+                ("l", 6.6, {"ap": 55.0, "ap50": 72.5, "ap75": 60.0, "ap_small": 38.4, "ap_medium": 59.5, "ap_large": 71.1}),
+                ("x", 12.3, {"ap": 57.5, "ap50": 75.0, "ap75": 62.7, "ap_small": 41.8, "ap_medium": 62.1, "ap_large": 73.3}),
             ],
             "YOLO26_RTDETR": [
                 ("n", 1.8, {"ap": 41.1, "ap50": 57.4, "ap75": 44.5, "ap_small": 21.7, "ap_medium": 44.5, "ap_large": 58.8}),
                 ("ns", 2.5, {"ap": 47.7, "ap50": 65.1, "ap75": 51.5, "ap_small": 29.6, "ap_medium": 52.0, "ap_large": 64.0}),
-                ("s", 4.5, {"ap": 51.0, "ap50": 68.4, "ap75": 55.6, "ap_small": 34.3, "ap_medium": 54.7, "ap_large": 66.9}),
-                ("m", 6.9, {"ap": 54.0, "ap50": 71.5, "ap75": 58.5, "ap_small": 38.3, "ap_medium": 57.9, "ap_large": 68.8}),
-                ("l", 8.6, {"ap": 55.3, "ap50": 73.0, "ap75": 60.2, "ap_small": 39.6, "ap_medium": 59.3, "ap_large": 70.7}),
-                ("x", 13.8, {"ap": 56.5, "ap50": 74.0, "ap75": 61.6, "ap_small": 41.1, "ap_medium": 60.8, "ap_large": 71.5}),
+                ("s", 4.4, {"ap": 51.0, "ap50": 68.4, "ap75": 55.6, "ap_small": 34.3, "ap_medium": 54.7, "ap_large": 66.9}),
+                ("m", 6.5, {"ap": 54.0, "ap50": 71.5, "ap75": 58.5, "ap_small": 38.3, "ap_medium": 57.9, "ap_large": 68.8}),
+                ("l", 8.2, {"ap": 55.3, "ap50": 73.0, "ap75": 60.2, "ap_small": 39.6, "ap_medium": 59.3, "ap_large": 70.7}),
+                ("x", 13.5, {"ap": 56.5, "ap50": 74.0, "ap75": 61.6, "ap_small": 41.1, "ap_medium": 60.8, "ap_large": 71.5}),
             ],
             "RF-DETR (TopK)": [
                 ("n", 2.8, {"ap": 48.4, "ap50": 67.5, "ap75": 51.7, "ap_small": 25.3, "ap_medium": 53.6, "ap_large": 71.0}),
-                ("s", 4.4, {"ap": 53.0, "ap50": 72.0, "ap75": 57.1, "ap_small": 31.8, "ap_medium": 58.4, "ap_large": 73.1}),
-                ("m", 5.7, {"ap": 54.7, "ap50": 73.6, "ap75": 59.1, "ap_small": 35.9, "ap_medium": 59.8, "ap_large": 73.7}),
-                ("l", 8.7, {"ap": 56.5, "ap50": 75.1, "ap75": 61.2, "ap_small": 39.0, "ap_medium": 61.0, "ap_large": 74.0}),
-                ("x", 18.1, {"ap": 58.6, "ap50": 77.5, "ap75": 64.0, "ap_small": 40.8, "ap_medium": 64.3, "ap_large": 76.3}),
-                ("xxl", 29.1, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
+                ("s", 4.1, {"ap": 53.0, "ap50": 72.0, "ap75": 57.1, "ap_small": 31.8, "ap_medium": 58.4, "ap_large": 73.1}),
+                ("m", 5.2, {"ap": 54.7, "ap50": 73.6, "ap75": 59.1, "ap_small": 35.9, "ap_medium": 59.8, "ap_large": 73.7}),
+                ("l", 8.1, {"ap": 56.5, "ap50": 75.1, "ap75": 61.2, "ap_small": 39.0, "ap_medium": 61.0, "ap_large": 74.0}),
+                ("x", 17.2, {"ap": 58.6, "ap50": 77.5, "ap75": 64.0, "ap_small": 40.8, "ap_medium": 64.3, "ap_large": 76.3}),
+                ("xxl", 27.0, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
+            ],
+            "LW-DETR": [
+                # LW-DETR obj365 results as reported in ECDet paper (arXiv 2603.18739), TRT v10.6
+                ("n", 2.0, {"ap": 42.6}),
+                ("s", 2.9, {"ap": 48.0, "ap50": 66.9, "ap75": 51.7, "ap_small": 26.8, "ap_medium": 52.5, "ap_large": 65.5}),
+                ("m", 5.1, {"ap": 52.6, "ap50": 69.9, "ap75": 56.7, "ap_small": 32.6, "ap_medium": 57.7, "ap_large": 70.7}),
+                ("l", 8.5, {"ap": 56.1, "ap50": 74.6, "ap75": 60.9, "ap_small": 37.2, "ap_medium": 60.4, "ap_large": 73.0}),
+                ("x", 18.4, {"ap": 58.3, "ap50": 76.9, "ap75": 63.3, "ap_small": 40.9, "ap_medium": 63.3, "ap_large": 74.8}),
             ],
             "DEIMv2 (Ultralytics)": [
-                ("l", 10.1, {"ap": 56.0, "ap50": 73.3, "ap75": 61.1, "ap_small": 38.0, "ap_medium": 60.8, "ap_large": 74.3}),
+                ("l", 9.9, {"ap": 56.0, "ap50": 73.3, "ap75": 61.1, "ap_small": 38.0, "ap_medium": 60.8, "ap_large": 74.3}),
             ],
             "DEIMv2 (Ultralytics, obj365)": [
-                ("l", 10.1, {"ap": 57.6, "ap50": 75.2, "ap75": 62.7, "ap_small": 40.1, "ap_medium": 62.8, "ap_large": 75.1}),
+                ("l", 9.9, {"ap": 57.6, "ap50": 75.2, "ap75": 62.7, "ap_small": 40.1, "ap_medium": 62.8, "ap_large": 75.1}),
             ],
             "DINOv3-RTDETR": [
-                ("s", 4.5, {"ap": 50.3, "ap50": 69.0, "ap75": 54.4, "ap_small": 27.8, "ap_medium": 55.8, "ap_large": 72.5}),
+                ("s", 4.3, {"ap": 50.3, "ap50": 69.0, "ap75": 54.4, "ap_small": 27.8, "ap_medium": 55.8, "ap_large": 72.5}),
             ],
             "DINOv3-RTDETR (obj365)": [
-                ("s", 4.5, {"ap": 52.3, "ap50": 71.1, "ap75": 56.7, "ap_small": 33.6, "ap_medium": 57.6, "ap_large": 70.0}),
+                ("s", 4.3, {"ap": 52.3, "ap50": 71.1, "ap75": 56.7, "ap_small": 33.6, "ap_medium": 57.6, "ap_large": 70.0}),
             ],
             "DINOv3-STA-RTDETR": [
-                ("l3", 10.4, {"ap": 54.3, "ap50": 72.8, "ap75": 58.9, "ap_small": 35.1, "ap_medium": 59.7, "ap_large": 73.0}, 0.1),
-                ("l6", 11.4, {"ap": 55.0, "ap50": 73.7, "ap75": 59.6, "ap_small": 36.3, "ap_medium": 60.4, "ap_large": 74.3}, 0.1),
+                ("l3", 9.9, {"ap": 54.3, "ap50": 72.8, "ap75": 58.9, "ap_small": 35.1, "ap_medium": 59.7, "ap_large": 73.0}, 0.1),
+                ("l6", 10.8, {"ap": 55.0, "ap50": 73.7, "ap75": 59.6, "ap_small": 36.3, "ap_medium": 60.4, "ap_large": 74.3}, 0.1),
             ],
             "DINOv3-STA-RTDETR (obj365)": [
                 # NOTE: AP metrics are provided as fractional values in logs; converted here to percentage points.
                 # Latency is kept equal to the current l6 entry until a dedicated obj365 latency measurement is available.
-                ("l6", 11.4, {"ap": 56.8, "ap50": 75.2, "ap75": 61.8, "ap_small": 39.9, "ap_medium": 61.4, "ap_large": 74.5}, 0.1),
+                ("l6", 10.8, {"ap": 56.8, "ap50": 75.2, "ap75": 61.8, "ap_small": 39.9, "ap_medium": 61.4, "ap_large": 74.5}, 0.1),
             ],
             "DEIMv2": [
                 ("pico", 1.7, {"ap": 38.5}),
                 ("n", 2.0, {"ap": 43.0}),
-                ("s", 4.8, {"ap": 50.9, "ap50": 68.3, "ap75": 55.1, "ap_small": 31.4, "ap_medium": 55.3, "ap_large": 70.3}),
-                ("m", 7.5, {"ap": 53.0, "ap50": 70.2, "ap75": 57.6, "ap_small": 34.2, "ap_medium": 57.4, "ap_large": 71.5}),
-                ("l", 10.2, {"ap": 56.0, "ap50": 73.4, "ap75": 60.9, "ap_small": 37.5, "ap_medium": 60.8, "ap_large": 75.2}),
-                ("x", 14.5, {"ap": 57.8, "ap50": 75.4, "ap75": 63.2, "ap_small": 39.2, "ap_medium": 62.9, "ap_large": 75.9}),
+                ("s", 4.6, {"ap": 50.9, "ap50": 68.3, "ap75": 55.1, "ap_small": 31.4, "ap_medium": 55.3, "ap_large": 70.3}),
+                ("m", 7.4, {"ap": 53.0, "ap50": 70.2, "ap75": 57.6, "ap_small": 34.2, "ap_medium": 57.4, "ap_large": 71.5}),
+                ("l", 9.7, {"ap": 56.0, "ap50": 73.4, "ap75": 60.9, "ap_small": 37.5, "ap_medium": 60.8, "ap_large": 75.2}),
+                ("x", 14.0, {"ap": 57.8, "ap50": 75.4, "ap75": 63.2, "ap_small": 39.2, "ap_medium": 62.9, "ap_large": 75.9}),
             ],
             "DEIMv1 D-FINE": [
                 # DEIMv1 paper: Table 11 (nano/s/m) + Table 1 (l/x), applied to D-FINE backbone
                 ("n", 2.0, {"ap": 43.0, "ap50": 60.4, "ap75": 46.2, "ap_small": 24.5, "ap_medium": 47.1, "ap_large": 62.1}),
-                ("s", 3.8, {"ap": 49.0, "ap50": 65.9, "ap75": 53.1, "ap_small": 30.4, "ap_medium": 52.6, "ap_large": 65.7}),
-                ("m", 5.7, {"ap": 52.7, "ap50": 70.0, "ap75": 57.3, "ap_small": 35.3, "ap_medium": 56.7, "ap_large": 69.5}),
-                ("l", 7.9, {"ap": 54.7, "ap50": 72.4, "ap75": 59.4, "ap_small": 36.9, "ap_medium": 59.6, "ap_large": 71.8}),
-                ("x", 13.8, {"ap": 56.5, "ap50": 74.0, "ap75": 61.5, "ap_small": 38.8, "ap_medium": 61.4, "ap_large": 74.2}),
+                ("s", 3.7, {"ap": 49.0, "ap50": 65.9, "ap75": 53.1, "ap_small": 30.4, "ap_medium": 52.6, "ap_large": 65.7}),
+                ("m", 5.6, {"ap": 52.7, "ap50": 70.0, "ap75": 57.3, "ap_small": 35.3, "ap_medium": 56.7, "ap_large": 69.5}),
+                ("l", 8.0, {"ap": 54.7, "ap50": 72.4, "ap75": 59.4, "ap_small": 36.9, "ap_medium": 59.6, "ap_large": 71.8}),
+                ("x", 13.6, {"ap": 56.5, "ap50": 74.0, "ap75": 61.5, "ap_small": 38.8, "ap_medium": 61.4, "ap_large": 74.2}),
             ],
             "DEIMv1 RT-DETRv2": [
                 # DEIMv1 paper: Table 11 (s/m/m*) + Table 2 (l=R50, x=R101)
@@ -334,144 +377,16 @@ BENCHMARKS = {
                 ("m", 5.7, {"ap": 50.9, "ap50": 68.6, "ap75": 55.2, "ap_small": 34.3, "ap_medium": 54.4, "ap_large": 67.1}),
                 ("m*", 6.7, {"ap": 53.2, "ap50": 71.2, "ap75": 57.8, "ap_small": 35.3, "ap_medium": 57.6, "ap_large": 70.2}),
                 ("l", 8.6, {"ap": 54.3, "ap50": 72.3, "ap75": 58.8, "ap_small": 37.5, "ap_medium": 58.7, "ap_large": 70.8}),
-                ("x", 14.0, {"ap": 55.5, "ap50": 73.5, "ap75": 60.3, "ap_small": 37.9, "ap_medium": 59.9, "ap_large": 73.0}),
+                ("x", 13.8, {"ap": 55.5, "ap50": 73.5, "ap75": 60.3, "ap_small": 37.9, "ap_medium": 59.9, "ap_large": 73.0}),
             ],
-            # "RT-DETRv2 (paper)": [
-            #     # NOTE: RT-DETRv2-S AP75/S/M/L values (57.4/36.1/57.9/70.8) look suspiciously identical
-            #     # to L(=R50) in both DEIMv1 and DEIMv2 papers — likely a copy-paste error in the source papers.
-            #     ("s", 4.59, {"ap": 48.1, "ap50": 65.1, "ap75": 57.4, "ap_small": 36.1, "ap_medium": 57.9, "ap_large": 70.8}),
-            #     ("m", 6.40, {"ap": 49.9, "ap50": 67.5, "ap75": 58.6, "ap_small": 35.8, "ap_medium": 58.6, "ap_large": 72.1}),
-            #     ("m*", 6.90, {"ap": 51.9, "ap50": 69.9, "ap75": 56.5, "ap_small": 33.5, "ap_medium": 56.8, "ap_large": 69.2}),
-            #     ("l", 9.29, {"ap": 53.4, "ap50": 71.6, "ap75": 57.4, "ap_small": 36.1, "ap_medium": 57.9, "ap_large": 70.8}),
-            #     ("x", 13.88, {"ap": 54.3, "ap50": 72.8, "ap75": 58.8, "ap_small": 35.8, "ap_medium": 58.8, "ap_large": 72.1}),
-            # ],
-            "RT-DETR (paper, obj365)": [
-                # RT-DETR v1 paper Table C (arXiv 2304.08069): obj365 pretrain → COCO finetune
-                # Latency from main table FPS: R18=217→4.61ms, R50=108→9.26ms, R101=74→13.51ms
-                ("s", 4.61, {"ap": 49.2, "ap50": 66.6, "ap75": 53.5, "ap_small": 33.2, "ap_medium": 52.3, "ap_large": 64.8}),
-                ("l", 9.26, {"ap": 55.3, "ap50": 73.4, "ap75": 60.1, "ap_small": 37.9, "ap_medium": 59.9, "ap_large": 71.8}),
-                ("x", 13.51, {"ap": 56.2, "ap50": 74.6, "ap75": 61.3, "ap_small": 38.3, "ap_medium": 60.5, "ap_large": 73.5}),
+            "D-FINE (obj365)": [
+                # D-FINE README Objects365+COCO results; latency from DEIMv1 D-FINE t4 measurements
+                ("s", 3.7, {"ap": 50.7, "ap50": 67.6, "ap75": 55.1, "ap_small": 32.7, "ap_medium": 54.6, "ap_large": 66.5}),
+                ("m", 5.6, {"ap": 55.1, "ap50": 72.6, "ap75": 59.7, "ap_small": 37.9, "ap_medium": 59.4, "ap_large": 71.7}),
+                ("l", 8.0, {"ap": 57.3, "ap50": 74.9, "ap75": 62.3, "ap_small": 40.6, "ap_medium": 61.5, "ap_large": 73.7}),
+                ("x", 13.6, {"ap": 59.3, "ap50": 76.8, "ap75": 64.6, "ap_small": 42.3, "ap_medium": 64.2, "ap_large": 76.4}),
             ],
-        },
-    },
-    "jetson-agx-thor-gpu": {
-        "title": "Object Detection Models: Latency vs mAP (Jetson AGX Thor GPU, TensorRT)",
-        "models": {
-            "YOLO26": [
-                ("n", 1.286, 40.9),
-                ("s", 1.607, 48.6),
-                ("m", 2.431, 53.1),
-                ("l", 3.132, 55.0),
-                ("x", 4.98, 57.5),
-            ],
-            "RF-DETR": [
-                ("n", 1.727, 48.4),
-                ("s", 2.285, 53.0),
-                ("m", 2.808, 54.7),
-                ("l", 3.717, 56.5),
-                ("x", 4.948, 58.6),
-                ("xxl", 7.634, 60.1),
-            ],
-        },
-    },
-    "jetson-agx-thor-cpu": {
-        "title": "Object Detection Models: Latency vs mAP (Jetson AGX Thor CPU, ONNX)",
-        "models": {
-            "YOLO26": [
-                ("n", 33.89, 40.9),
-                ("s", 95.413, 48.6),
-                ("m", 273.25, 53.1),
-                ("l", 343.833, 55.0),
-                ("x", 733.873, 57.5),
-            ],
-            "RF-DETR": [
-                ("n", 131.548, 48.4),
-                ("s", 241.317, 53.0),
-                ("m", 323.0, 54.7),
-                ("l", 520.615, 56.5),
-                ("x", 1147.943, 58.6),
-                ("xxl", 1615.155, 60.1),
-            ],
-        },
-    },
-    "jetson-agx-orin-gpu": {
-        "title": "Object Detection Models: Latency vs mAP (Jetson AGX Orin GPU, TensorRT)",
-        "models": {
-            "YOLO26": [
-                ("n", 2.518, 40.9),
-                ("s", 3.629, 48.6),
-                ("m", 6.116, 53.1),
-                ("l", 7.814, 55.0),
-                ("x", 13.317, 57.5),
-            ],
-            "RF-DETR": [
-                ("n", 3.628, 48.4),
-                ("s", 5.765, 53.0),
-                ("m", 7.158, 54.7),
-                ("l", 9.662, 56.5),
-                ("x", 16.203, 58.6),
-                ("xxl", 22.234, 60.1),
-            ],
-        },
-    },
-    "jetson-agx-orin-cpu": {
-        "title": "Object Detection Models: Latency vs mAP (Jetson AGX Orin CPU, ONNX)",
-        "models": {
-            "YOLO26": [
-                ("n", 51.03, 40.9),
-                ("s", 134.092, 48.6),
-                ("m", 360.06, 53.1),
-                ("l", 455.814, 55.0),
-                ("x", 927.723, 57.5),
-            ],
-            "RF-DETR": [
-                ("n", 162.998, 48.4),
-                ("s", 300.142, 53.0),
-                ("m", 398.034, 54.7),
-                ("l", 629.981, 56.5),
-                ("x", 1413.559, 58.6),
-                ("xxl", 1988.597, 60.1),
-            ],
-        },
-    },
-    "jetson-orin-nano-super-gpu": {
-        "title": "Object Detection Models: Latency vs mAP (Jetson Orin Nano Super GPU, TensorRT)",
-        "models": {
-            "YOLO26": [
-                ("n", 4.385, 40.9),
-                ("s", 6.915, 48.6),
-                ("m", 13.399, 53.1),
-                ("l", 17.147, 55.0),
-                ("x", 32.072, 57.5),
-            ],
-            "RF-DETR": [
-                ("n", 7.223, 48.4),
-                ("s", 12.027, 53.0),
-                ("m", 15.543, 54.7),
-                ("l", 22.32, 56.5),
-                ("x", 42.316, 58.6),
-                ("xxl", 62.461, 60.1),
-            ],
-        },
-    },
-    "jetson-orin-nano-super-cpu": {
-        "title": "Object Detection Models: Latency vs mAP (Jetson Orin Nano Super CPU, ONNX)",
-        "models": {
-            "YOLO26": [
-                ("n", 183.055, 40.9),
-                ("s", 475.926, 48.6),
-                ("m", 1105.241, 53.1),
-                ("l", 1460.185, 55.0),
-                ("x", 2689.455, 57.5),
-            ],
-            "RF-DETR": [
-                ("n", 651.97, 48.4),
-                ("s", 1083.453, 53.0),
-                ("m", 1368.739, 54.7),
-                ("l", 1913.115, 56.5),
-                ("x", 3890.967, 58.6),
-                ("xxl", 4939.052, 60.1),
-            ],
+
         },
     },
 }
@@ -489,14 +404,19 @@ MODEL_STYLES = {
     "DINOv3-STA-RTDETR (obj365)": ("X", 8),
     "RF-DETR": ("s", -12),
     "RF-DETR (TopK)": ("s", -12),
+    "RF-DETR (ECDet reported)": ("s", 8),
     "LW-DETR": ("^", 8),
+    "RT-DETRv4": ("^", -12),
+    "ECDet": ("h", 8),
     "DEIM D-FINE": ("D", -12),
     "DEIM RT-DETRv2": ("v", 8),
     "DEIMv2": ("p", -12),
     "DEIMv1 D-FINE": ("D", 8),
     "DEIMv1 RT-DETRv2": ("v", 8),
     "RT-DETRv2 (paper)": ("v", -12),
-    "RT-DETR (paper, obj365)": ("v", 8),
+    "D-FINE": ("D", -12),
+    "D-FINE (obj365)": ("D", 8),
+    "RT-DETR (obj365)": ("v", 8),
     "DEIMv2 (Ultralytics)": ("p", 8),
     "DEIMv2 (Ultralytics, obj365)": ("p", -12),
 }
