@@ -712,7 +712,6 @@ class Exporter:
     def export_paddle(self, prefix=colorstr("PaddlePaddle:")):
         """Export YOLO model to PaddlePaddle format."""
         from ultralytics.utils.export.paddle import torch2paddle
-
         return torch2paddle(self.model, self.im, self.file, self.metadata, prefix)
 
     @try_export
