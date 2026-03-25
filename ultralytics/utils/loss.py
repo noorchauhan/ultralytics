@@ -1034,24 +1034,30 @@ class CLIPDistillationLoss:
 
     Inspired by MobileCLIP2 dataset reinforcement (https://arxiv.org/abs/2508.20691). Pre-computed CLIP image embeddings
     provide per-image teacher signal. The student learns to match the teacher's image-to-text similarity distribution
-    via symmetric KL divergence as described in https://arxiv.org/abs/2407.10886.
+    via KL divergence. Supports multi-teacher ensembles following MobileCLIP2's per-teacher softmax averaging.
 
     Attributes:
-        temperature (float): Temperature for teacher similarity softmax.
+        temperature (float): Temperature for single-teacher similarity softmax.
         alpha (float): Weight for KL loss (0=pure CE, 1=pure KL distillation).
+        teacher_dims (list[int] | None): Per-teacher embedding dimensions for multi-teacher mode.
+        teacher_temps (list[float] | None): Per-teacher temperatures for multi-teacher mode.
     """
 
-    def __init__(self, logit_scale, temperature=70.0, alpha=0.5):
+    def __init__(self, logit_scale, temperature=70.0, alpha=0.5, teacher_dims=None, teacher_temps=None):
         """Initialize CLIPDistillationLoss.
 
         Args:
             logit_scale (nn.Parameter): Learnable student logit scale parameter.
             temperature (float): Teacher logit scale as multiplier, following MobileCLIP2 formulation.
             alpha (float): Balance between CE (0.0) and KL distillation (1.0) loss.
+            teacher_dims (list[int], optional): Per-teacher embed dimensions for multi-teacher (e.g. [768, 768]).
+            teacher_temps (list[float], optional): Per-teacher temperatures (e.g. [70.0, 60.0]).
         """
         self.logit_scale = logit_scale
         self.temperature = temperature
         self.alpha = alpha
+        self.teacher_dims = teacher_dims
+        self.teacher_temps = teacher_temps
 
     def __call__(self, preds: Any, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute combined CE + per-image CLIP KL distillation loss following MobileCLIP2 formulation."""
@@ -1059,10 +1065,26 @@ class CLIPDistillationLoss:
         ce_loss = F.cross_entropy(cls_logits, batch["cls"], reduction="mean")
         if "teacher_img_embeds" not in batch:
             return ce_loss, ce_loss.detach()
-        txt_embeds = batch["txt_feats"]
-        teacher_logits = self.temperature * (batch["teacher_img_embeds"] @ txt_embeds.T)
-        student_logits = self.logit_scale.exp() * (img_embeds @ txt_embeds.T)
-        teacher_dist = F.softmax(teacher_logits, dim=-1)
+
+        teacher_embeds = batch["teacher_img_embeds"]
+        student_logits = self.logit_scale.exp() * (img_embeds @ batch["txt_feats"].T)
+
+        if self.teacher_dims is None or len(self.teacher_dims) <= 1:
+            teacher_logits = self.temperature * (teacher_embeds @ batch["txt_feats"].T)
+            teacher_dist = F.softmax(teacher_logits, dim=-1)
+        else:
+            txt_teachers = batch["txt_feats_teachers"]
+            dims = [0]
+            for d in self.teacher_dims:
+                dims.append(dims[-1] + d)
+            temps = self.teacher_temps or [self.temperature] * len(self.teacher_dims)
+            teacher_dists = []
+            for i in range(len(self.teacher_dims)):
+                t_slice = teacher_embeds[:, dims[i] : dims[i + 1]]
+                txt_slice = txt_teachers[:, dims[i] : dims[i + 1]]
+                teacher_dists.append(F.softmax(temps[i] * (t_slice @ txt_slice.T), dim=-1))
+            teacher_dist = sum(teacher_dists) / len(teacher_dists)
+
         kl_loss = -(teacher_dist * F.log_softmax(student_logits, dim=-1)).sum(dim=-1).mean()
         loss = (1 - self.alpha) * ce_loss + self.alpha * kl_loss
         return loss, loss.detach()

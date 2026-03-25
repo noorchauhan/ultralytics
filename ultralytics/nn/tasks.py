@@ -738,6 +738,8 @@ class TextClassificationModel(ClassificationModel):
         embed_dim=768,
         loss_mode="contrastive",
         use_clip_classifier=False,
+        teacher_dims=None,
+        teacher_temps=None,
     ):
         """Initialize TextClassificationModel with projection head for text-aligned training.
 
@@ -749,6 +751,8 @@ class TextClassificationModel(ClassificationModel):
             embed_dim (int): Dimension of the text embedding space.
             loss_mode (str): Loss mode ('contrastive', 'text_similarity', 'clip_distill').
             use_clip_classifier (bool): Use projection @ text_embeddings.T instead of linear head for classification.
+            teacher_dims (list[int], optional): Per-teacher embedding dimensions for multi-teacher clip_distill.
+            teacher_temps (list[float], optional): Per-teacher temperatures for multi-teacher clip_distill.
         """
         super().__init__(cfg, ch, nc, verbose)
         c_ = self.model[-1].linear.in_features  # Classify head intermediate dim (1280 for default)
@@ -757,6 +761,8 @@ class TextClassificationModel(ClassificationModel):
         self.loss_mode = loss_mode
         self.text_similarity = None
         self.use_clip_classifier = use_clip_classifier
+        self.teacher_dims = teacher_dims
+        self.teacher_temps = teacher_temps
         self._text_embeddings = None
 
     def loss(self, batch, preds=None):
@@ -820,7 +826,7 @@ class TextClassificationModel(ClassificationModel):
         elif self.loss_mode == "text_similarity":
             return TextSimilarityLoss(self.text_similarity)
         elif self.loss_mode == "clip_distill":
-            return CLIPDistillationLoss(self.logit_scale)
+            return CLIPDistillationLoss(self.logit_scale, teacher_dims=self.teacher_dims, teacher_temps=self.teacher_temps)
         raise ValueError(
             f"Unknown loss_mode '{self.loss_mode}'. Expected 'contrastive', 'text_similarity', or 'clip_distill'."
         )

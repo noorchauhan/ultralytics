@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ultralytics.utils import YAML
 
-EXTRA_ATTRS = ("loss_mode", "muon_w", "use_clip_classifier", "teacher_variant", "grad_clip_norm")
+EXTRA_ATTRS = ("loss_mode", "muon_w", "use_clip_classifier", "teacher_variant", "teacher_temps", "grad_clip_norm")
 
 
 def log_config(**extra_kv):

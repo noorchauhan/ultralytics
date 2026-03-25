@@ -117,7 +117,8 @@ class TextClassificationTrainer(ClassificationTrainer):
         Args:
             cfg (dict[str, Any], optional): Default configuration dictionary.
             overrides (dict[str, Any], optional): Parameter overrides. Supports 'loss_mode' ('contrastive',
-                'text_similarity', 'clip_distill') and 'teacher_variant' ('s4', 'l14').
+                'text_similarity', 'clip_distill'), 'teacher_variant' ('s4', 'l14', or 's4+l14' for multi-teacher), and
+                'teacher_temps' (list of per-teacher temperatures for multi-teacher clip_distill).
             _callbacks (dict, optional): Callback functions.
         """
         if overrides is None:
@@ -127,6 +128,10 @@ class TextClassificationTrainer(ClassificationTrainer):
         self.use_clip_classifier = overrides.pop("use_clip_classifier", False)
         self.prompt_ensemble = overrides.pop("prompt_ensemble", False)
         self.muon_w = overrides.pop("muon_w", 0.1)
+        self.teacher_temps = overrides.pop("teacher_temps", None)
+        self.teachers = self.teacher_variant.split("+")
+        self.teacher_dims = []
+        self.text_embeddings_per_teacher = []
         self.text_embeddings = None
         self.text_similarity = None
         self.teacher_img_embeds = None
@@ -189,44 +194,55 @@ class TextClassificationTrainer(ClassificationTrainer):
     def _setup_text_embeddings(self, cache_dir, dataset):
         """Pre-compute and cache text embeddings for all class names using MobileCLIP2.
 
+        For multi-teacher (teacher_variant="s4+l14"), generates per-teacher text embeddings and stores them
+        separately. Student uses first teacher's embeddings for CE/classification.
+
         Args:
             cache_dir (Path): Directory to cache text embeddings.
             dataset (ClassificationDataset): Training dataset (passed for teacher pre-compute).
         """
         from ultralytics.nn.text_model import build_text_model
 
-        variant = self.teacher_variant.lower().replace("-", "")
-        suffix = "_ensemble80" if self.prompt_ensemble else ""
-        cache_path = cache_dir / f"text_embeddings_mobileclip2_{variant}{suffix}.pt"
         names = list(self.data["names"].values())
+        suffix = "_ensemble80" if self.prompt_ensemble else ""
 
-        if cache_path.exists():
-            cached = torch.load(cache_path, map_location=self.device)
-            if cached.get("names") == names:
-                self.text_embeddings = cached["embeds"].to(self.device)
-                LOGGER.info(f"Loaded cached text embeddings from {cache_path}")
+        for teacher in self.teachers:
+            variant = teacher.lower().replace("-", "")
+            cache_path = cache_dir / f"text_embeddings_mobileclip2_{variant}{suffix}.pt"
+            embeds = None
 
-        if self.text_embeddings is None:
-            text_model = build_text_model(f"mobileclip2:{self.teacher_variant}", device=self.device)
-            if self.prompt_ensemble:
-                LOGGER.info(f"Generating 80-template ensemble text embeddings for {len(names)} classes")
-                embeds = []
-                for name in TQDM(names, desc="Encoding text ensemble"):
-                    texts = [t.format(name) for t in IMAGENET_TEMPLATES]
-                    class_embeds = text_model.encode_text(text_model.tokenize(texts))
-                    embeds.append(class_embeds.mean(dim=0))
-                self.text_embeddings = torch.stack(embeds)
-                self.text_embeddings /= self.text_embeddings.norm(p=2, dim=-1, keepdim=True)
-            else:
-                LOGGER.info(f"Generating text embeddings for {len(names)} classes")
-                texts = [f"a photo of a {name}" for name in names]
-                self.text_embeddings = text_model.encode_text(text_model.tokenize(texts)).detach()
-            torch.save({"names": names, "embeds": self.text_embeddings.cpu()}, cache_path)
-            del text_model
+            if cache_path.exists():
+                cached = torch.load(cache_path, map_location=self.device)
+                if cached.get("names") == names:
+                    embeds = cached["embeds"].to(self.device)
+                    LOGGER.info(f"Loaded cached text embeddings from {cache_path}")
 
+            if embeds is None:
+                text_model = build_text_model(f"mobileclip2:{teacher}", device=self.device)
+                if self.prompt_ensemble:
+                    LOGGER.info(f"Generating 80-template ensemble text embeddings for {len(names)} classes ({teacher})")
+                    class_embeds = []
+                    for name in TQDM(names, desc=f"Encoding text ensemble ({teacher})"):
+                        texts = [t.format(name) for t in IMAGENET_TEMPLATES]
+                        class_embeds.append(text_model.encode_text(text_model.tokenize(texts)).mean(dim=0))
+                    embeds = torch.stack(class_embeds)
+                    embeds /= embeds.norm(p=2, dim=-1, keepdim=True)
+                else:
+                    LOGGER.info(f"Generating text embeddings for {len(names)} classes ({teacher})")
+                    texts = [f"a photo of a {name}" for name in names]
+                    embeds = text_model.encode_text(text_model.tokenize(texts)).detach()
+                torch.save({"names": names, "embeds": embeds.cpu()}, cache_path)
+                del text_model
+
+            self.text_embeddings_per_teacher.append(embeds)
+            self.teacher_dims.append(embeds.shape[-1])
+
+        self.text_embeddings = self.text_embeddings_per_teacher[0]
         self.text_similarity = self.text_embeddings @ self.text_embeddings.T
         self.model.text_similarity = self.text_similarity.to(self.device)
         self.model._text_embeddings = self.text_embeddings
+        self.model.teacher_dims = self.teacher_dims if len(self.teacher_dims) > 1 else None
+        self.model.teacher_temps = self.teacher_temps
 
         if self.loss_mode == "clip_distill":
             self._load_teacher_embeddings(dataset)
@@ -234,20 +250,26 @@ class TextClassificationTrainer(ClassificationTrainer):
     def _load_teacher_embeddings(self, dataset):
         """Load or generate pre-computed MobileCLIP2 image embeddings for all training images.
 
+        For multi-teacher, loads per-teacher caches and concatenates along feature dim.
+
         Args:
             dataset (ClassificationDataset): Training dataset for pre-computing embeddings.
         """
-        variant = self.teacher_variant.lower().replace("-", "")
-        cache_path = Path(self.args.data) / f"teacher_img_embeds_mobileclip2_{variant}.pt"
-        if not cache_path.exists():
-            if RANK in {-1, 0}:
-                self._precompute_teacher_embeddings(cache_path, dataset)
-            if RANK >= 0:
-                torch.distributed.barrier()
-        self.teacher_img_embeds = torch.load(cache_path, map_location="cpu")
-        LOGGER.info(f"Loaded teacher image embeddings: {self.teacher_img_embeds.shape} from {cache_path}")
+        per_teacher = []
+        for teacher in self.teachers:
+            variant = teacher.lower().replace("-", "")
+            cache_path = Path(self.args.data) / f"teacher_img_embeds_mobileclip2_{variant}.pt"
+            if not cache_path.exists():
+                if RANK in {-1, 0}:
+                    self._precompute_teacher_embeddings(cache_path, dataset, teacher)
+                if RANK >= 0:
+                    torch.distributed.barrier()
+            embeds = torch.load(cache_path, map_location="cpu")
+            LOGGER.info(f"Loaded teacher image embeddings: {embeds.shape} from {cache_path}")
+            per_teacher.append(embeds)
+        self.teacher_img_embeds = torch.cat(per_teacher, dim=-1) if len(per_teacher) > 1 else per_teacher[0]
 
-    def _precompute_teacher_embeddings(self, cache_path, dataset):
+    def _precompute_teacher_embeddings(self, cache_path, dataset, teacher_name):
         """Run MobileCLIP2 image encoder on all training images and save embeddings to disk.
 
         Image preprocessing uses CLIP-standard ImageNet normalization (not Ultralytics identity normalization).
@@ -255,15 +277,16 @@ class TextClassificationTrainer(ClassificationTrainer):
         Args:
             cache_path (Path): Path to save the embeddings tensor.
             dataset (ClassificationDataset): Training dataset to read images from.
+            teacher_name (str): Teacher variant name (e.g., 's4', 'l14').
         """
         from PIL import Image
 
         from ultralytics.nn.image_model import build_image_model
 
         LOGGER.info(
-            f"Pre-computing MobileCLIP2-{self.teacher_variant} image embeddings (one-time, ~30 min for ImageNet)..."
+            f"Pre-computing MobileCLIP2-{teacher_name} image embeddings (one-time, ~30 min for ImageNet)..."
         )
-        teacher = build_image_model(f"mobileclip2:{self.teacher_variant}", device=self.device)
+        teacher = build_image_model(f"mobileclip2:{teacher_name}", device=self.device)
         n = len(dataset)
         # Detect embed dim from a probe forward pass
         imgsz = teacher.image_preprocess.transforms[0].size  # get resize target from preprocessing
@@ -287,6 +310,8 @@ class TextClassificationTrainer(ClassificationTrainer):
     def preprocess_batch(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Attach text embeddings and optional teacher embeddings to batch.
 
+        For multi-teacher clip_distill, also attaches concatenated per-teacher text embeddings.
+
         Args:
             batch (dict[str, torch.Tensor]): Batch with 'img', 'cls', and 'idx' keys.
 
@@ -299,4 +324,9 @@ class TextClassificationTrainer(ClassificationTrainer):
             batch["teacher_img_embeds"] = self.teacher_img_embeds[batch["idx"]].to(
                 self.device, non_blocking=self.device.type == "cuda"
             )
+            if len(self.teachers) > 1:
+                batch["txt_feats_teachers"] = torch.cat(
+                    [e.to(device=batch["img"].device, dtype=batch["img"].dtype) for e in self.text_embeddings_per_teacher],
+                    dim=-1,
+                )
         return batch
