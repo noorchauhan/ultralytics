@@ -300,50 +300,27 @@ class Exporter:
                 raise ValueError(f"{msg} Valid formats are {fmts}")
             LOGGER.warning(f"Invalid export format='{fmt}', updating to format='{matches[0]}'")
             fmt = matches[0]
-        flags = [x == fmt for x in fmts]
-        if sum(flags) != 1:
-            raise ValueError(f"Invalid export format='{fmt}'. Valid formats are {fmts}")
-        (
-            jit,
-            onnx,
-            xml,
-            engine,
-            coreml,
-            saved_model,
-            pb,
-            tflite,
-            edgetpu,
-            tfjs,
-            paddle,
-            mnn,
-            ncnn,
-            imx,
-            rknn,
-            executorch,
-            axelera,
-        ) = flags  # export booleans
-
-        is_tf_format = any((saved_model, pb, tflite, edgetpu, tfjs))
+        is_tf_format = fmt in {"saved_model", "pb", "tflite", "edgetpu", "tfjs"}
 
         # Device
-        dla = None
-        if engine and self.args.device is None:
+        self.dla = None
+        if fmt == "engine" and self.args.device is None:
             LOGGER.warning("TensorRT requires GPU export, automatically assigning device=0")
             self.args.device = "0"
-        if engine and "dla" in str(self.args.device):  # convert int/list to str first
+        if fmt == "engine" and "dla" in str(self.args.device):  # convert int/list to str first
             device_str = str(self.args.device)
-            dla = device_str.rsplit(":", 1)[-1]
+            self.dla = device_str.rsplit(":", 1)[-1]
             self.args.device = "0"  # update device to "0"
-            assert dla in {"0", "1"}, f"Expected device 'dla:0' or 'dla:1', but got {device_str}."
-        if imx and self.args.device is None and torch.cuda.is_available():
+            assert self.dla in {"0", "1"}, f"Expected device 'dla:0' or 'dla:1', but got {device_str}."
+        if fmt == "imx" and self.args.device is None and torch.cuda.is_available():
             LOGGER.warning("Exporting on CPU while CUDA is available, setting device=0 for faster export on GPU.")
             self.args.device = "0"  # update device to "0"
         self.device = select_device("cpu" if self.args.device is None else self.args.device)
 
         # Argument compatibility checks
-        fmt_keys = fmts_dict["Arguments"][flags.index(True) + 1]
+        fmt_keys = dict(zip(fmts_dict["Argument"], fmts_dict["Arguments"]))[fmt]
         validate_args(fmt, self.args, fmt_keys)
-        if axelera:
+        if fmt == "axelera":
             if not IS_PYTHON_3_10:
                 raise SystemError("Axelera export only supported on Python 3.10.")
             if not self.args.int8:
@@ -353,7 +330,7 @@ class Exporter:
                 raise ValueError("Axelera export only supported for detection models.")
             if not self.args.data:
                 self.args.data = "coco128.yaml"  # Axelera default to coco128.yaml
-        if imx:
+        if fmt == "imx":
             if not self.args.int8:
                 LOGGER.warning("IMX export requires int8=True, setting int8=True.")
                 self.args.int8 = True
@@ -370,11 +347,11 @@ class Exporter:
         if hasattr(model, "end2end"):
             if self.args.end2end is not None:
                 model.end2end = self.args.end2end
-            if rknn or ncnn or executorch or paddle or imx or edgetpu:
+            if fmt in {"rknn", "ncnn", "executorch", "paddle", "imx", "edgetpu"}:
                 # Disable end2end branch for certain export formats as they does not support topk
                 model.end2end = False
                 LOGGER.warning(f"{fmt.upper()} export does not support end2end models, disabling end2end branch.")
-            if engine and self.args.int8:
+            if fmt == "engine" and self.args.int8:
                 # TensorRT<=10.3.0 with int8 has known end2end build issues
                 # https://github.com/ultralytics/ultralytics/issues/23841
                 try:
@@ -390,16 +367,16 @@ class Exporter:
         if self.args.half and self.args.int8:
             LOGGER.warning("half=True and int8=True are mutually exclusive, setting half=False.")
             self.args.half = False
-        if self.args.half and jit and self.device.type == "cpu":
+        if self.args.half and fmt == "torchscript" and self.device.type == "cpu":
             LOGGER.warning(
                 "half=True only compatible with GPU export for TorchScript, i.e. use device=0, setting half=False."
             )
             self.args.half = False
         self.imgsz = check_imgsz(self.args.imgsz, stride=model.stride, min_dim=2)  # check image size
         if self.args.optimize:
-            assert not ncnn, "optimize=True not compatible with format='ncnn', i.e. use optimize=False"
+            assert fmt != "ncnn", "optimize=True not compatible with format='ncnn', i.e. use optimize=False"
             assert self.device.type == "cpu", "optimize=True not compatible with cuda devices, i.e. use device='cpu'"
-        if rknn:
+        if fmt == "rknn":
             if not self.args.name:
                 LOGGER.warning(
                     "Rockchip RKNN export requires a missing 'name' arg for processor type. "
@@ -412,18 +389,18 @@ class Exporter:
             )
         if self.args.nms:
             assert not isinstance(model, ClassificationModel), "'nms=True' is not valid for classification models."
-            assert not tflite or not ARM64 or not LINUX, "TFLite export with NMS unsupported on ARM64 Linux"
+            assert fmt != "tflite" or not ARM64 or not LINUX, "TFLite export with NMS unsupported on ARM64 Linux"
             assert not is_tf_format or TORCH_1_13, "TensorFlow exports with NMS require torch>=1.13"
-            assert not onnx or TORCH_1_13, "ONNX export with NMS requires torch>=1.13"
+            assert fmt != "onnx" or TORCH_1_13, "ONNX export with NMS requires torch>=1.13"
             if getattr(model, "end2end", False) or isinstance(model.model[-1], RTDETRDecoder):
                 LOGGER.warning("'nms=True' is not available for end2end models. Forcing 'nms=False'.")
                 self.args.nms = False
             self.args.conf = self.args.conf or 0.25  # set conf default value for nms export
-        if (engine or coreml or self.args.nms) and self.args.dynamic and self.args.batch == 1:
+        if (fmt in {"engine", "coreml"} or self.args.nms) and self.args.dynamic and self.args.batch == 1:
             LOGGER.warning(
                 f"'dynamic=True' model with '{'nms=True' if self.args.nms else f'format={self.args.format}'}' requires max batch size, i.e. 'batch=16'"
             )
-        if edgetpu:
+        if fmt == "edgetpu":
             if not LINUX or ARM64:
                 raise SystemError(
                     "Edge TPU export only supported on non-aarch64 Linux. See https://coral.ai/docs/edgetpu/compiler"
@@ -444,7 +421,7 @@ class Exporter:
             LOGGER.warning(
                 f"INT8 export requires a missing 'data' arg for calibration. Using default 'data={self.args.data}'."
             )
-        if tfjs and (ARM64 and LINUX):
+        if fmt == "tfjs" and ARM64 and LINUX:
             raise SystemError("TF.js exports are not currently supported on ARM64 Linux")
         # Recommend OpenVINO if export and Intel CPU
         if SETTINGS.get("openvino_msg"):
@@ -471,15 +448,15 @@ class Exporter:
         model.float()
         model = model.fuse()
 
-        if imx:
+        if fmt == "imx":
             from ultralytics.utils.export.imx import FXModel
 
             model = FXModel(model, self.imgsz)
-        if tflite or edgetpu:
+        if fmt in {"tflite", "edgetpu"}:
             from ultralytics.utils.export.tensorflow import tf_wrapper
 
             model = tf_wrapper(model)
-        if executorch:
+        if fmt == "executorch":
             from ultralytics.utils.export.executorch import executorch_wrapper
 
             model = executorch_wrapper(model)
@@ -494,7 +471,7 @@ class Exporter:
                 anchors = sum(int(self.imgsz[0] / s) * int(self.imgsz[1] / s) for s in model.stride.tolist())
                 m.max_det = min(self.args.max_det, anchors)
                 m.agnostic_nms = self.args.agnostic_nms
-                m.xyxy = self.args.nms and not coreml
+                m.xyxy = self.args.nms and fmt != "coreml"
                 m.shape = None  # reset cached shape for new export input size
                 if hasattr(model, "pe") and hasattr(m, "fuse"):  # for YOLOE models
                     m.fuse(model.pe.to(self.device))
@@ -504,8 +481,8 @@ class Exporter:
 
         y = None
         for _ in range(2):  # dry runs
-            y = NMSModel(model, self.args)(im) if self.args.nms and not coreml and not imx else model(im)
-        if self.args.half and (onnx or jit) and self.device.type != "cpu":
+            y = NMSModel(model, self.args)(im) if self.args.nms and fmt not in {"coreml", "imx"} else model(im)
+        if self.args.half and fmt in {"onnx", "torchscript"} and self.device.type != "cpu":
             im, model = im.half(), model.half()  # to FP16
 
         # Assign
@@ -536,8 +513,8 @@ class Exporter:
             "channels": model.yaml.get("channels", 3),
             "end2end": getattr(model, "end2end", False),
         }  # model metadata
-        if dla is not None:
-            self.metadata["dla"] = dla  # make sure `AutoBackend` uses correct dla device if it has one
+        if self.dla is not None:
+            self.metadata["dla"] = self.dla  # make sure `AutoBackend` uses correct dla device if it has one
         if model.task == "pose":
             self.metadata["kpt_shape"] = model.model[-1].kpt_shape
             if hasattr(model, "kpt_names"):
@@ -548,48 +525,25 @@ class Exporter:
             f"output shape(s) {self.output_shape} ({file_size(file):.1f} MB)"
         )
         self.run_callbacks("on_export_start")
-        # Exports
-        f = [""] * len(fmts)  # exported filenames
-        if jit:  # TorchScript
-            f[0] = self.export_torchscript()
-        if engine:  # TensorRT required before ONNX
-            f[1] = self.export_engine(dla=dla)
-        if onnx:  # ONNX
-            f[2] = self.export_onnx()
-        if xml:  # OpenVINO
-            f[3] = self.export_openvino()
-        if coreml:  # CoreML
-            f[4] = self.export_coreml()
-        if is_tf_format:  # TensorFlow formats
-            self.args.int8 |= edgetpu
-            f[5], keras_model = self.export_saved_model()
-            if pb or tfjs:  # pb prerequisite to tfjs
-                f[6] = self.export_pb(keras_model=keras_model)
-            if tflite:
-                f[7] = self.export_tflite()
-            if edgetpu:
-                f[8] = self.export_edgetpu(tflite_model=Path(f[5]) / f"{self.file.stem}_full_integer_quant.tflite")
-            if tfjs:
-                f[9] = self.export_tfjs()
-        if paddle:  # PaddlePaddle
-            f[10] = self.export_paddle()
-        if mnn:  # MNN
-            f[11] = self.export_mnn()
-        if ncnn:  # NCNN
-            f[12] = self.export_ncnn()
-        if imx:
-            f[13] = self.export_imx()
-        if rknn:
-            f[14] = self.export_rknn()
-        if executorch:
-            f[15] = self.export_executorch()
-        if axelera:
-            f[16] = self.export_axelera()
+
+        # Export
+        if is_tf_format:
+            self.args.int8 |= fmt == "edgetpu"
+            f, keras_model = self.export_saved_model()
+            if fmt in {"pb", "tfjs"}:  # pb prerequisite to tfjs
+                f = self.export_pb(keras_model=keras_model)
+            if fmt == "tflite":
+                f = self.export_tflite()
+            if fmt == "edgetpu":
+                f = self.export_edgetpu(tflite_model=Path(f) / f"{self.file.stem}_full_integer_quant.tflite")
+            if fmt == "tfjs":
+                f = self.export_tfjs()
+        else:
+            f = getattr(self, f"export_{fmt}")()
 
         # Finish
-        f = [str(x) for x in f if x]  # filter out '' and None
-        if any(f):
-            f = str(Path(f[-1]))
+        f = str(Path(str(f)))
+        if f:
             square = self.imgsz[0] == self.imgsz[1]
             s = (
                 ""
@@ -776,7 +730,7 @@ class Exporter:
         )
 
     @try_export
-    def export_engine(self, dla=None, prefix=colorstr("TensorRT:")):
+    def export_engine(self, prefix=colorstr("TensorRT:")):
         """Export YOLO model to TensorRT format https://developer.nvidia.com/tensorrt."""
         assert self.im.device.type != "cpu", "export running on CPU but must be on GPU, i.e. use 'device=0'"
         f_onnx = self.export_onnx()  # run before TRT import https://github.com/ultralytics/ultralytics/issues/7016
@@ -806,7 +760,7 @@ class Exporter:
             self.args.int8,
             self.args.dynamic,
             self.im.shape,
-            dla=dla,
+            dla=self.dla,
             dataset=self.get_int8_calibration_dataloader(prefix) if self.args.int8 else None,
             metadata=self.metadata,
             verbose=self.args.verbose,
