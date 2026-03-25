@@ -124,20 +124,25 @@ class DistillationModel(nn.Module):
             teacher_feat = teacher_feats[i][1] if isinstance(teacher_feats[i], tuple) else teacher_feats[i]
             feat = feats[feat_idx][1] if isinstance(feats[feat_idx], tuple) else feats[feat_idx]
             student_feat = self.projector[i](feat.permute(0, 2, 3, 1)).permute(0, 3, 1, 2) if feat.ndim == 4 else feat
-            loss_distill += self.loss_cosine(teacher_feat, student_feat) * self.student_model.args.dis
+            loss_distill += self.loss_feature(teacher_feat, student_feat) * self.student_model.args.dis
             # loss_distill += self.loss_kl(teacher_feat, student_feat) * self.student_model.args.dis
 
         regular_loss, regular_loss_detach = self.student_model.loss(batch, preds)
         return torch.cat([regular_loss, loss_distill]), torch.cat([regular_loss_detach, loss_distill.detach()])
 
-    def loss_cosine(self, teacher_feat, student_feat):
+    def loss_feature(self, teacher_feat: torch.Tensor, student_feat: torch.Tensor, loss_type: str = "cos"):
         """Compute cosine similarity loss between teacher and student features."""
         if teacher_feat.shape[2:] != student_feat[2:]:
             student_feat = F.interpolate(student_feat, teacher_feat.shape[2:])
         student_feat = F.normalize(student_feat.flatten(2).permute(0, 2, 1), p=2, dim=-1)
         teacher_feat = F.normalize(teacher_feat.flatten(2).permute(0, 2, 1), p=2, dim=-1)
-        cos_sim = F.cosine_similarity(student_feat, teacher_feat, dim=-1)
-        loss = (1 - cos_sim).mean()
+        if loss_type == "cos":
+            cos_sim = F.cosine_similarity(student_feat, teacher_feat, dim=-1)
+            loss = (1 - cos_sim).mean()
+        elif loss == "l2":
+            loss = F.mse_loss(student_feat, teacher_feat)
+        elif loss == "l1":
+            loss = F.l1(student_feat, teacher_feat)
         return loss
 
     @property

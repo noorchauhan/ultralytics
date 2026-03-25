@@ -40,6 +40,7 @@ multi_scale: 0.0 # (float) multi-scale range as a fraction of imgsz; sizes are r
 compile: False # (bool | str) enable torch.compile() backend='inductor'; True="default", False=off, or "default|reduce-overhead|max-autotune-no-cudagraphs"
 distill_model: # (str, optional) path to teacher model for knowledge distillation
 distill_layer: # (int) the layer index to distill features from
+distill_loss: cos
 dis: 0.2 # (float) distillation loss weight
 
 # Segmentation
