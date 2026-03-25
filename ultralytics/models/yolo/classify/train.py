@@ -67,6 +67,7 @@ class ClassificationTrainer(BaseTrainer):
     def set_model_attributes(self):
         """Set the YOLO model's class names from the loaded dataset."""
         self.model.names = self.data["names"]
+        self.model.args = self.args  # attach hyperparameters to model
 
     def get_model(self, cfg=None, weights=None, verbose: bool = True):
         """Return a modified PyTorch model configured for training YOLO classification.

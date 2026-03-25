@@ -1,4 +1,4 @@
-from ultralytics.utils.torch_utils import copy_attr
+from ultralytics.utils.torch_utils import copy_attr, smart_inference_mode
 from ultralytics.utils.checks import check_requirements
 from .tasks import load_checkpoint
 import torch.nn.functional as F
@@ -14,14 +14,20 @@ class DistillationModel(nn.Module):
     def __init__(self, teacher_model: str | nn.Module, student_model: nn.Module, feats_idx: int):
         """Initialize DistillationModel."""
         super().__init__()
-        self.is_timm = False
         if isinstance(feats_idx, int):
             feats_idx = [feats_idx]
         if isinstance(teacher_model, str):
-            teacher_model = self.get_teacher_model(teacher_model)
+            self.is_timm, teacher_model = self.get_teacher_model(teacher_model)
         device = next(student_model.parameters()).device
         # self.teacher_model = teacher_model.to(device).eval()
         self.teacher_model = teacher_model.to(device).train()
+        if self.is_timm:
+            self.mean = torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1).to(device)
+            self.std = torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1).to(device)
+        else:
+            self.mean = torch.tensor([0, 0, 0]).view(-1, 1, 1).to(device)
+            self.std = torch.tensor([1, 1, 1]).view(-1, 1, 1).to(device)
+
         for v in self.teacher_model.parameters():
             v.requires_grad = False
         self.student_model = student_model
@@ -29,7 +35,7 @@ class DistillationModel(nn.Module):
         # get the feature dimensions
         with torch.inference_mode():
             dummy_input = torch.zeros(1, 3, 256, 256).to(device)
-            teacher_output = self.get_teacher_output(dummy_input, feats_idx=[11])  # hardcoded to one layer for now
+            teacher_output = self.get_teacher_output(dummy_input)
             student_output = student_model(dummy_input, embed=feats_idx, direct_return=True)
             assert len(teacher_output) == len(student_output), "Feature dimensions must match in length."
         self.projector = nn.ModuleList(
@@ -59,23 +65,25 @@ class DistillationModel(nn.Module):
             import timm
 
             model = timm.create_model(model_name, pretrained=True, global_pool="token")
-            self.is_timm = True
+            is_timm = True
         else:
             model = load_checkpoint(model_name)[0]
-        return model
+            is_timm = False
+        return is_timm, model
 
-    def get_teacher_output(self, dummy_input: torch.Tensor, feats_idx: list):
+    @smart_inference_mode()
+    def get_teacher_output(self, input: torch.Tensor):
         if self.is_timm:
+            input = (input - self.mean.to(input.dtype)) / self.std.to(input.dtype)
             _, teacher_output = self.teacher_model.forward_intermediates(
-                dummy_input,
-                indices=feats_idx,
+                input,
+                indices=[11],  # hardcoded to one layer for now
                 output_fmt="NCHW",
                 return_prefix_tokens=False,
                 norm=True,  # Apply layer norm
             )
-            teacher_output = teacher_output[0]
         else:
-            teacher_output = self.teacher_model(dummy_input, embed=feats_idx, direct_return=True)
+            teacher_output = self.teacher_model(input, embed=self.feats_idx, direct_return=True)
         return teacher_output
 
     def forward(self, x, *args, **kwargs):
@@ -108,7 +116,7 @@ class DistillationModel(nn.Module):
             preds (torch.Tensor | list[torch.Tensor], optional): Predictions.
         """
         with torch.inference_mode():
-            teacher_feats = self.teacher_model(batch["img"], embed=self.feats_idx, direct_return=True)
+            teacher_feats = self.get_teacher_output(batch["img"])
         preds, feats = self.student_model(batch["img"], return_feats=True)
         loss_distill = torch.zeros(1, device=batch["img"].device)
         for i, feat_idx in enumerate(self.feats_idx):
@@ -116,14 +124,16 @@ class DistillationModel(nn.Module):
             teacher_feat = teacher_feats[i][1] if isinstance(teacher_feats[i], tuple) else teacher_feats[i]
             feat = feats[feat_idx][1] if isinstance(feats[feat_idx], tuple) else feats[feat_idx]
             student_feat = self.projector[i](feat.permute(0, 2, 3, 1)).permute(0, 3, 1, 2) if feat.ndim == 4 else feat
-            # loss_distill += self.loss_cosine(teacher_feat, student_feat) * self.student_model.args.dis
-            loss_distill += self.loss_kl(teacher_feat, student_feat) * self.student_model.args.dis
+            loss_distill += self.loss_cosine(teacher_feat, student_feat) * self.student_model.args.dis
+            # loss_distill += self.loss_kl(teacher_feat, student_feat) * self.student_model.args.dis
 
         regular_loss, regular_loss_detach = self.student_model.loss(batch, preds)
         return torch.cat([regular_loss, loss_distill]), torch.cat([regular_loss_detach, loss_distill.detach()])
 
     def loss_cosine(self, teacher_feat, student_feat):
         """Compute cosine similarity loss between teacher and student features."""
+        if teacher_feat.shape[2:] != student_feat[2:]:
+            student_feat = F.interpolate(student_feat, teacher_feat.shape[2:])
         student_feat = F.normalize(student_feat.flatten(2).permute(0, 2, 1), p=2, dim=-1)
         teacher_feat = F.normalize(teacher_feat.flatten(2).permute(0, 2, 1), p=2, dim=-1)
         cos_sim = F.cosine_similarity(student_feat, teacher_feat, dim=-1)
