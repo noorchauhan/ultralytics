@@ -71,7 +71,8 @@ class DistillationModel(nn.Module):
             is_timm = False
         return is_timm, model
 
-    @smart_inference_mode()
+    # @smart_inference_mode()
+    @torch.no_grad()
     def get_teacher_output(self, input: torch.Tensor):
         if self.is_timm:
             input = (input - self.mean.to(input.dtype)) / self.std.to(input.dtype)
@@ -115,7 +116,7 @@ class DistillationModel(nn.Module):
             batch (dict): Batch to compute loss on.
             preds (torch.Tensor | list[torch.Tensor], optional): Predictions.
         """
-        with torch.inference_mode():
+        with torch.no_grad():  # need no_grad
             teacher_feats = self.get_teacher_output(batch["img"])
         preds, feats = self.student_model(batch["img"], return_feats=True)
         loss_distill = torch.zeros(1, device=batch["img"].device)
@@ -124,7 +125,10 @@ class DistillationModel(nn.Module):
             teacher_feat = teacher_feats[i][1] if isinstance(teacher_feats[i], tuple) else teacher_feats[i]
             feat = feats[feat_idx][1] if isinstance(feats[feat_idx], tuple) else feats[feat_idx]
             student_feat = self.projector[i](feat.permute(0, 2, 3, 1)).permute(0, 3, 1, 2) if feat.ndim == 4 else feat
-            loss_distill += self.loss_feature(teacher_feat, student_feat) * self.student_model.args.dis
+            loss_distill += (
+                self.loss_feature(teacher_feat, student_feat, loss_type=self.student_model.args.distill_loss)
+                * self.student_model.args.dis
+            )
             # loss_distill += self.loss_kl(teacher_feat, student_feat) * self.student_model.args.dis
 
         regular_loss, regular_loss_detach = self.student_model.loss(batch, preds)
@@ -139,10 +143,10 @@ class DistillationModel(nn.Module):
             teacher_feat = F.normalize(teacher_feat.flatten(2).permute(0, 2, 1), p=2, dim=-1)
             cos_sim = F.cosine_similarity(student_feat, teacher_feat, dim=-1)
             loss = (1 - cos_sim).mean()
-        elif loss == "l2":
-            loss = F.mse_loss(student_feat, teacher_feat)
-        elif loss == "l1":
-            loss = F.l1(student_feat, teacher_feat)
+        elif loss_type == "l2":
+            loss = F.mse_loss(student_feat, teacher_feat, reduction="none").sum(dim=(-1, -2)).mean()
+        elif loss_type == "l1":
+            loss = F.l1_loss(student_feat, teacher_feat, reduction="none").sum(dim=(-1, -2)).mean()
         return loss
 
     @property
