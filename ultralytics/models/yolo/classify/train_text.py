@@ -11,6 +11,90 @@ from ultralytics.models.yolo.classify.train import ClassificationTrainer
 from ultralytics.nn.tasks import TextClassificationModel
 from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK, TQDM
 
+# OpenAI CLIP 80-template prompt ensemble for ImageNet (Radford et al., 2021)
+IMAGENET_TEMPLATES = [
+    "a bad photo of a {}.",
+    "a photo of many {}.",
+    "a sculpture of a {}.",
+    "a photo of the hard to see {}.",
+    "a low resolution photo of the {}.",
+    "a rendering of a {}.",
+    "graffiti of a {}.",
+    "a bad photo of the {}.",
+    "a cropped photo of the {}.",
+    "a tattoo of a {}.",
+    "the embroidered {}.",
+    "a photo of a hard to see {}.",
+    "a bright photo of a {}.",
+    "a photo of a clean {}.",
+    "a photo of a dirty {}.",
+    "a dark photo of the {}.",
+    "a drawing of a {}.",
+    "a photo of my {}.",
+    "the plastic {}.",
+    "a photo of the cool {}.",
+    "a close-up photo of a {}.",
+    "a black and white photo of the {}.",
+    "a painting of the {}.",
+    "a painting of a {}.",
+    "a pixelated photo of the {}.",
+    "a sculpture of the {}.",
+    "a bright photo of the {}.",
+    "a cropped photo of a {}.",
+    "a plastic {}.",
+    "a photo of the dirty {}.",
+    "a jpeg corrupted photo of a {}.",
+    "a blurry photo of the {}.",
+    "a photo of the {}.",
+    "a good photo of the {}.",
+    "a rendering of the {}.",
+    "a {} in a video game.",
+    "a photo of one {}.",
+    "a doodle of a {}.",
+    "a close-up photo of the {}.",
+    "a photo of a {}.",
+    "the origami {}.",
+    "the {} in a video game.",
+    "a sketch of a {}.",
+    "a doodle of the {}.",
+    "a origami {}.",
+    "a low resolution photo of a {}.",
+    "the toy {}.",
+    "a rendition of the {}.",
+    "a photo of the clean {}.",
+    "a photo of a large {}.",
+    "a rendition of a {}.",
+    "a photo of a nice {}.",
+    "a photo of a weird {}.",
+    "a blurry photo of a {}.",
+    "a cartoon {}.",
+    "art of a {}.",
+    "a sketch of the {}.",
+    "a embroidered {}.",
+    "a pixelated photo of a {}.",
+    "itap of the {}.",
+    "a jpeg corrupted photo of the {}.",
+    "a good photo of a {}.",
+    "a plushie {}.",
+    "a photo of the nice {}.",
+    "a photo of the small {}.",
+    "a photo of the weird {}.",
+    "the cartoon {}.",
+    "art of the {}.",
+    "a drawing of the {}.",
+    "a photo of the large {}.",
+    "a black and white photo of a {}.",
+    "the plushie {}.",
+    "a dark photo of a {}.",
+    "itap of a {}.",
+    "graffiti of the {}.",
+    "a toy {}.",
+    "itap of my {}.",
+    "a photo of a cool {}.",
+    "a photo of a small {}.",
+    "a tattoo of the {}.",
+]
+
 
 class TextClassificationTrainer(ClassificationTrainer):
     """Trainer for text-aligned classification pre-training with MobileCLIP2 (https://arxiv.org/abs/2508.20691).
@@ -41,6 +125,7 @@ class TextClassificationTrainer(ClassificationTrainer):
         self.loss_mode = overrides.pop("loss_mode", "contrastive")
         self.teacher_variant = overrides.pop("teacher_variant", "s4")
         self.use_clip_classifier = overrides.pop("use_clip_classifier", False)
+        self.prompt_ensemble = overrides.pop("prompt_ensemble", False)
         self.muon_w = overrides.pop("muon_w", 0.1)
         self.text_embeddings = None
         self.text_similarity = None
@@ -111,7 +196,8 @@ class TextClassificationTrainer(ClassificationTrainer):
         from ultralytics.nn.text_model import build_text_model
 
         variant = self.teacher_variant.lower().replace("-", "")
-        cache_path = cache_dir / f"text_embeddings_mobileclip2_{variant}.pt"
+        suffix = "_ensemble80" if self.prompt_ensemble else ""
+        cache_path = cache_dir / f"text_embeddings_mobileclip2_{variant}{suffix}.pt"
         names = list(self.data["names"].values())
 
         if cache_path.exists():
@@ -121,10 +207,20 @@ class TextClassificationTrainer(ClassificationTrainer):
                 LOGGER.info(f"Loaded cached text embeddings from {cache_path}")
 
         if self.text_embeddings is None:
-            LOGGER.info(f"Generating text embeddings for {len(names)} classes with MobileCLIP2-{self.teacher_variant}")
             text_model = build_text_model(f"mobileclip2:{self.teacher_variant}", device=self.device)
-            texts = [f"a photo of a {name}" for name in names]
-            self.text_embeddings = text_model.encode_text(text_model.tokenize(texts)).detach()
+            if self.prompt_ensemble:
+                LOGGER.info(f"Generating 80-template ensemble text embeddings for {len(names)} classes")
+                embeds = []
+                for name in TQDM(names, desc="Encoding text ensemble"):
+                    texts = [t.format(name) for t in IMAGENET_TEMPLATES]
+                    class_embeds = text_model.encode_text(text_model.tokenize(texts))
+                    embeds.append(class_embeds.mean(dim=0))
+                self.text_embeddings = torch.stack(embeds)
+                self.text_embeddings /= self.text_embeddings.norm(p=2, dim=-1, keepdim=True)
+            else:
+                LOGGER.info(f"Generating text embeddings for {len(names)} classes")
+                texts = [f"a photo of a {name}" for name in names]
+                self.text_embeddings = text_model.encode_text(text_model.tokenize(texts)).detach()
             torch.save({"names": names, "embeds": self.text_embeddings.cpu()}, cache_path)
             del text_model
 
