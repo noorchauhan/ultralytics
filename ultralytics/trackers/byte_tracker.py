@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import numpy as np
@@ -11,6 +12,11 @@ from ..utils.ops import xywh2ltwh
 from .basetrack import BaseTrack, TrackState
 from .utils import matching
 from .utils.kalman_filter import KalmanFilterXYAH
+
+_SECOND_THRESH = float(os.environ.get("AUTOTRACK_SECOND_THRESH", "0.5"))
+_LOST_SECOND = os.environ.get("AUTOTRACK_LOST_SECOND", "0") == "1"
+_COV_RESET = os.environ.get("AUTOTRACK_COV_RESET", "0") == "1"  # reset KF on long-gap re-activation
+_DUP_THRESH = float(os.environ.get("AUTOTRACK_DUP_THRESH", "0.15"))  # IoU thresh for duplicate removal
 
 
 class STrack(BaseTrack):
@@ -131,9 +137,15 @@ class STrack(BaseTrack):
 
     def re_activate(self, new_track: STrack, frame_id: int, new_id: bool = False):
         """Reactivate a previously lost track using new detection data and update its state and attributes."""
-        self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, self.convert_coords(new_track.tlwh)
-        )
+        gap = frame_id - self.end_frame
+        if _COV_RESET and gap > 5:
+            # Reset KF state from detection (covariance was inflated during lost period)
+            self.mean, self.covariance = self.kalman_filter.initiate(self.convert_coords(new_track.tlwh))
+        else:
+            self.mean, self.covariance = self.kalman_filter.update(
+                self.mean, self.covariance, self.convert_coords(new_track.tlwh),
+                confidence=new_track.score,
+            )
         self.tracklet_len = 0
         self.state = TrackState.Tracked
         self.is_activated = True
@@ -163,7 +175,8 @@ class STrack(BaseTrack):
 
         new_tlwh = new_track.tlwh
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, self.convert_coords(new_tlwh)
+            self.mean, self.covariance, self.convert_coords(new_tlwh),
+            confidence=new_track.score,
         )
         self.state = TrackState.Tracked
         self.is_activated = True
@@ -337,11 +350,12 @@ class BYTETracker:
                 refind_stracks.append(track)
         # Step 3: Second association, with low score detection boxes association the untrack to the low score detections
         detections_second = self.init_track(results_second, feats_second)
-        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-        dists = matching.iou_distance(r_tracked_stracks, detections_second)
-        if self.args.fuse_score:
-            dists = matching.fuse_score(dists, detections_second)
-        matches, u_track, _u_detection_second = matching.linear_assignment(dists, thresh=0.5)
+        if _LOST_SECOND:
+            r_tracked_stracks = [strack_pool[i] for i in u_track]  # include lost tracks in 2nd stage
+        else:
+            r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
+        dists = self.get_dists(r_tracked_stracks, detections_second)
+        matches, u_track, _u_detection_second = matching.linear_assignment(dists, thresh=_SECOND_THRESH)
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
             det = detections_second[idet]
@@ -360,7 +374,7 @@ class BYTETracker:
         # Deal with unconfirmed tracks, usually tracks with only one beginning frame
         detections = [detections[i] for i in u_detection]
         dists = self.get_dists(unconfirmed, detections)
-        matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
+        matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.9)
         for itracked, idet in matches:
             unconfirmed[itracked].update(detections[idet], self.frame_id)
             activated_stracks.append(unconfirmed[itracked])
@@ -456,7 +470,7 @@ class BYTETracker:
     def remove_duplicate_stracks(stracksa: list[STrack], stracksb: list[STrack]) -> tuple[list[STrack], list[STrack]]:
         """Remove duplicate stracks from two lists based on Intersection over Union (IoU) distance."""
         pdist = matching.iou_distance(stracksa, stracksb)
-        pairs = np.where(pdist < 0.15)
+        pairs = np.where(pdist < _DUP_THRESH)
         dupa, dupb = [], []
         for p, q in zip(*pairs):
             timep = stracksa[p].frame_id - stracksa[p].start_frame

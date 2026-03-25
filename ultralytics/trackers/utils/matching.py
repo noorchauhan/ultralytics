@@ -1,8 +1,13 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
+import os
+
 import numpy as np
 import scipy
 from scipy.spatial.distance import cdist
+
+_FUSE_EXP = float(os.environ.get("AUTOTRACK_FUSE_EXP", "1.0"))
+_HEIGHT_RATIO_GATE = float(os.environ.get("AUTOTRACK_HEIGHT_GATE", "0.4"))  # min h_ratio to allow match (0=off)
 
 from ultralytics.utils.metrics import batch_probiou, bbox_ioa
 
@@ -97,7 +102,19 @@ def iou_distance(atracks: list, btracks: list) -> np.ndarray:
                 np.ascontiguousarray(btlbrs, dtype=np.float32),
                 iou=True,
             )
-    return 1 - ious  # cost matrix
+    cost = 1 - ious  # cost matrix
+
+    # Height-ratio gating: mask out matches with very different heights
+    if _HEIGHT_RATIO_GATE > 0 and len(atlbrs) and len(btlbrs):
+        a_arr = np.asarray(atlbrs, dtype=np.float32)
+        b_arr = np.asarray(btlbrs, dtype=np.float32)
+        # heights: xyxy format -> h = y2 - y1
+        a_h = a_arr[:, 3] - a_arr[:, 1]  # (N,)
+        b_h = b_arr[:, 3] - b_arr[:, 1]  # (M,)
+        h_ratio = np.minimum(a_h[:, None], b_h[None, :]) / (np.maximum(a_h[:, None], b_h[None, :]) + 1e-6)
+        cost[h_ratio < _HEIGHT_RATIO_GATE] = 1.0
+
+    return cost
 
 
 def embedding_distance(tracks: list, detections: list, metric: str = "cosine") -> np.ndarray:
@@ -122,10 +139,17 @@ def embedding_distance(tracks: list, detections: list, metric: str = "cosine") -
     if cost_matrix.size == 0:
         return cost_matrix
     det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float32)
-    # for i, track in enumerate(tracks):
-    # cost_matrix[i, :] = np.maximum(0.0, cdist(track.smooth_feat.reshape(1,-1), det_features, metric))
-    track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float32)
-    cost_matrix = np.maximum(0.0, cdist(track_features, det_features, metric))  # Normalized features
+    _gallery_topk = int(os.environ.get("AUTOTRACK_GALLERY_TOPK", "0"))  # 0 = use all gallery features
+    for i, track in enumerate(tracks):
+        if hasattr(track, "features") and len(track.features) > 0:
+            feats = list(track.features)
+            if _gallery_topk > 0 and len(feats) > _gallery_topk:
+                feats = feats[-_gallery_topk:]  # use most recent K features
+            gallery = np.asarray(feats, dtype=np.float32)
+            dists = cdist(gallery, det_features, metric)
+            cost_matrix[i, :] = np.maximum(0.0, dists.min(axis=0))
+        else:
+            cost_matrix[i, :] = np.maximum(0.0, cdist(track.smooth_feat.reshape(1, -1), det_features, metric))[0]
     return cost_matrix
 
 
@@ -150,5 +174,5 @@ def fuse_score(cost_matrix: np.ndarray, detections: list) -> np.ndarray:
     iou_sim = 1 - cost_matrix
     det_scores = np.array([det.score for det in detections])
     det_scores = det_scores[None].repeat(cost_matrix.shape[0], axis=0)
-    fuse_sim = iou_sim * det_scores
+    fuse_sim = iou_sim * np.power(det_scores, _FUSE_EXP)
     return 1 - fuse_sim  # fuse_cost
