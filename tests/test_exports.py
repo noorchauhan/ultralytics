@@ -294,6 +294,7 @@ def test_export_imx():
     file = model.export(format="imx", imgsz=32)
     YOLO(file)(SOURCE, imgsz=32)
 
+
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(
