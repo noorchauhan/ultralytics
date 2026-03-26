@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any
 
 import torch
 import torch.nn as nn
 
-from ultralytics.utils import LOGGER, WINDOWS
+from ultralytics.utils import LOGGER
 
 
 class IOSDetectModel(nn.Module):
@@ -45,7 +44,7 @@ class IOSDetectModel(nn.Module):
         return cls, xywh * self.normalize
 
 
-def _pipeline_coreml(
+def pipeline_coreml(
     model: Any,
     output_shape: tuple,
     metadata: dict,
@@ -166,20 +165,14 @@ def _pipeline_coreml(
 
 def torch2coreml(
     model: nn.Module,
+    inputs: list,
     im: torch.Tensor,
+    classifier_names: list[str] | None,
     file: Path | str,
-    output_shape: tuple,
     fmt: str = "mlpackage",
-    batch: int = 1,
-    dynamic: bool = False,
-    nms: bool = False,
     half: bool = False,
     int8: bool = False,
-    iou: float = 0.45,
-    conf: float = 0.25,
-    agnostic_nms: bool = False,
     metadata: dict | None = None,
-    imgsz: list | None = None,
     prefix: str = "",
 ):
     """Export a PyTorch model to CoreML ``.mlpackage`` or ``.mlmodel`` format.
@@ -205,48 +198,14 @@ def torch2coreml(
     Returns:
         (Path): Path to the exported CoreML model file/directory.
     """
-    from ultralytics.utils.checks import check_requirements
-    from ultralytics.utils.torch_utils import TORCH_1_11
-
+    # TODO: remove this?
     mlmodel = fmt.lower() == "mlmodel"  # legacy *.mlmodel export format requested
-    check_requirements(["coremltools>=9.0", "numpy>=1.14.5,<=2.3.5"])
     import coremltools as ct
 
     LOGGER.info(f"\n{prefix} starting export with coremltools {ct.__version__}...")
-    assert not WINDOWS, "CoreML export is not supported on Windows, please run on macOS or Linux."
-    assert TORCH_1_11, "CoreML export requires torch>=1.11"
-
-    file = Path(file)
-    f = file.with_suffix(".mlmodel" if mlmodel else ".mlpackage")
-    if f.is_dir():
-        shutil.rmtree(f)
-
-    imgsz = imgsz or [640, 640]
-    classifier_config = None
-    if model.task == "classify":
-        classifier_config = ct.ClassifierConfig(list(model.names.values()))
-        export_model = model
-    elif model.task == "detect":
-        export_model = IOSDetectModel(model, im, mlprogram=not mlmodel) if nms else model
-    else:
-        if nms:
-            LOGGER.warning(f"{prefix} 'nms=True' is only available for Detect models like 'yolo26n.pt'.")
-        export_model = model
-
-    ts = torch.jit.trace(export_model.eval(), im, strict=False)  # TorchScript model
-
-    if dynamic:
-        input_shape = ct.Shape(
-            shape=(
-                ct.RangeDim(lower_bound=1, upper_bound=batch, default=1),
-                im.shape[1],
-                ct.RangeDim(lower_bound=32, upper_bound=imgsz[0] * 2, default=imgsz[0]),
-                ct.RangeDim(lower_bound=32, upper_bound=imgsz[1] * 2, default=imgsz[1]),
-            )
-        )
-        inputs = [ct.TensorType("image", shape=input_shape)]
-    else:
-        inputs = [ct.ImageType("image", shape=im.shape, scale=1 / 255, bias=[0.0, 0.0, 0.0])]
+    ts = torch.jit.trace(model.eval(), im, strict=False)  # TorchScript model
+    if classifier_names:
+        classifier_config = ct.ClassifierConfig(classifier_names)
 
     ct_model = ct.convert(
         ts,
@@ -256,8 +215,6 @@ def torch2coreml(
     )
     bits, mode = (8, "kmeans") if int8 else (16, "linear") if half else (32, None)
     if bits < 32:
-        if "kmeans" in mode:
-            check_requirements("scikit-learn")
         if mlmodel:
             ct_model = ct.models.neural_network.quantization_utils.quantize_weights(ct_model, bits, mode)
         elif bits == 8:  # mlprogram already quantized to FP16
@@ -266,18 +223,6 @@ def torch2coreml(
             op_config = cto.OpPalettizerConfig(mode="kmeans", nbits=bits, weight_threshold=512)
             config = cto.OptimizationConfig(global_config=op_config)
             ct_model = cto.palettize_weights(ct_model, config=config)
-    if nms and model.task == "detect":
-        ct_model = _pipeline_coreml(
-            ct_model,
-            output_shape=output_shape,
-            metadata=metadata or {},
-            fmt=fmt,
-            iou=iou,
-            conf=conf,
-            agnostic_nms=agnostic_nms,
-            weights_dir=None if mlmodel else ct_model.weights_dir,
-            prefix=prefix,
-        )
 
     m = dict(metadata or {})  # copy to avoid mutating original
     ct_model.short_description = m.pop("description", "")
@@ -285,16 +230,14 @@ def torch2coreml(
     ct_model.license = m.pop("license", "")
     ct_model.version = m.pop("version", "")
     ct_model.user_defined_metadata.update({k: str(v) for k, v in m.items()})
-    if model.task == "classify":
-        ct_model.user_defined_metadata.update({"com.apple.coreml.model.preview.type": "imageClassifier"})
 
     try:
-        ct_model.save(str(f))  # save *.mlpackage
+        ct_model.save(str(file))  # save *.mlpackage
     except Exception as e:
         LOGGER.warning(
             f"{prefix} CoreML export to *.mlpackage failed ({e}), reverting to *.mlmodel export. "
             f"Known coremltools Python 3.11 and Windows bugs https://github.com/apple/coremltools/issues/1928."
         )
-        f = f.with_suffix(".mlmodel")
-        ct_model.save(str(f))
-    return f
+        file = Path(file).with_suffix(".mlmodel")
+        ct_model.save(str(file))
+    return file

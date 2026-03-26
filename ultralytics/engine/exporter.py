@@ -65,6 +65,7 @@ from __future__ import annotations
 import re
 import subprocess
 import time
+import shutil
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -88,6 +89,7 @@ from ultralytics.utils import (
     IS_RASPBERRYPI,
     IS_UBUNTU,
     LINUX,
+    WINDOWS,
     LOGGER,
     RKNN_CHIPS,
     SETTINGS,
@@ -752,37 +754,100 @@ class Exporter:
     @try_export
     def export_coreml(self, prefix=colorstr("CoreML:")):
         """Export YOLO model to CoreML format."""
-        from ultralytics.utils.export.coreml import torch2coreml
+        mlmodel = self.args.format.lower() == "mlmodel"  # legacy *.mlmodel export format requested
+        from ultralytics.utils.export.coreml import IOSDetectModel, pipeline_coreml
 
+        check_requirements(
+            ["coremltools>=9.0", "numpy>=1.14.5,<=2.3.5"]
+        )  # latest numpy 2.4.0rc1 breaks coremltools exports
+        import coremltools as ct
+
+        LOGGER.info(f"\n{prefix} starting export with coremltools {ct.__version__}...")
+        assert not WINDOWS, "CoreML export is not supported on Windows, please run on macOS or Linux."
+        assert TORCH_1_11, "CoreML export requires torch>=1.11"
         if self.args.batch > 1:
             assert self.args.dynamic, (
-                "batch sizes > 1 are not supported without 'dynamic=True' for CoreML export. "
-                "Please retry at 'dynamic=True'."
+                "batch sizes > 1 are not supported without 'dynamic=True' for CoreML export. Please retry at 'dynamic=True'."
             )
         if self.args.dynamic:
             assert not self.args.nms, (
                 "'nms=True' cannot be used together with 'dynamic=True' for CoreML export. Please disable one of them."
             )
             assert self.model.task != "classify", "'dynamic=True' is not supported for CoreML classification models."
+        f = self.file.with_suffix(".mlmodel" if mlmodel else ".mlpackage")
+        if f.is_dir():
+            shutil.rmtree(f)
 
-        return torch2coreml(
-            self.model,
-            self.im,
-            self.file,
-            output_shape=self.output_shape,
-            fmt=self.args.format,
-            batch=self.args.batch,
-            dynamic=self.args.dynamic,
-            nms=self.args.nms,
-            half=self.args.half,
-            int8=self.args.int8,
-            iou=self.args.iou,
-            conf=self.args.conf,
-            agnostic_nms=self.args.agnostic_nms,
-            metadata=self.metadata,
-            imgsz=self.imgsz,
-            prefix=prefix,
+        classifier_config = None
+        if self.model.task == "classify":
+            classifier_config = ct.ClassifierConfig(list(self.model.names.values()))
+            model = self.model
+        elif self.model.task == "detect":
+            model = IOSDetectModel(self.model, self.im, mlprogram=not mlmodel) if self.args.nms else self.model
+        else:
+            if self.args.nms:
+                LOGGER.warning(f"{prefix} 'nms=True' is only available for Detect models like 'yolo26n.pt'.")
+                # TODO CoreML Segment and Pose model pipelining
+            model = self.model
+        ts = torch.jit.trace(model.eval(), self.im, strict=False)  # TorchScript model
+
+        if self.args.dynamic:
+            input_shape = ct.Shape(
+                shape=(
+                    ct.RangeDim(lower_bound=1, upper_bound=self.args.batch, default=1),
+                    self.im.shape[1],
+                    ct.RangeDim(lower_bound=32, upper_bound=self.imgsz[0] * 2, default=self.imgsz[0]),
+                    ct.RangeDim(lower_bound=32, upper_bound=self.imgsz[1] * 2, default=self.imgsz[1]),
+                )
+            )
+            inputs = [ct.TensorType("image", shape=input_shape)]
+        else:
+            inputs = [ct.ImageType("image", shape=self.im.shape, scale=1 / 255, bias=[0.0, 0.0, 0.0])]
+
+        # Based on apple's documentation it is better to leave out the minimum_deployment target and let that get set
+        # Internally based on the model conversion and output type.
+        # Setting minimum_deployment_target >= iOS16 will require setting compute_precision=ct.precision.FLOAT32.
+        # iOS16 adds in better support for FP16, but none of the CoreML NMS specifications handle FP16 as input.
+        ct_model = ct.convert(
+            ts,
+            inputs=inputs,
+            classifier_config=classifier_config,
+            convert_to="neuralnetwork" if mlmodel else "mlprogram",
         )
+        bits, mode = (8, "kmeans") if self.args.int8 else (16, "linear") if self.args.half else (32, None)
+        if bits < 32:
+            if "kmeans" in mode:
+                check_requirements("scikit-learn")  # scikit-learn package required for k-means quantization
+            if mlmodel:
+                ct_model = ct.models.neural_network.quantization_utils.quantize_weights(ct_model, bits, mode)
+            elif bits == 8:  # mlprogram already quantized to FP16
+                import coremltools.optimize.coreml as cto
+
+                op_config = cto.OpPalettizerConfig(mode="kmeans", nbits=bits, weight_threshold=512)
+                config = cto.OptimizationConfig(global_config=op_config)
+                ct_model = cto.palettize_weights(ct_model, config=config)
+        if self.args.nms and self.model.task == "detect":
+            ct_model = pipeline_coreml(ct_model, weights_dir=None if mlmodel else ct_model.weights_dir)
+
+        m = self.metadata  # metadata dict
+        ct_model.short_description = m.pop("description")
+        ct_model.author = m.pop("author")
+        ct_model.license = m.pop("license")
+        ct_model.version = m.pop("version")
+        ct_model.user_defined_metadata.update({k: str(v) for k, v in m.items()})
+        if self.model.task == "classify":
+            ct_model.user_defined_metadata.update({"com.apple.coreml.model.preview.type": "imageClassifier"})
+
+        try:
+            ct_model.save(str(f))  # save *.mlpackage
+        except Exception as e:
+            LOGGER.warning(
+                f"{prefix} CoreML export to *.mlpackage failed ({e}), reverting to *.mlmodel export. "
+                f"Known coremltools Python 3.11 and Windows bugs https://github.com/apple/coremltools/issues/1928."
+            )
+            f = f.with_suffix(".mlmodel")
+            ct_model.save(str(f))
+        return f
 
     @try_export
     def export_engine(self, prefix=colorstr("TensorRT:")):
