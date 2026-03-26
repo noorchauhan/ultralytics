@@ -1091,4 +1091,3 @@ class NMSModel(torch.nn.Module):
 
 
 # Backward compatibility for downstream imports from ultralytics.engine.exporter.
-from ultralytics.utils.export.coreml import IOSDetectModel
