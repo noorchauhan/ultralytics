@@ -13,8 +13,4 @@ keywords: TODO ADD KEYWORDS
 
 ## ::: ultralytics.utils.export.openvino.torch2openvino
 
-<br><br><hr><br>
-
-## ::: ultralytics.utils.export.openvino._is_macos_154
-
 <br><br>
