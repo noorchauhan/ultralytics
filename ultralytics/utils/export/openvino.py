@@ -19,7 +19,6 @@ def torch2openvino(
     half: bool = False,
     int8: bool = False,
     calibration_dataset: Any | None = None,
-    transform_fn: Callable | None = None,
     ignored_scope: dict | None = None,
     prefix: str = "",
 ) -> str:
@@ -32,8 +31,7 @@ def torch2openvino(
         dynamic (bool): Whether to use dynamic input shapes.
         half (bool): Whether to compress to FP16.
         int8 (bool): Whether to apply INT8 quantization.
-        calibration_dataset: Dataset for nncf.Dataset (required when ``int8=True``).
-        transform_fn (Callable | None): Transform function for calibration preprocessing.
+        calibration_dataset (nn.Dataset): Dataset for nncf.Dataset (required when ``int8=True``).
         ignored_scope (dict | None): Kwargs passed to ``nncf.IgnoredScope`` for head patterns.
         prefix (str): Prefix for log messages.
 
@@ -50,7 +48,7 @@ def torch2openvino(
 
         ov_model = nncf.quantize(
             model=ov_model,
-            calibration_dataset=nncf.Dataset(calibration_dataset, transform_fn),
+            calibration_dataset=calibration_dataset,
             preset=nncf.QuantizationPreset.MIXED,
             ignored_scope=ignored_scope,
         )
