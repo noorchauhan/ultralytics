@@ -20,7 +20,7 @@ def onnx2axelera(
 
     Args:
         onnx_file (str): Path to the source ONNX file (already exported).
-        compile_config: Compiler configuration object. If None, a default ``CompilerConfig`` is created.
+        compile_config (axelera.compiler.CompilerConfig): Compiler configuration object. If None, a default ``CompilerConfig`` is created.
         metadata (dict | None): Metadata saved as ``metadata.yaml``.
         calibration_dataset: Dataloader for INT8 calibration.
         transform_fn: Transformation function applied to calibration batches.
