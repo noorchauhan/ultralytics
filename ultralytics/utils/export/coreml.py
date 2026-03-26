@@ -48,7 +48,7 @@ def pipeline_coreml(
     model: Any,
     output_shape: tuple,
     metadata: dict,
-    fmt: str = "mlpackage",
+    mlmodel: bool = False,
     iou: float = 0.45,
     conf: float = 0.25,
     agnostic_nms: bool = False,
@@ -61,11 +61,11 @@ def pipeline_coreml(
         model: CoreML model.
         output_shape (tuple): Output shape tuple from the exporter.
         metadata (dict): Model metadata.
-        fmt (str): Export format (``"mlmodel"`` or ``"mlpackage"``).
+        mlmodel (bool): Whether the model is an MLModel (vs MLProgram).
         iou (float): IoU threshold for NMS.
         conf (float): Confidence threshold for NMS.
         agnostic_nms (bool): Whether to use class-agnostic NMS.
-        weights_dir: Weights directory for MLProgram models.
+        weights_dir (Path | str | None): Weights directory for MLProgram models.
         prefix (str): Prefix for log messages.
 
     Returns:
@@ -77,7 +77,7 @@ def pipeline_coreml(
 
     spec = model.get_spec()
     outs = list(iter(spec.description.output))
-    if fmt == "mlmodel":  # mlmodel doesn't infer shapes automatically
+    if mlmodel:  # mlmodel doesn't infer shapes automatically
         outs[0].type.multiArrayType.shape[:] = output_shape[2], output_shape[1] - 4
         outs[1].type.multiArrayType.shape[:] = output_shape[2], 4
 

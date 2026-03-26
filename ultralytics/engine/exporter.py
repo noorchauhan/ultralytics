@@ -853,7 +853,16 @@ class Exporter:
         )
 
         if self.args.nms and self.model.task == "detect":
-            ct_model = pipeline_coreml(ct_model, weights_dir=None if mlmodel else ct_model.weights_dir)
+            ct_model = pipeline_coreml(
+                ct_model,
+                weights_dir=None if mlmodel else ct_model.weights_dir,
+                metadata=self.metadata,
+                mlmodel=mlmodel,
+                iou=self.args.iou,
+                conf=self.args.conf,
+                agnostic_nms=self.args.agnostic_nms,
+                prefix=prefix,
+            )
 
         if self.model.task == "classify":
             ct_model.user_defined_metadata.update({"com.apple.coreml.model.preview.type": "imageClassifier"})
