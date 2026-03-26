@@ -557,7 +557,6 @@ class Exporter:
             f = getattr(self, f"export_{fmt}")()
 
         # Finish
-        f = str(Path(str(f)))
         if f:
             square = self.imgsz[0] == self.imgsz[1]
             s = (
