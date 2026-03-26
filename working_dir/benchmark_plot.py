@@ -11,10 +11,10 @@ import matplotlib.pyplot as plt
 # "jetson-agx-thor-cpu", "jetson-agx-orin-gpu", "jetson-agx-orin-cpu",
 # "jetson-orin-nano-super-gpu", or "jetson-orin-nano-super-cpu"
 # =============================================================================
-BENCHMARK = "t4_reported"
+BENCHMARK = "t4"
 
 # Default metric for Y axis.
-DEFAULT_METRIC = "ap"
+DEFAULT_METRIC = "ap_large"
 METRIC_LABELS = {
     "ap": "mAP50-95 (COCO)",
     "ap50": "AP50 (COCO)",
@@ -181,7 +181,7 @@ BENCHMARKS = {
         },
     },
     "t4_reported": {
-        "title": "Object Detection Models: Latency vs mAP (Tesla T4 GPU, TensorRT)",
+        "title": "Object Detection Models: Latency vs mAP (Tesla T4 GPU, TensorRT, Reported)",
         "models": {
             "YOLO26 (E2E)": [
                 ("n", 1.7, {"ap": 40.1, "ap50": 55.6, "ap75": 43.5, "ap_small": 19.7, "ap_medium": 44.0, "ap_large": 58.4}),
@@ -205,7 +205,7 @@ BENCHMARKS = {
                 ("l", 10.47, {"ap": 56.0, "ap50": 73.4, "ap75": 60.9, "ap_small": 37.5, "ap_medium": 60.8, "ap_large": 75.2}),
                 ("x", 13.75, {"ap": 57.8, "ap50": 75.4, "ap75": 63.2, "ap_small": 39.2, "ap_medium": 62.9, "ap_large": 75.9}),
             ],
-            "RF-DETR": [
+            "RF-DETR (obj365)": [
                 ("n", 2.3, {"ap": 48.4, "ap50": 67.5, "ap75": 51.7, "ap_small": 25.3, "ap_medium": 53.6, "ap_large": 71.0}),
                 ("s", 3.5, {"ap": 53.0, "ap50": 72.0, "ap75": 57.1, "ap_small": 31.8, "ap_medium": 58.4, "ap_large": 73.1}),
                 ("m", 4.4, {"ap": 54.7, "ap50": 73.6, "ap75": 59.1, "ap_small": 35.9, "ap_medium": 59.8, "ap_large": 73.7}),
@@ -213,14 +213,14 @@ BENCHMARKS = {
                 ("x", 11.5, {"ap": 58.6, "ap50": 77.5, "ap75": 64.0, "ap_small": 40.8, "ap_medium": 64.3, "ap_large": 76.3}),
                 ("xxl", 17.2, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
             ],
-            "RF-DETR (ECDet reported)": [
+            "RF-DETR (obj365, ECDet reported)": [
                 # RF-DETR obj365 results as reported in ECDet paper (arXiv 2603.18739), TRT v10.6
                 ("s", 3.65, {"ap": 52.9, "ap50": 71.9, "ap75": 57.0, "ap_small": 32.0, "ap_medium": 58.3, "ap_large": 73.0}),
                 ("m", 4.62, {"ap": 54.7, "ap50": 73.5, "ap75": 59.2, "ap_small": 36.1, "ap_medium": 59.7, "ap_large": 73.8}),
                 ("l", 7.38, {"ap": 56.5, "ap50": 75.1, "ap75": 61.3, "ap_small": 39.0, "ap_medium": 61.0, "ap_large": 73.9}),
                 ("x", 14.79, {"ap": 58.6, "ap50": 77.4, "ap75": 63.8, "ap_small": 40.3, "ap_medium": 63.9, "ap_large": 76.2}),
             ],
-            "LW-DETR": [
+            "LW-DETR (obj365)": [
                 # LW-DETR obj365 results as reported in ECDet paper (arXiv 2603.18739), TRT v10.6
                 ("s", 3.09, {"ap": 48.0, "ap50": 66.9, "ap75": 51.7, "ap_small": 26.8, "ap_medium": 52.5, "ap_large": 65.5}),
                 ("m", 5.27, {"ap": 52.6, "ap50": 69.9, "ap75": 56.7, "ap_small": 32.6, "ap_medium": 57.7, "ap_large": 70.7}),
@@ -294,7 +294,7 @@ BENCHMARKS = {
         },
     },
     "t4": {
-        "title": "Object Detection Models: Latency vs mAP (Tesla T4 GPU, TensorRT)",
+        "title": "Object Detection Models: Latency vs mAP (Tesla T4 GPU, TensorRT v10.11)",
         "models": {
             "YOLO26 (E2E)": [
                 ("n", 1.8, {"ap": 40.1, "ap50": 55.6, "ap75": 43.5, "ap_small": 19.7, "ap_medium": 44.0, "ap_large": 58.4}),
@@ -318,7 +318,7 @@ BENCHMARKS = {
                 ("l", 8.2, {"ap": 55.3, "ap50": 73.0, "ap75": 60.2, "ap_small": 39.6, "ap_medium": 59.3, "ap_large": 70.7}),
                 ("x", 13.5, {"ap": 56.5, "ap50": 74.0, "ap75": 61.6, "ap_small": 41.1, "ap_medium": 60.8, "ap_large": 71.5}),
             ],
-            "RF-DETR (TopK)": [
+            "RF-DETR (obj365, TopK)": [
                 ("n", 2.8, {"ap": 48.4, "ap50": 67.5, "ap75": 51.7, "ap_small": 25.3, "ap_medium": 53.6, "ap_large": 71.0}),
                 ("s", 4.1, {"ap": 53.0, "ap50": 72.0, "ap75": 57.1, "ap_small": 31.8, "ap_medium": 58.4, "ap_large": 73.1}),
                 ("m", 5.2, {"ap": 54.7, "ap50": 73.6, "ap75": 59.1, "ap_small": 35.9, "ap_medium": 59.8, "ap_large": 73.7}),
@@ -326,7 +326,7 @@ BENCHMARKS = {
                 ("x", 17.2, {"ap": 58.6, "ap50": 77.5, "ap75": 64.0, "ap_small": 40.8, "ap_medium": 64.3, "ap_large": 76.3}),
                 ("xxl", 27.0, {"ap": 60.1, "ap50": 78.5, "ap75": 65.8, "ap_small": 43.7, "ap_medium": 65.1, "ap_large": 76.3}),
             ],
-            "LW-DETR": [
+            "LW-DETR (obj365)": [
                 # LW-DETR obj365 results as reported in ECDet paper (arXiv 2603.18739), TRT v10.6
                 ("n", 2.0, {"ap": 42.6}),
                 ("s", 2.9, {"ap": 48.0, "ap50": 66.9, "ap75": 51.7, "ap_small": 26.8, "ap_medium": 52.5, "ap_large": 65.5}),
@@ -340,21 +340,21 @@ BENCHMARKS = {
             "DEIMv2 (Ultralytics, obj365)": [
                 ("l", 9.9, {"ap": 57.6, "ap50": 75.2, "ap75": 62.7, "ap_small": 40.1, "ap_medium": 62.8, "ap_large": 75.1}),
             ],
-            "DINOv3-RTDETR": [
-                ("s", 4.3, {"ap": 50.3, "ap50": 69.0, "ap75": 54.4, "ap_small": 27.8, "ap_medium": 55.8, "ap_large": 72.5}),
-            ],
-            "DINOv3-RTDETR (obj365)": [
-                ("s", 4.3, {"ap": 52.3, "ap50": 71.1, "ap75": 56.7, "ap_small": 33.6, "ap_medium": 57.6, "ap_large": 70.0}),
-            ],
-            "DINOv3-STA-RTDETR": [
-                ("l3", 9.9, {"ap": 54.3, "ap50": 72.8, "ap75": 58.9, "ap_small": 35.1, "ap_medium": 59.7, "ap_large": 73.0}, 0.1),
-                ("l6", 10.8, {"ap": 55.0, "ap50": 73.7, "ap75": 59.6, "ap_small": 36.3, "ap_medium": 60.4, "ap_large": 74.3}, 0.1),
-            ],
-            "DINOv3-STA-RTDETR (obj365)": [
-                # NOTE: AP metrics are provided as fractional values in logs; converted here to percentage points.
-                # Latency is kept equal to the current l6 entry until a dedicated obj365 latency measurement is available.
-                ("l6", 10.8, {"ap": 56.8, "ap50": 75.2, "ap75": 61.8, "ap_small": 39.9, "ap_medium": 61.4, "ap_large": 74.5}, 0.1),
-            ],
+            # "DINOv3-RTDETR": [
+            #     ("s", 4.3, {"ap": 50.3, "ap50": 69.0, "ap75": 54.4, "ap_small": 27.8, "ap_medium": 55.8, "ap_large": 72.5}),
+            # ],
+            # "DINOv3-RTDETR (obj365)": [
+            #     ("s", 4.3, {"ap": 52.3, "ap50": 71.1, "ap75": 56.7, "ap_small": 33.6, "ap_medium": 57.6, "ap_large": 70.0}),
+            # ],
+            # "DINOv3-STA-RTDETR": [
+            #     ("l3", 9.9, {"ap": 54.3, "ap50": 72.8, "ap75": 58.9, "ap_small": 35.1, "ap_medium": 59.7, "ap_large": 73.0}, 0.1),
+            #     ("l6", 10.8, {"ap": 55.0, "ap50": 73.7, "ap75": 59.6, "ap_small": 36.3, "ap_medium": 60.4, "ap_large": 74.3}, 0.1),
+            # ],
+            # "DINOv3-STA-RTDETR (obj365)": [
+            #     # NOTE: AP metrics are provided as fractional values in logs; converted here to percentage points.
+            #     # Latency is kept equal to the current l6 entry until a dedicated obj365 latency measurement is available.
+            #     ("l6", 10.8, {"ap": 56.8, "ap50": 75.2, "ap75": 61.8, "ap_small": 39.9, "ap_medium": 61.4, "ap_large": 74.5}, 0.1),
+            # ],
             "DEIMv2": [
                 ("pico", 1.7, {"ap": 38.5}),
                 ("n", 2.0, {"ap": 43.0}),
@@ -370,6 +370,18 @@ BENCHMARKS = {
                 ("m", 5.6, {"ap": 52.7, "ap50": 70.0, "ap75": 57.3, "ap_small": 35.3, "ap_medium": 56.7, "ap_large": 69.5}),
                 ("l", 8.0, {"ap": 54.7, "ap50": 72.4, "ap75": 59.4, "ap_small": 36.9, "ap_medium": 59.6, "ap_large": 71.8}),
                 ("x", 13.6, {"ap": 56.5, "ap50": 74.0, "ap75": 61.5, "ap_small": 38.8, "ap_medium": 61.4, "ap_large": 74.2}),
+            ],
+            "RT-DETRv2": [
+                # NOTE: Sub-metrics for S and M are wrong in DEIM papers (copy-paste from L and X rows).
+                # ECDet paper (arXiv 2603.18739) reports correct values:
+                #   S: ap75=52.1 ap_s=30.2 ap_m=51.5 ap_l=63.9 (DEIM papers copied L's sub-metrics)
+                #   M: ap75=54.1 ap_s=32.0 ap_m=53.2 ap_l=66.5 (DEIM papers copied X's sub-metrics)
+                # m* (R50vd_m) is absent from ECDet; values here are from DEIM papers only.
+                ("s", 4.0, {"ap": 48.1, "ap50": 65.1, "ap75": 52.1, "ap_small": 30.2, "ap_medium": 51.5, "ap_large": 63.9}),
+                ("m", 5.6, {"ap": 49.9, "ap50": 67.5, "ap75": 54.1, "ap_small": 32.0, "ap_medium": 53.2, "ap_large": 66.5}),
+                ("m*", 6.6, {"ap": 51.9, "ap50": 69.9, "ap75": 56.5, "ap_small": 33.5, "ap_medium": 56.8, "ap_large": 69.2}),
+                ("l", 8.4, {"ap": 53.4, "ap50": 71.6, "ap75": 57.4, "ap_small": 36.1, "ap_medium": 57.9, "ap_large": 70.8}),
+                ("x", 13.6, {"ap": 54.3, "ap50": 72.8, "ap75": 58.8, "ap_small": 35.8, "ap_medium": 58.8, "ap_large": 72.1}),
             ],
             "DEIMv1 RT-DETRv2": [
                 # DEIMv1 paper: Table 11 (s/m/m*) + Table 2 (l=R50, x=R101)
@@ -402,10 +414,10 @@ MODEL_STYLES = {
     "DINOv3-RTDETR (obj365)": ("X", -12),
     "DINOv3-STA-RTDETR": ("X", -12),
     "DINOv3-STA-RTDETR (obj365)": ("X", 8),
-    "RF-DETR": ("s", -12),
-    "RF-DETR (TopK)": ("s", -12),
-    "RF-DETR (ECDet reported)": ("s", 8),
-    "LW-DETR": ("^", 8),
+    "RF-DETR (obj365)": ("s", -12),
+    "RF-DETR (obj365, TopK)": ("s", -12),
+    "RF-DETR (obj365, ECDet reported)": ("s", 8),
+    "LW-DETR (obj365)": ("^", 8),
     "RT-DETRv4": ("^", -12),
     "ECDet": ("h", 8),
     "DEIM D-FINE": ("D", -12),
