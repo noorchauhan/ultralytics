@@ -79,7 +79,7 @@ from ultralytics.data.dataset import YOLODataset
 from ultralytics.data.utils import check_cls_dataset, check_det_dataset
 from ultralytics.nn.autobackend import check_class_names, default_class_names
 from ultralytics.nn.modules import C2f, Classify, Detect, RTDETRDecoder
-from ultralytics.nn.tasks import ClassificationModel, WorldModel
+from ultralytics.nn.tasks import ClassificationModel, DetectionModel, SegmentationModel, WorldModel
 from ultralytics.utils import (
     ARM64,
     DEFAULT_CFG,
@@ -615,23 +615,25 @@ class Exporter:
 
         opset = self.args.opset or best_onnx_opset(onnx, cuda="cuda" in self.device.type)
         LOGGER.info(f"\n{prefix} starting export with onnx {onnx.__version__} opset {opset}...")
+        if self.args.nms:
+            assert TORCH_1_13, f"'nms=True' ONNX export requires torch>=1.13 (found torch=={TORCH_VERSION})"
 
         f = str(self.file.with_suffix(".onnx"))
         output_names = ["output0", "output1"] if self.model.task == "segment" else ["output0"]
         dynamic = self.args.dynamic
         if dynamic:
-            dynamic = {"images": {0: "batch", 2: "height", 3: "width"}}
-            if self.model.task == "segment":
-                dynamic["output0"] = {0: "batch", 2: "anchors"}
-                dynamic["output1"] = {0: "batch", 2: "mask_height", 3: "mask_width"}
-            elif self.model.task in {"detect", "pose", "obb"}:
-                dynamic["output0"] = {0: "batch", 2: "anchors"}
-            if self.args.nms:
-                dynamic["output0"].pop(2, None)
+            dynamic = {"images": {0: "batch", 2: "height", 3: "width"}}  # shape(1,3,640,640)
+            if isinstance(self.model, SegmentationModel):
+                dynamic["output0"] = {0: "batch", 2: "anchors"}  # shape(1, 116, 8400)
+                dynamic["output1"] = {0: "batch", 2: "mask_height", 3: "mask_width"}  # shape(1,32,160,160)
+            elif isinstance(self.model, DetectionModel):
+                dynamic["output0"] = {0: "batch", 2: "anchors"}  # shape(1, 84, 8400)
+            if self.args.nms:  # only batch size is dynamic with NMS
+                dynamic["output0"].pop(2)
 
         # Preserve the resolved opset because NMSModel reads args.opset during OBB export.
         if self.args.nms and self.model.task == "obb":
-            self.args.opset = opset
+            self.args.opset = opset  # for NMSModel
             self.args.simplify = True  # fix OBB runtime error related to topk
 
         with arange_patch(dynamic=bool(dynamic), half=self.args.half, fmt=self.args.format):
@@ -644,22 +646,26 @@ class Exporter:
                 output_names=output_names,
                 dynamic=dynamic or None,
             )
+        # Checks
+        model_onnx = onnx.load(f)  # load onnx model
 
-        model_onnx = onnx.load(f)
-
+        # Simplify
         if self.args.simplify:
             try:
                 import onnxslim
 
                 LOGGER.info(f"{prefix} slimming with onnxslim {onnxslim.__version__}...")
                 model_onnx = onnxslim.slim(model_onnx)
+
             except Exception as e:
                 LOGGER.warning(f"{prefix} simplifier failure: {e}")
 
+        # Metadata
         for k, v in self.metadata.items():
             meta = model_onnx.metadata_props.add()
             meta.key, meta.value = k, str(v)
 
+        # IR version
         if getattr(model_onnx, "ir_version", 0) > 10:
             LOGGER.info(f"{prefix} limiting IR version {model_onnx.ir_version} to 10 for ONNXRuntime compatibility...")
             model_onnx.ir_version = 10
