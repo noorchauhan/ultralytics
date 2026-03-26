@@ -55,16 +55,16 @@ def test_detect():
         result = pred(source=ASSETS, model=MODEL)
         assert len(result), "predictor test failed"
 
-    # Test resume functionality
+    # Test resume functionality, completed training (epochs=1, save=False) should not be resumable
     overrides["resume"] = trainer.last
     try:
         trainer = detect.DetectionTrainer(overrides=overrides)
         trainer.train()
-    except Exception as e:
-        print(f"Expected exception caught: {e}")
+    except ValueError as e:
+        assert "is not a resumable training checkpoint" in str(e), f"Unexpected ValueError: {e}"
         return
 
-    raise Exception("Resume test failed!")
+    raise Exception("Resume test failed. Expected ValueError for non-resumable checkpoint")
 
 
 def test_segment():
@@ -101,16 +101,16 @@ def test_segment():
     result = pred(source=ASSETS, model=WEIGHTS_DIR / "yolo26n-seg.pt")
     assert len(result), "predictor test failed"
 
-    # Test resume functionality
+    # Test resume functionality - completed training (epochs=1, save=False) should not be resumable
     overrides["resume"] = trainer.last
     try:
         trainer = segment.SegmentationTrainer(overrides=overrides)
         trainer.train()
-    except Exception as e:
-        print(f"Expected exception caught: {e}")
+    except ValueError as e:
+        assert "is not a resumable training checkpoint" in str(e), f"Unexpected ValueError: {e}"
         return
 
-    raise Exception("Resume test failed!")
+    raise Exception("Resume test failed - expected ValueError for non-resumable checkpoint")
 
 
 def test_classify():
