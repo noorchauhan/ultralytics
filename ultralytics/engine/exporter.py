@@ -62,6 +62,7 @@ TensorFlow.js:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -114,12 +115,15 @@ from ultralytics.utils.checks import (
     check_tensorrt,
     check_version,
     is_intel,
+    is_sudo_available,
 )
 from ultralytics.utils.export import (
     best_onnx_opset,
     keras2pb,
     onnx2engine,
+    onnx2saved_model,
     pb2tfjs,
+    tflite2edgetpu,
     torch2executorch,
     torch2imx,
     torch2onnx,
@@ -908,9 +912,40 @@ class Exporter:
     @try_export
     def export_saved_model(self, prefix=colorstr("TensorFlow SavedModel:")):
         """Export YOLO model to TensorFlow SavedModel format."""
-        from ultralytics.utils.export.tensorflow import torch2saved_model
+        cuda = torch.cuda.is_available()
+        try:
+            import tensorflow as tf
+        except ImportError:
+            check_requirements("tensorflow>=2.0.0,<=2.19.0")
+            import tensorflow as tf
+        check_requirements(
+            (
+                "tf_keras<=2.19.0",  # required by 'onnx2tf' package
+                "sng4onnx>=1.0.1",  # required by 'onnx2tf' package
+                "onnx_graphsurgeon>=0.3.26",  # required by 'onnx2tf' package
+                "ai-edge-litert>=1.2.0" + (",<1.4.0" if MACOS else ""),  # required by 'onnx2tf' package
+                "onnx>=1.12.0,<2.0.0",
+                "onnx2tf>=1.26.3,<1.29.0",  # pin to avoid h5py build issues on aarch64
+                "onnxslim>=0.1.71",
+                "onnxruntime-gpu" if cuda else "onnxruntime",
+                "protobuf>=5",
+            ),
+            cmds="--extra-index-url https://pypi.ngc.nvidia.com",  # onnx_graphsurgeon only on NVIDIA
+        )
 
-        # Prepare calibration images for INT8
+        LOGGER.info(f"\n{prefix} starting export with tensorflow {tf.__version__}...")
+        check_version(
+            tf.__version__,
+            ">=2.0.0",
+            name="tensorflow",
+            verbose=True,
+            msg="https://github.com/ultralytics/ultralytics/issues/5161",
+        )
+        f = Path(str(self.file).replace(self.file.suffix, "_saved_model"))
+        if f.is_dir():
+            shutil.rmtree(f)  # delete output folder
+
+        # Export to TF
         images = None
         if self.args.int8 and self.args.data:
             images = [batch["img"] for batch in self.get_int8_calibration_dataloader(prefix)]
@@ -921,21 +956,26 @@ class Exporter:
                 .astype(np.float32)
             )
 
-        # Adjust opset for RTDETR
+        # Export to ONNX
         if isinstance(self.model.model[-1], RTDETRDecoder):
             self.args.opset = self.args.opset or 19
             assert 16 <= self.args.opset <= 19, "RTDETR export requires opset>=16;<=19"
         self.args.simplify = True
-        f_onnx = self.export_onnx()
-        return torch2saved_model(
+        f_onnx = self.export_onnx()  # ensure ONNX is available
+        keras_model = onnx2saved_model(
             f_onnx,
-            self.file,
+            f,
             int8=self.args.int8,
-            fmt=self.args.format,
-            metadata=self.metadata,
             images=images,
+            disable_group_convolution=self.args.format in {"tfjs", "edgetpu"},
             prefix=prefix,
         )
+        YAML.save(f / "metadata.yaml", self.metadata)  # add metadata.yaml
+        # Add TFLite metadata
+        for file in f.rglob("*.tflite"):
+            file.unlink() if "quant_with_int16_act.tflite" in str(file) else self._add_tflite_metadata(file)
+
+        return str(f), keras_model  # or keras_model = tf.saved_model.load(f, tags=None, options=None)
 
     @try_export
     def export_pb(self, keras_model, prefix=colorstr("TensorFlow GraphDef:")):
@@ -986,9 +1026,26 @@ class Exporter:
     @try_export
     def export_edgetpu(self, tflite_model="", prefix=colorstr("Edge TPU:")):
         """Export YOLO model to Edge TPU format https://coral.ai/docs/edgetpu/models-intro/."""
-        from ultralytics.utils.export.tensorflow import export_edgetpu_model
+        cmd = "edgetpu_compiler --version"
+        help_url = "https://coral.ai/docs/edgetpu/compiler/"
+        assert LINUX, f"export only supported on Linux. See {help_url}"
+        if subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True).returncode != 0:
+            LOGGER.info(f"\n{prefix} export requires Edge TPU compiler. Attempting install from {help_url}")
+            sudo = "sudo " if is_sudo_available() else ""
+            for c in (
+                f"{sudo}mkdir -p /etc/apt/keyrings",
+                f"curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | {sudo}gpg --dearmor -o /etc/apt/keyrings/google.gpg",
+                f'echo "deb [signed-by=/etc/apt/keyrings/google.gpg] https://packages.cloud.google.com/apt coral-edgetpu-stable main" | {sudo}tee /etc/apt/sources.list.d/coral-edgetpu.list',
+            ):
+                subprocess.run(c, shell=True, check=True)
+            check_apt_requirements(["edgetpu-compiler"])
 
-        return export_edgetpu_model(tflite_model, self.metadata, prefix)
+        ver = subprocess.run(cmd, shell=True, capture_output=True, check=True).stdout.decode().rsplit(maxsplit=1)[-1]
+        LOGGER.info(f"\n{prefix} starting export with Edge TPU compiler {ver}...")
+        tflite2edgetpu(tflite_file=tflite_model, output_dir=tflite_model.parent, prefix=prefix)
+        f = str(tflite_model).replace(".tflite", "_edgetpu.tflite")  # Edge TPU model
+        self._add_tflite_metadata(f)
+        return f
 
     @try_export
     def export_tfjs(self, prefix=colorstr("TensorFlow.js:")):
@@ -1060,9 +1117,10 @@ class Exporter:
 
     def _add_tflite_metadata(self, file):
         """Add metadata to *.tflite models per https://ai.google.dev/edge/litert/models/metadata."""
-        from ultralytics.utils.export.tensorflow import add_tflite_metadata
+        import zipfile
 
-        add_tflite_metadata(file, self.metadata)
+        with zipfile.ZipFile(file, "a", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("metadata.json", json.dumps(self.metadata, indent=2))
 
     @staticmethod
     def _transform_fn(data_item) -> np.ndarray:
