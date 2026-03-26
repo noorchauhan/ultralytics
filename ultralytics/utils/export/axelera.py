@@ -8,7 +8,7 @@ from typing import Any, Callable
 from ultralytics.utils import LOGGER, YAML
 
 
-def torch2axelera(
+def onnx2axelera(
     onnx_file: str,
     compile_config=None,
     metadata: dict | None = None,

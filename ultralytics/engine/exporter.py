@@ -1016,7 +1016,7 @@ class Exporter:
                 cmds="--extra-index-url https://software.axelera.ai/artifactory/axelera-runtime-pypi "
                 "--extra-index-url https://software.axelera.ai/artifactory/axelera-dev-pypi",
             )
-        from ultralytics.utils.export import torch2axelera
+        from ultralytics.utils.export import onnx2axelera
 
         self.args.opset = 17  # hardcode opset for Axelera
         onnx_path = self.export_onnx()
@@ -1044,7 +1044,7 @@ class Exporter:
                 output_axm_format=True,
                 model_name=model_name,
             )
-        export_path = torch2axelera(
+        export_path = onnx2axelera(
             onnx_file=onnx_path,
             compile_config=config,
             metadata=self.metadata,
@@ -1271,6 +1271,3 @@ class NMSModel(torch.nn.Module):
             pad = (0, 0, 0, self.args.max_det - dets.shape[0])
             out[i] = torch.nn.functional.pad(dets, pad)
         return (out[:bs], preds[1]) if self.model.task == "segment" else out[:bs]
-
-
-# Backward compatibility for downstream imports from ultralytics.engine.exporter.
