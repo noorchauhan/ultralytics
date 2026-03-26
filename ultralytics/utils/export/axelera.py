@@ -19,8 +19,8 @@ def onnx2axelera(
     """Export an ONNX model to Axelera format.
 
     Args:
-        f_onnx (str): Path to the source ONNX file (already exported).
-        model_str (str): String representation of the model (``str(model)``) for architecture detection.
+        onnx_file (str): Path to the source ONNX file (already exported).
+        compile_config: Compiler configuration object. If None, a default ``CompilerConfig`` is created.
         metadata (dict | None): Metadata saved as ``metadata.yaml``.
         calibration_dataset: Dataloader for INT8 calibration.
         transform_fn: Transformation function applied to calibration batches.
