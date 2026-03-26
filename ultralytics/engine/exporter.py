@@ -127,6 +127,7 @@ from ultralytics.utils.nms import TorchNMS
 from ultralytics.utils.ops import Profile
 from ultralytics.utils.patches import arange_patch
 from ultralytics.utils.torch_utils import (
+    TORCH_1_11,
     TORCH_1_13,
     TORCH_2_9,
     select_device,
@@ -755,7 +756,7 @@ class Exporter:
     def export_coreml(self, prefix=colorstr("CoreML:")):
         """Export YOLO model to CoreML format."""
         mlmodel = self.args.format.lower() == "mlmodel"  # legacy *.mlmodel export format requested
-        from ultralytics.utils.export.coreml import IOSDetectModel, pipeline_coreml
+        from ultralytics.utils.export.coreml import IOSDetectModel, pipeline_coreml, torch2coreml
 
         check_requirements(
             ["coremltools>=9.0", "numpy>=1.14.5,<=2.3.5"]
@@ -789,7 +790,6 @@ class Exporter:
                 LOGGER.warning(f"{prefix} 'nms=True' is only available for Detect models like 'yolo26n.pt'.")
                 # TODO CoreML Segment and Pose model pipelining
             model = self.model
-        ts = torch.jit.trace(model.eval(), self.im, strict=False)  # TorchScript model
 
         if self.args.dynamic:
             input_shape = ct.Shape(
@@ -804,37 +804,21 @@ class Exporter:
         else:
             inputs = [ct.ImageType("image", shape=self.im.shape, scale=1 / 255, bias=[0.0, 0.0, 0.0])]
 
-        # Based on apple's documentation it is better to leave out the minimum_deployment target and let that get set
-        # Internally based on the model conversion and output type.
-        # Setting minimum_deployment_target >= iOS16 will require setting compute_precision=ct.precision.FLOAT32.
-        # iOS16 adds in better support for FP16, but none of the CoreML NMS specifications handle FP16 as input.
-        ct_model = ct.convert(
-            ts,
+        ct_model = torch2coreml(
+            model=model,
             inputs=inputs,
-            classifier_config=classifier_config,
-            convert_to="neuralnetwork" if mlmodel else "mlprogram",
+            im=self.im,
+            classifier_names=list(self.model.names.values()) if self.model.task == "classify" else None,
+            mlmodel=mlmodel,
+            half=self.args.half,
+            int8=self.args.int8,
+            metadata=self.metadata,
+            prefix=prefix,
         )
-        bits, mode = (8, "kmeans") if self.args.int8 else (16, "linear") if self.args.half else (32, None)
-        if bits < 32:
-            if "kmeans" in mode:
-                check_requirements("scikit-learn")  # scikit-learn package required for k-means quantization
-            if mlmodel:
-                ct_model = ct.models.neural_network.quantization_utils.quantize_weights(ct_model, bits, mode)
-            elif bits == 8:  # mlprogram already quantized to FP16
-                import coremltools.optimize.coreml as cto
 
-                op_config = cto.OpPalettizerConfig(mode="kmeans", nbits=bits, weight_threshold=512)
-                config = cto.OptimizationConfig(global_config=op_config)
-                ct_model = cto.palettize_weights(ct_model, config=config)
         if self.args.nms and self.model.task == "detect":
             ct_model = pipeline_coreml(ct_model, weights_dir=None if mlmodel else ct_model.weights_dir)
 
-        m = self.metadata  # metadata dict
-        ct_model.short_description = m.pop("description")
-        ct_model.author = m.pop("author")
-        ct_model.license = m.pop("license")
-        ct_model.version = m.pop("version")
-        ct_model.user_defined_metadata.update({k: str(v) for k, v in m.items()})
         if self.model.task == "classify":
             ct_model.user_defined_metadata.update({"com.apple.coreml.model.preview.type": "imageClassifier"})
 

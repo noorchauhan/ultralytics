@@ -168,8 +168,8 @@ def torch2coreml(
     inputs: list,
     im: torch.Tensor,
     classifier_names: list[str] | None,
-    file: Path | str,
-    fmt: str = "mlpackage",
+    coreml_file: Path | str | None,
+    mlmodel: bool = False,
     half: bool = False,
     int8: bool = False,
     metadata: dict | None = None,
@@ -198,8 +198,6 @@ def torch2coreml(
     Returns:
         (Path): Path to the exported CoreML model file/directory.
     """
-    # TODO: remove this?
-    mlmodel = fmt.lower() == "mlmodel"  # legacy *.mlmodel export format requested
     import coremltools as ct
 
     LOGGER.info(f"\n{prefix} starting export with coremltools {ct.__version__}...")
@@ -207,6 +205,10 @@ def torch2coreml(
     if classifier_names:
         classifier_config = ct.ClassifierConfig(classifier_names)
 
+    # Based on apple's documentation it is better to leave out the minimum_deployment target and let that get set
+    # Internally based on the model conversion and output type.
+    # Setting minimum_deployment_target >= iOS16 will require setting compute_precision=ct.precision.FLOAT32.
+    # iOS16 adds in better support for FP16, but none of the CoreML NMS specifications handle FP16 as input.
     ct_model = ct.convert(
         ts,
         inputs=inputs,
@@ -231,13 +233,14 @@ def torch2coreml(
     ct_model.version = m.pop("version", "")
     ct_model.user_defined_metadata.update({k: str(v) for k, v in m.items()})
 
-    try:
-        ct_model.save(str(file))  # save *.mlpackage
-    except Exception as e:
-        LOGGER.warning(
-            f"{prefix} CoreML export to *.mlpackage failed ({e}), reverting to *.mlmodel export. "
-            f"Known coremltools Python 3.11 and Windows bugs https://github.com/apple/coremltools/issues/1928."
-        )
-        file = Path(file).with_suffix(".mlmodel")
-        ct_model.save(str(file))
-    return file
+    if coreml_file is not None:
+        try:
+            ct_model.save(str(coreml_file))  # save *.mlpackage
+        except Exception as e:
+            LOGGER.warning(
+                f"{prefix} CoreML export to *.mlpackage failed ({e}), reverting to *.mlmodel export. "
+                f"Known coremltools Python 3.11 and Windows bugs https://github.com/apple/coremltools/issues/1928."
+            )
+            coreml_file = Path(coreml_file).with_suffix(".mlmodel")
+            ct_model.save(str(coreml_file))
+    return ct_model
