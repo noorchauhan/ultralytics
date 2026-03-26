@@ -111,16 +111,19 @@ from ultralytics.utils.checks import (
     is_intel,
 )
 from ultralytics.utils.export import (
+    best_onnx_opset,
     keras2pb,
     onnx2engine,
     pb2tfjs,
     torch2executorch,
     torch2imx,
+    torch2onnx,
 )
 from ultralytics.utils.files import file_size
 from ultralytics.utils.metrics import batch_probiou
 from ultralytics.utils.nms import TorchNMS
 from ultralytics.utils.ops import Profile
+from ultralytics.utils.patches import arange_patch
 from ultralytics.utils.torch_utils import (
     TORCH_1_13,
     TORCH_2_9,
@@ -604,28 +607,74 @@ class Exporter:
     @try_export
     def export_onnx(self, prefix=colorstr("ONNX:")):
         """Export YOLO model to ONNX format."""
-        from ultralytics.utils.export.onnx import export_onnx_model
+        requirements = ["onnx>=1.12.0,<2.0.0"]
+        if self.args.simplify:
+            requirements += ["onnxslim>=0.1.71", "onnxruntime" + ("-gpu" if torch.cuda.is_available() else "")]
+        check_requirements(requirements)
+        import onnx
 
-        # Handle OBB NMS special case: set opset and force simplify
+        opset = self.args.opset or best_onnx_opset(onnx, cuda="cuda" in self.device.type)
+        LOGGER.info(f"\n{prefix} starting export with onnx {onnx.__version__} opset {opset}...")
+
+        f = str(self.file.with_suffix(".onnx"))
+        output_names = ["output0", "output1"] if self.model.task == "segment" else ["output0"]
+        dynamic = self.args.dynamic
+        if dynamic:
+            dynamic = {"images": {0: "batch", 2: "height", 3: "width"}}
+            if self.model.task == "segment":
+                dynamic["output0"] = {0: "batch", 2: "anchors"}
+                dynamic["output1"] = {0: "batch", 2: "mask_height", 3: "mask_width"}
+            elif self.model.task in {"detect", "pose", "obb"}:
+                dynamic["output0"] = {0: "batch", 2: "anchors"}
+            if self.args.nms:
+                dynamic["output0"].pop(2, None)
+
+        # Preserve the resolved opset because NMSModel reads args.opset during OBB export.
         if self.args.nms and self.model.task == "obb":
+            self.args.opset = opset
             self.args.simplify = True  # fix OBB runtime error related to topk
 
-        model = NMSModel(self.model, self.args) if self.args.nms else self.model
-        return export_onnx_model(
-            model,
-            self.im,
-            self.file,
-            opset=self.args.opset,
-            dynamic=self.args.dynamic,
-            half=self.args.half,
-            simplify=self.args.simplify,
-            nms=self.args.nms,
-            fmt=self.args.format,
-            metadata=self.metadata,
-            device=self.device,
-            task=self.model.task,
-            prefix=prefix,
-        )
+        with arange_patch(dynamic=bool(dynamic), half=self.args.half, fmt=self.args.format):
+            torch2onnx(
+                NMSModel(self.model, self.args) if self.args.nms else self.model,
+                self.im,
+                f,
+                opset=opset,
+                input_names=["images"],
+                output_names=output_names,
+                dynamic=dynamic or None,
+            )
+
+        model_onnx = onnx.load(f)
+
+        if self.args.simplify:
+            try:
+                import onnxslim
+
+                LOGGER.info(f"{prefix} slimming with onnxslim {onnxslim.__version__}...")
+                model_onnx = onnxslim.slim(model_onnx)
+            except Exception as e:
+                LOGGER.warning(f"{prefix} simplifier failure: {e}")
+
+        for k, v in self.metadata.items():
+            meta = model_onnx.metadata_props.add()
+            meta.key, meta.value = k, str(v)
+
+        if getattr(model_onnx, "ir_version", 0) > 10:
+            LOGGER.info(f"{prefix} limiting IR version {model_onnx.ir_version} to 10 for ONNXRuntime compatibility...")
+            model_onnx.ir_version = 10
+
+        if self.args.half and self.args.format == "onnx" and self.device.type == "cpu":
+            try:
+                from onnxruntime.transformers import float16
+
+                LOGGER.info(f"{prefix} converting to FP16...")
+                model_onnx = float16.convert_float_to_float16(model_onnx, keep_io_types=True)
+            except Exception as e:
+                LOGGER.warning(f"{prefix} FP16 conversion failure: {e}")
+
+        onnx.save(model_onnx, f)
+        return f
 
     @try_export
     def export_openvino(self, prefix=colorstr("OpenVINO:")):
@@ -1039,3 +1088,7 @@ class NMSModel(torch.nn.Module):
             pad = (0, 0, 0, self.args.max_det - dets.shape[0])
             out[i] = torch.nn.functional.pad(dets, pad)
         return (out[:bs], preds[1]) if self.model.task == "segment" else out[:bs]
+
+
+# Backward compatibility for downstream imports from ultralytics.engine.exporter.
+from ultralytics.utils.export.coreml import IOSDetectModel

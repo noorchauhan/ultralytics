@@ -2,12 +2,11 @@
 
 from .axelera import torch2axelera
 from .coreml import IOSDetectModel, torch2coreml
-from .engine import onnx2engine, torch2onnx
+from .engine import best_onnx_opset, onnx2engine, torch2onnx
 from .executorch import torch2executorch
 from .imx import torch2imx
 from .mnn import onnx2mnn
 from .ncnn import torch2ncnn
-from .onnx import best_onnx_opset, export_onnx_model
 from .openvino import torch2openvino
 from .paddle import torch2paddle
 from .rknn import onnx2rknn
@@ -27,7 +26,6 @@ __all__ = [
     "add_tflite_metadata",
     "best_onnx_opset",
     "export_edgetpu_model",
-    "export_onnx_model",
     "keras2pb",
     "onnx2engine",
     "onnx2mnn",

@@ -13,8 +13,4 @@ keywords: TODO ADD KEYWORDS
 
 ## ::: ultralytics.utils.export.onnx.best_onnx_opset
 
-<br><br><hr><br>
-
-## ::: ultralytics.utils.export.onnx.export_onnx_model
-
 <br><br>
