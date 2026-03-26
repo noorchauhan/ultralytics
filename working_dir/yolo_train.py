@@ -1,6 +1,7 @@
 import torch
 import argparse
-from ultralytics import RTDETR, RTDETRDEIM, RTDETRDEIMv2, YOLO
+from ultralytics import RTDETR, YOLO
+from ultralytics import RTDETRDEIM, RTDETRDEIMv2
 import yaml
 
 

@@ -391,8 +391,16 @@ BENCHMARKS = {
                 ("l", 8.6, {"ap": 54.3, "ap50": 72.3, "ap75": 58.8, "ap_small": 37.5, "ap_medium": 58.7, "ap_large": 70.8}),
                 ("x", 13.8, {"ap": 55.5, "ap50": 73.5, "ap75": 60.3, "ap_small": 37.9, "ap_medium": 59.9, "ap_large": 73.0}),
             ],
+            # "D-FINE": [
+            #     # D-FINE official training logs (COCO-only); latency from DEIMv1 D-FINE t4 measurements
+            #     ("n", 2.0, {"ap": 42.8, "ap50": 60.3, "ap75": 45.5, "ap_small": 22.9, "ap_medium": 46.8, "ap_large": 62.1}),
+            #     ("s", 3.7, {"ap": 48.5, "ap50": 65.6, "ap75": 52.6, "ap_small": 29.1, "ap_medium": 52.2, "ap_large": 65.4}),
+            #     ("m", 5.6, {"ap": 52.3, "ap50": 69.8, "ap75": 56.4, "ap_small": 33.2, "ap_medium": 56.5, "ap_large": 70.2}),
+            #     ("l", 8.0, {"ap": 54.0, "ap50": 71.6, "ap75": 58.4, "ap_small": 36.5, "ap_medium": 58.0, "ap_large": 71.9}),
+            #     ("x", 13.6, {"ap": 55.8, "ap50": 73.7, "ap75": 60.2, "ap_small": 37.3, "ap_medium": 60.5, "ap_large": 73.4}),
+            # ],
             "D-FINE (obj365)": [
-                # D-FINE README Objects365+COCO results; latency from DEIMv1 D-FINE t4 measurements
+                # D-FINE official training logs (Objects365+COCO); latency from DEIMv1 D-FINE t4 measurements
                 ("s", 3.7, {"ap": 50.7, "ap50": 67.6, "ap75": 55.1, "ap_small": 32.7, "ap_medium": 54.6, "ap_large": 66.5}),
                 ("m", 5.6, {"ap": 55.1, "ap50": 72.6, "ap75": 59.7, "ap_small": 37.9, "ap_medium": 59.4, "ap_large": 71.7}),
                 ("l", 8.0, {"ap": 57.3, "ap50": 74.9, "ap75": 62.3, "ap_small": 40.6, "ap_medium": 61.5, "ap_large": 73.7}),
