@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from ultralytics.utils import YAML, LOGGER
+from ultralytics.utils import LOGGER, YAML
 
 
 def torch2axelera(
@@ -29,7 +29,6 @@ def torch2axelera(
     Returns:
         (Path): Path to the exported ``_axelera_model`` directory.
     """
-
     from axelera import compiler
 
     LOGGER.info(f"\n{prefix} starting export with axelera...")
