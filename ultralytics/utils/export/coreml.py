@@ -196,8 +196,6 @@ def torch2coreml(
 
     LOGGER.info(f"\n{prefix} starting export with coremltools {ct.__version__}...")
     ts = torch.jit.trace(model.eval(), im, strict=False)  # TorchScript model
-    if classifier_names:
-        classifier_config = ct.ClassifierConfig(classifier_names)
 
     # Based on apple's documentation it is better to leave out the minimum_deployment target and let that get set
     # Internally based on the model conversion and output type.
@@ -206,7 +204,7 @@ def torch2coreml(
     ct_model = ct.convert(
         ts,
         inputs=inputs,
-        classifier_config=classifier_config,
+        classifier_config=ct.ClassifierConfig(classifier_names) if classifier_names else None,
         convert_to="neuralnetwork" if mlmodel else "mlprogram",
     )
     bits, mode = (8, "kmeans") if int8 else (16, "linear") if half else (32, None)
