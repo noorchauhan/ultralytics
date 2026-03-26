@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: TorchScript export utilities for converting PyTorch YOLO models to TorchScript format. Supports mobile optimization and metadata embedding for production deployment and C++ inference.
+keywords: Ultralytics, TorchScript, model export, PyTorch, JIT trace, mobile optimization, production deployment, C++ inference, libtorch, model serialization
 ---
 
 # Reference for `ultralytics/utils/export/torchscript.py`

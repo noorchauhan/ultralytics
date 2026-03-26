@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: OpenVINO export utilities for converting PyTorch YOLO models to OpenVINO format with support for FP16 compression and INT8 quantization via NNCF. Provides optimized inference for Intel hardware including CPUs, GPUs, and VPUs.
+keywords: Ultralytics, OpenVINO, model export, PyTorch to OpenVINO, INT8 quantization, FP16, NNCF, Intel, model optimization, inference acceleration, CPU inference, GPU inference, VPU, edge deployment
 ---
 
 # Reference for `ultralytics/utils/export/openvino.py`

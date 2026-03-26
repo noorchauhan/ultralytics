@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: Axelera export utilities for converting ONNX models to Axelera format for deployment on Metis AI processors. Supports INT8 quantization and optimized inference for computer vision workloads on Axelera hardware.
+keywords: Ultralytics, Axelera, model export, ONNX to Axelera, Metis AI processor, INT8 quantization, computer vision, AI inference, edge AI, hardware acceleration
 ---
 
 # Reference for `ultralytics/utils/export/axelera.py`
