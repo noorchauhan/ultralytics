@@ -630,8 +630,6 @@ class Exporter:
                 dynamic["output0"] = {0: "batch", 2: "anchors"}  # shape(1, 84, 8400)
             if self.args.nms:  # only batch size is dynamic with NMS
                 dynamic["output0"].pop(2)
-
-        # Preserve the resolved opset because NMSModel reads args.opset during OBB export.
         if self.args.nms and self.model.task == "obb":
             self.args.opset = opset  # for NMSModel
             self.args.simplify = True  # fix OBB runtime error related to topk
@@ -646,6 +644,7 @@ class Exporter:
                 output_names=output_names,
                 dynamic=dynamic or None,
             )
+
         # Checks
         model_onnx = onnx.load(f)  # load onnx model
 
@@ -670,6 +669,7 @@ class Exporter:
             LOGGER.info(f"{prefix} limiting IR version {model_onnx.ir_version} to 10 for ONNXRuntime compatibility...")
             model_onnx.ir_version = 10
 
+        # FP16 conversion for CPU export (GPU exports are already FP16 from model.half() during tracing)
         if self.args.half and self.args.format == "onnx" and self.device.type == "cpu":
             try:
                 from onnxruntime.transformers import float16
