@@ -168,7 +168,7 @@ def torch2coreml(
     inputs: list,
     im: torch.Tensor,
     classifier_names: list[str] | None,
-    coreml_file: Path | str | None,
+    coreml_file: Path | str | None = None,
     mlmodel: bool = False,
     half: bool = False,
     int8: bool = False,
