@@ -1003,18 +1003,56 @@ class Exporter:
     @try_export
     def export_axelera(self, prefix=colorstr("Axelera:")):
         """Export YOLO model to Axelera format."""
-        from ultralytics.utils.export.axelera import torch2axelera
+        os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+        try:
+            from axelera.compiler import CompilerConfig
+        except ImportError:
+            check_apt_requirements(
+                ["libllvm14", "libgirepository1.0-dev", "pkg-config", "libcairo2-dev", "build-essential", "cmake"]
+            )
+
+            check_requirements(
+                "axelera-voyager-sdk==1.5.2",
+                cmds="--extra-index-url https://software.axelera.ai/artifactory/axelera-runtime-pypi "
+                "--extra-index-url https://software.axelera.ai/artifactory/axelera-dev-pypi",
+            )
+        from ultralytics.utils.export import torch2axelera
 
         self.args.opset = 17  # hardcode opset for Axelera
-        f_onnx = self.export_onnx()
-        return torch2axelera(
-            f_onnx,
-            str(self.model),
+        onnx_path = self.export_onnx()
+        model_name = Path(onnx_path).stem
+        export_path = Path(f"{model_name}_axelera_model")
+        export_path.mkdir(exist_ok=True)
+
+        if "C2PSA" in self.model.__str__():  # YOLO11
+            config = CompilerConfig(
+                quantization_scheme="per_tensor_min_max",
+                ignore_weight_buffers=False,
+                resources_used=0.25,
+                aipu_cores_used=1,
+                multicore_mode="batch",
+                output_axm_format=True,
+                model_name=model_name,
+            )
+        else:  # YOLOv8
+            config = CompilerConfig(
+                tiling_depth=6,
+                split_buffer_promotion=True,
+                resources_used=0.25,
+                aipu_cores_used=1,
+                multicore_mode="batch",
+                output_axm_format=True,
+                model_name=model_name,
+            )
+        export_path = torch2axelera(
+            onnx_file=onnx_path,
+            compile_config=config,
             metadata=self.metadata,
             calibration_dataset=self.get_int8_calibration_dataloader(prefix),
             transform_fn=self._transform_fn,
             prefix=prefix,
         )
+        return export_path
 
     @try_export
     def export_executorch(self, prefix=colorstr("ExecuTorch:")):
