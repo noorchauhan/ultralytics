@@ -667,10 +667,11 @@ class Exporter:
             data=data,
             fraction=self.args.fraction,
             task=self.model.task,
-            imgsz=self.imgsz[0],
+            imgsz=max(self.imgsz),
             augment=False,
             batch_size=self.args.batch,
         )
+        dataset.transforms = dataset.build_transforms(self.args)
         n = len(dataset)
         if n < 1:
             raise ValueError(f"The calibration dataset must have at least 1 image, but found {n} images.")
