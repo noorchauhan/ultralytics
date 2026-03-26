@@ -341,9 +341,10 @@ class RTDETRDEIMDataset(RTDETRDataset):
         self.mosaic_prob = float(hyp.mosaic)
         self.mixup_prob = float(hyp.mixup)
         self.copyblend_prob = float(hyp.copy_paste)
+        self.uses_deim_batch_augments = False
         super().__init__(*args, data=data, **kwargs)
         if self.augment:
-            if self.mixup_prob > 0.0 or self.copyblend_prob > 0.0:
+            if self.rtdetr_augmentations and (self.mixup_prob > 0.0 or self.copyblend_prob > 0.0):
                 self.collate_fn = _RTDETRDEIMBatchAugment(
                     mixup_prob=self.mixup_prob,
                     mixup_epochs=self.mixup_epochs,
@@ -351,6 +352,7 @@ class RTDETRDEIMDataset(RTDETRDataset):
                     copyblend_epochs=self.copyblend_epochs,
                     scheduler_mode=self.deim_aug_scheduler,
                 )
+                self.uses_deim_batch_augments = True
             self.set_epoch(0)
 
     def _compute_deim_schedule(self, hyp) -> tuple[tuple[int, int, int], tuple[int, int], tuple[int, int]]:
@@ -405,8 +407,7 @@ class RTDETRDEIMDataset(RTDETRDataset):
         if hasattr(self.transforms, "set_epoch"):
             self.transforms.set_epoch(epoch)
 
-        requires_collate_epoch = self.mixup_prob > 0.0 or self.copyblend_prob > 0.0
-        if requires_collate_epoch:
+        if self.uses_deim_batch_augments:
             self.collate_fn.set_epoch(epoch)
 
 
