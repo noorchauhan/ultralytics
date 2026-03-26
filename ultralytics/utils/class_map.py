@@ -8,10 +8,19 @@ from typing import Mapping
 
 import torch
 
-DEFAULT_CLASS_ALIASES: dict[str, list[str]] = {
-    # COCO -> Obj365 naming differences
-    "bird": ["wild bird"],
-    "sports ball": ["basketball", "soccer", "baseball", "tennis ball", "golf ball"],
+DEFAULT_CLASS_ALIASES: dict[str, str | list[str]] = {
+    # Deterministic COCO -> Obj365 name overrides.
+    # These choices are aligned with the D-FINE Obj365 -> COCO transfer map.
+    "bird": "wild bird",
+    "handbag": "handbag/satchel",
+    "suitcase": "luggage",
+    "bowl": "bowl/basin",
+    "orange": "orange/tangerine",
+    "tv": "monitor/tv",
+    "teddy bear": "stuffed toy",
+    "hair drier": "hair dryer",
+    "skis": "skating and skiing shoes",
+    "sports ball": "baseball",
 }
 
 DEFAULT_CLASS_KEY_HINTS: tuple[str, ...] = ("score_head", "class_embed")
@@ -63,7 +72,7 @@ def normalize_class_name(name: str) -> str:
 
 
 def build_class_row_map(
-    src_names: list[str], dst_names: list[str], aliases: Mapping[str, list[str]] | None = None
+    src_names: list[str], dst_names: list[str], aliases: Mapping[str, str | list[str]] | None = None
 ) -> tuple[dict[int, int], list[tuple[int, str]]]:
     """Build destination->source class row mapping from class-name lists."""
     aliases = aliases or DEFAULT_CLASS_ALIASES
@@ -73,7 +82,10 @@ def build_class_row_map(
     missing: list[tuple[int, str]] = []
     for dst_idx, dst_name in enumerate(dst_names):
         key = normalize_class_name(dst_name)
-        candidates = [key] + [normalize_class_name(x) for x in aliases.get(key, [])]
+        alias_values = aliases.get(key, [])
+        if isinstance(alias_values, str):
+            alias_values = [alias_values]
+        candidates = [key] + [normalize_class_name(x) for x in alias_values]
         src_idx = next((src_norm_to_idx[c] for c in candidates if c in src_norm_to_idx), None)
         if src_idx is None:
             missing.append((dst_idx, dst_name))
@@ -87,7 +99,7 @@ def remap_class_row_state_dict(
     dst_state: Mapping[str, torch.Tensor],
     src_names,
     dst_names,
-    aliases: Mapping[str, list[str]] | None = None,
+    aliases: Mapping[str, str | list[str]] | None = None,
     key_hints: tuple[str, ...] = DEFAULT_CLASS_KEY_HINTS,
 ) -> tuple[dict[str, torch.Tensor], list[tuple[str, tuple[int, ...], tuple[int, ...]]], list[tuple[int, str]]]:
     """Remap class-row tensors from src_state to dst_state using class-name matching."""
