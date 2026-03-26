@@ -946,9 +946,6 @@ class Exporter:
             callback(self)
 
 
-# Re-export IOSDetectModel for backward compatibility
-
-
 class NMSModel(torch.nn.Module):
     """Model wrapper with embedded NMS for Detect, Segment, Pose and OBB."""
 
