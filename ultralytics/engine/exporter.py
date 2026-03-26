@@ -63,9 +63,9 @@ TensorFlow.js:
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import time
-import shutil
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -89,11 +89,11 @@ from ultralytics.utils import (
     IS_RASPBERRYPI,
     IS_UBUNTU,
     LINUX,
-    WINDOWS,
     LOGGER,
     RKNN_CHIPS,
     SETTINGS,
     TORCH_VERSION,
+    WINDOWS,
     YAML,
     callbacks,
     colorstr,
@@ -779,9 +779,8 @@ class Exporter:
         if f.is_dir():
             shutil.rmtree(f)
 
-        classifier_config = None
         if self.model.task == "classify":
-            classifier_config = ct.ClassifierConfig(list(self.model.names.values()))
+            ct.ClassifierConfig(list(self.model.names.values()))
             model = self.model
         elif self.model.task == "detect":
             model = IOSDetectModel(self.model, self.im, mlprogram=not mlmodel) if self.args.nms else self.model

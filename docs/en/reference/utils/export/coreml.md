@@ -15,7 +15,7 @@ keywords: TODO ADD KEYWORDS
 
 <br><br><hr><br>
 
-## ::: ultralytics.utils.export.coreml._pipeline_coreml
+## ::: ultralytics.utils.export.coreml.pipeline_coreml
 
 <br><br><hr><br>
 
