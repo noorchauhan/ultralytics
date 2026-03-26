@@ -179,24 +179,18 @@ def torch2coreml(
 
     Args:
         model (nn.Module): The PyTorch model to export.
-        im (torch.Tensor): Example input tensor.
-        file (Path | str): Source model path used to derive the output path.
-        output_shape (tuple): Model output shape used by the NMS pipeline.
-        fmt (str): Export format (``"mlmodel"`` or ``"mlpackage"``).
-        batch (int): Batch size.
-        dynamic (bool): Whether to use dynamic input shapes.
-        nms (bool): Whether to add NMS pipeline.
+        inputs (list): CoreML input descriptions for the model.
+        im (torch.Tensor): Example input tensor for tracing.
+        classifier_names (list[str] | None): Class names for classifier config, or None if not a classifier.
+        coreml_file (Path | str | None): Output file path, or None to skip saving.
+        mlmodel (bool): Whether to export as ``.mlmodel`` (neural network) instead of ``.mlpackage`` (ML program).
         half (bool): Whether to quantize to FP16.
         int8 (bool): Whether to quantize to INT8.
-        iou (float): IoU threshold for NMS pipeline.
-        conf (float): Confidence threshold for NMS pipeline.
-        agnostic_nms (bool): Whether to use class-agnostic NMS.
         metadata (dict | None): Metadata to embed in the CoreML model.
-        imgsz (list | None): Image size ``[h, w]``.
         prefix (str): Prefix for log messages.
 
     Returns:
-        (Path): Path to the exported CoreML model file/directory.
+        (ct.models.MLModel): The converted CoreML model.
     """
     import coremltools as ct
 
