@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from ultralytics.utils import YAML
+from ultralytics.utils import YAML, LOGGER
 
 
 def torch2axelera(
-    f_onnx: str,
-    model_str: str,
+    onnx_file: str,
+    compile_config=None,
     metadata: dict | None = None,
     calibration_dataset: Any | None = None,
     transform_fn: Callable | None = None,
@@ -29,42 +29,19 @@ def torch2axelera(
     Returns:
         (Path): Path to the exported ``_axelera_model`` directory.
     """
-    import os
-
-    os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-    try:
-        from axelera import compiler
-    except ImportError:
-        from ultralytics.utils.checks import check_apt_requirements, check_requirements
-
-        check_apt_requirements(
-            ["libllvm14", "libgirepository1.0-dev", "pkg-config", "libcairo2-dev", "build-essential", "cmake"]
-        )
-        check_requirements(
-            "axelera-voyager-sdk==1.5.2",
-            cmds="--extra-index-url https://software.axelera.ai/artifactory/axelera-runtime-pypi "
-            "--extra-index-url https://software.axelera.ai/artifactory/axelera-dev-pypi",
-        )
 
     from axelera import compiler
-    from axelera.compiler import CompilerConfig
 
-    model_name = Path(f_onnx).stem
+    LOGGER.info(f"\n{prefix} starting export with axelera...")
+
+    model_name = Path(onnx_file).stem
     export_path = Path(f"{model_name}_axelera_model")
     export_path.mkdir(exist_ok=True)
 
-    if "C2PSA" in model_str:  # YOLO11
-        config = CompilerConfig(
-            quantization_scheme="per_tensor_min_max",
-            ignore_weight_buffers=False,
-            resources_used=0.25,
-            aipu_cores_used=1,
-            multicore_mode="batch",
-            output_axm_format=True,
-            model_name=model_name,
-        )
-    else:  # YOLOv8
-        config = CompilerConfig(
+    if compile_config is None:
+        from axelera.compiler import CompilerConfig
+
+        compile_config = CompilerConfig(
             tiling_depth=6,
             split_buffer_promotion=True,
             resources_used=0.25,
@@ -75,12 +52,12 @@ def torch2axelera(
         )
 
     qmodel = compiler.quantize(
-        model=f_onnx,
+        model=onnx_file,
         calibration_dataset=calibration_dataset,
-        config=config,
+        config=compile_config,
         transform_fn=transform_fn,
     )
-    compiler.compile(model=qmodel, config=config, output_dir=export_path)
+    compiler.compile(model=qmodel, config=compile_config, output_dir=export_path)
 
     axm_name = f"{model_name}.axm"
     axm_src = Path(axm_name)
@@ -88,5 +65,6 @@ def torch2axelera(
     if axm_src.exists():
         axm_src.replace(axm_dst)
 
-    YAML.save(export_path / "metadata.yaml", metadata or {})
+    if metadata:
+        YAML.save(export_path / "metadata.yaml", metadata)
     return export_path
