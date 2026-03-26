@@ -1384,11 +1384,23 @@ class SafeClass:
         pass
 
 
+class UnsafePickleError(ValueError):
+    """Structured error raised when SafeUnpickler blocks a pickle global."""
+
+    def __init__(self, kind, module, name):
+        """Store the blocked pickle global for downstream handling."""
+        self.kind = kind
+        self.module = module
+        self.name = name
+        super().__init__(f"Unsafe pickle: blocked {kind} '{module}.{name}'")
+
+
 # Module prefixes allowed in pickle streams. Each entry matches exactly or as a dot-separated prefix
 # (e.g. "torch" matches "torch.nn.modules.conv" but not "torchevil").
 _SAFE_MODULES = frozenset(
     {
         "torch",
+        "torchvision",
         "ultralytics.nn",
         "numpy",
         "collections",
@@ -1415,6 +1427,7 @@ _SAFE_BUILTIN_NAMES = frozenset(
         "bool",
         "complex",
         "slice",
+        "type",
         "range",
         "enumerate",
         "zip",
@@ -1455,16 +1468,16 @@ class SafeUnpickler(pickle.Unpickler):
             (type): Found class or SafeClass.
 
         Raises:
-            ValueError: If strict=True and the module or builtin name is not in the allowlist.
+            UnsafePickleError: If strict=True and the module or builtin name is not in the allowlist.
         """
         if module in ("__builtin__", "builtins"):
             if name not in _SAFE_BUILTIN_NAMES:
                 if self.strict:
-                    raise ValueError(f"Unsafe pickle: blocked builtin '{module}.{name}'")
+                    raise UnsafePickleError("builtin", module, name)
                 return SafeClass
         elif not _is_module_allowed(module):
             if self.strict:
-                raise ValueError(f"Unsafe pickle: blocked module '{module}.{name}'")
+                raise UnsafePickleError("module", module, name)
             return SafeClass
         return super().find_class(module, name)
 
