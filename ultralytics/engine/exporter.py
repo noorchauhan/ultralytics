@@ -758,12 +758,10 @@ class Exporter:
         mlmodel = self.args.format.lower() == "mlmodel"  # legacy *.mlmodel export format requested
         from ultralytics.utils.export.coreml import IOSDetectModel, pipeline_coreml, torch2coreml
 
-        check_requirements(
-            ["coremltools>=9.0", "numpy>=1.14.5,<=2.3.5"]
-        )  # latest numpy 2.4.0rc1 breaks coremltools exports
+        # latest numpy 2.4.0rc1 breaks coremltools exports
+        check_requirements(["coremltools>=9.0", "numpy>=1.14.5,<=2.3.5"])
         import coremltools as ct
 
-        LOGGER.info(f"\n{prefix} starting export with coremltools {ct.__version__}...")
         assert not WINDOWS, "CoreML export is not supported on Windows, please run on macOS or Linux."
         assert TORCH_1_11, "CoreML export requires torch>=1.11"
         if self.args.batch > 1:
@@ -779,10 +777,7 @@ class Exporter:
         if f.is_dir():
             shutil.rmtree(f)
 
-        if self.model.task == "classify":
-            ct.ClassifierConfig(list(self.model.names.values()))
-            model = self.model
-        elif self.model.task == "detect":
+        if self.model.task == "detect":
             model = IOSDetectModel(self.model, self.im, mlprogram=not mlmodel) if self.args.nms else self.model
         else:
             if self.args.nms:
