@@ -671,7 +671,8 @@ class Exporter:
             augment=False,
             batch_size=self.args.batch,
         )
-        dataset.transforms = dataset.build_transforms(self.args)
+        if hasattr(dataset.transforms.transforms[0], "new_shape"):
+            dataset.transforms.transforms[0].new_shape = self.imgsz  # LetterBox with non-square imgsz
         n = len(dataset)
         if n < 1:
             raise ValueError(f"The calibration dataset must have at least 1 image, but found {n} images.")
