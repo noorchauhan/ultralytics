@@ -62,11 +62,13 @@ def onnx2deepx(
     with open(config_path, "w") as file:
         json.dump(config, file)
 
-    dx_com.compile(model=str(onnx_file), 
-                   output_dir=str(export_path), 
-                   config=str(config_path),
-                   calibration_method = 'ema', 
-                   opt_level = 0)
+    dx_com.compile(
+        model=str(onnx_file),
+        output_dir=str(export_path),
+        config=str(config_path),
+        calibration_method="ema",
+        opt_level=0,
+    )
 
     if metadata is not None:
         YAML.save(export_path / "metadata.yaml", metadata)
