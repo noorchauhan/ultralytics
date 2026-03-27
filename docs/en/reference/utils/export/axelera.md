@@ -1,6 +1,6 @@
 ---
-description: TODO ADD DESCRIPTION
-keywords: TODO ADD KEYWORDS
+description: Learn how to export Ultralytics YOLO models to Axelera format using torch2axelera. Enable deployment on Axelera AI's Metis AIPU hardware with INT8 quantization.
+keywords: Ultralytics, Axelera, torch2axelera, model export, YOLO export, Metis AIPU, INT8 quantization, Voyager SDK, edge AI deployment
 ---
 
 # Reference for `ultralytics/utils/export/axelera.py`
