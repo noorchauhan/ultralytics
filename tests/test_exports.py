@@ -294,6 +294,7 @@ def test_export_imx():
     file = model.export(format="imx", imgsz=32)
     YOLO(file)(SOURCE, imgsz=32)
 
+
 # @pytest.mark.skipif(True, reason="Disabled for debugging ruamel.yaml installation required by executorch")
 @pytest.mark.skipif(not checks.IS_PYTHON_MINIMUM_3_10 or not TORCH_2_9, reason="Requires Python>=3.10 and Torch>=2.9.0")
 @pytest.mark.skipif(WINDOWS, reason="Skipping test on Windows")
@@ -328,7 +329,8 @@ def test_export_executorch_matrix(task):
     assert metadata_file.exists(), f"ExecuTorch metadata.yaml not found for task '{task}': {metadata_file}"
     # Note: Inference testing skipped as ExecuTorch requires special runtime setup
     shutil.rmtree(file, ignore_errors=True)  # cleanup
-    
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(not TORCH_2_8, reason="Axelera export requires torch>=2.8.0")
 @pytest.mark.skipif(
