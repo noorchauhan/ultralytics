@@ -117,17 +117,6 @@ from ultralytics.utils.checks import (
     is_intel,
     is_sudo_available,
 )
-from ultralytics.utils.export import (
-    best_onnx_opset,
-    keras2pb,
-    onnx2engine,
-    onnx2saved_model,
-    pb2tfjs,
-    tflite2edgetpu,
-    torch2executorch,
-    torch2imx,
-    torch2onnx,
-)
 from ultralytics.utils.files import file_size
 from ultralytics.utils.metrics import batch_probiou
 from ultralytics.utils.nms import TorchNMS
@@ -622,6 +611,8 @@ class Exporter:
         if self.args.simplify:
             requirements += ["onnxslim>=0.1.71", "onnxruntime" + ("-gpu" if torch.cuda.is_available() else "")]
         check_requirements(requirements)
+        from utlralytics.utils.export.engine import torch2onnx, best_onnx_opset
+
         import onnx
 
         opset = self.args.opset or best_onnx_opset(onnx, cuda="cuda" in self.device.type)
@@ -891,6 +882,8 @@ class Exporter:
         check_version(trt.__version__, ">=7.0.0", hard=True)
         check_version(trt.__version__, "!=10.1.0", msg="https://github.com/ultralytics/ultralytics/pull/14239")
 
+        from ultralytics.utils.export.engine import onnx2engine
+
         # Setup and checks
         LOGGER.info(f"\n{prefix} starting export with TensorRT {trt.__version__}...")
         assert Path(f_onnx).exists(), f"failed to export ONNX file: {f_onnx}"
@@ -944,6 +937,8 @@ class Exporter:
             verbose=True,
             msg="https://github.com/ultralytics/ultralytics/issues/5161",
         )
+        from ultralytics.utils.export.tensorflow import onnx2saved_model
+
         f = Path(str(self.file).replace(self.file.suffix, "_saved_model"))
         if f.is_dir():
             shutil.rmtree(f)  # delete output folder
@@ -983,6 +978,8 @@ class Exporter:
     @try_export
     def export_pb(self, keras_model, prefix=colorstr("TensorFlow GraphDef:")):
         """Export YOLO model to TensorFlow GraphDef *.pb format https://github.com/leimao/Frozen-Graph-TensorFlow."""
+        from ultralytics.utils.export.tensorflow import keras2pb
+
         f = self.file.with_suffix(".pb")
         keras2pb(keras_model, f, prefix)
         return f
@@ -1062,6 +1059,8 @@ class Exporter:
         """Export YOLO model to ExecuTorch *.pte format."""
         assert TORCH_2_9, f"ExecuTorch requires torch>=2.9.0 but torch=={TORCH_VERSION} is installed"
         check_executorch_requirements()
+        from ultralytics.utils.export.executorch import torch2executorch
+
         return torch2executorch(self.model, self.file, self.im, metadata=self.metadata, prefix=prefix)
 
     @try_export
@@ -1082,6 +1081,8 @@ class Exporter:
             check_apt_requirements(["edgetpu-compiler"])
 
         ver = subprocess.run(cmd, shell=True, capture_output=True, check=True).stdout.decode().rsplit(maxsplit=1)[-1]
+        from ultralytics.utils.export.tensorflow import tflite2edgetpu
+
         LOGGER.info(f"\n{prefix} starting export with Edge TPU compiler {ver}...")
         tflite2edgetpu(tflite_file=tflite_model, output_dir=tflite_model.parent, prefix=prefix)
         f = str(tflite_model).replace(".tflite", "_edgetpu.tflite")  # Edge TPU model
@@ -1092,6 +1093,7 @@ class Exporter:
     def export_tfjs(self, prefix=colorstr("TensorFlow.js:")):
         """Export YOLO model to TensorFlow.js format."""
         check_requirements("tensorflowjs")
+        from ultralytics.utils.export.tensorflow import pb2tfjs
 
         f = str(self.file).replace(self.file.suffix, "_web_model")  # js dir
         f_pb = str(self.file.with_suffix(".pb"))  # *.pb path
@@ -1130,6 +1132,7 @@ class Exporter:
         )
 
         check_requirements("imx500-converter[pt]>=3.17.3")
+        from ultralytics.utils.export.imx import torch2imx
 
         # Install Java>=17
         try:
