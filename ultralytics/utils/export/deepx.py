@@ -31,7 +31,7 @@ def onnx2deepx(
     try:
         import dx_com
     except ImportError:
-        check_requirements("dx_com")
+        check_requirements("dx_com", cmds="-f https://sdk.deepx.ai/release/dxcom/v2.3.0/index.html")
 
     LOGGER.info(f"\n{prefix} starting export with DeepX...")
 
