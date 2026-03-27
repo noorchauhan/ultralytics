@@ -1,8 +1,8 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 from .axelera import onnx2axelera
-from .coreml import IOSDetectModel, torch2coreml
-from .engine import best_onnx_opset, onnx2engine, torch2onnx
+from .coreml import torch2coreml
+from .engine import onnx2engine, torch2onnx
 from .executorch import torch2executorch
 from .imx import torch2imx
 from .mnn import onnx2mnn
@@ -14,8 +14,6 @@ from .tensorflow import keras2pb, onnx2saved_model, pb2tfjs, tflite2edgetpu
 from .torchscript import torch2torchscript
 
 __all__ = [
-    "IOSDetectModel",
-    "best_onnx_opset",
     "keras2pb",
     "onnx2axelera",
     "onnx2engine",
