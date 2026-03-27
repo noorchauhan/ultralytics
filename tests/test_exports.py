@@ -341,3 +341,11 @@ def test_export_executorch_matrix(task):
     assert metadata_file.exists(), f"ExecuTorch metadata.yaml not found for task '{task}': {metadata_file}"
     # Note: Inference testing skipped as ExecuTorch requires special runtime setup
     shutil.rmtree(file, ignore_errors=True)  # cleanup
+    
+
+@pytest.mark.skipif(not LINUX or ARM64, reason="DeepX export only supported on non-aarch64 Linux")
+def test_export_deepx():
+    """Test YOLO export to DeepX format."""
+    file = YOLO(MODEL).export(format="deepx", imgsz=32, data="coco8.yaml")
+    assert Path(file).exists(), f"DeepX export failed, directory not found: {file}"
+    shutil.rmtree(file, ignore_errors=True)  # cleanup
