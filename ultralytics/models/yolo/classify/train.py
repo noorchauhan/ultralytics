@@ -199,7 +199,7 @@ class ClassificationTrainer(BaseTrainer):
         keys = [f"{prefix}/{x}" for x in self.loss_names]
         if loss_items is None:
             return keys
-        loss_items = [round(float(loss_items.sum()), 5)]
+        loss_items = [round(float(x), 5) for x in loss_items]  # convert tensors to 5 decimal place floats
         return dict(zip(keys, loss_items))
 
     def plot_training_samples(self, batch: dict[str, torch.Tensor], ni: int):
