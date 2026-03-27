@@ -399,18 +399,6 @@ class Exporter:
             if not self.args.int8:
                 LOGGER.warning("Setting int8=True for Axelera mixed-precision export.")
                 self.args.int8 = True
-            if not self.args.data:
-                # Axelera default to task-specific lightweight calibration datasets
-                if model.task in {"segment"}:
-                    self.args.data = "coco128-seg.yaml"
-                elif model.task in {"classify"}:
-                    self.args.data = "imagenet100"
-                elif model.task in {"pose"}:
-                    self.args.data = "coco8-pose.yaml"
-                elif model.task in {"obb"}:
-                    self.args.data = "dota128.yaml"
-                else:
-                    self.args.data = "coco128.yaml"
         if imx:
             if not self.args.int8:
                 LOGGER.warning("IMX export requires int8=True, setting int8=True.")
@@ -1175,6 +1163,17 @@ class Exporter:
             "export is only supported on Linux and is not supported on ARM64 Docker."
         )
         assert TORCH_2_8, "export requires torch>=2.8.0."
+
+        # default calibration dataset for aexelera
+        if not self.args.data:
+            default_data = {
+                "detect": "coco128.yaml",
+                "segment": "coco128-seg.yaml",
+                "classify": "imagenet100",
+                "pose": "coco8-pose.yaml",
+                "obb": "dota128.yaml",
+            }
+            self.args.data = default_data[self.model.task]
 
         return torch2axelera(
             model=self.model,
