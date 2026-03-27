@@ -46,5 +46,6 @@ def onnx2rknn(
     rknn.load_onnx(model=f_onnx)
     rknn.build(do_quantization=False)  # TODO: Add quantization support
     rknn.export_rknn(str(export_path / f"{Path(f_onnx).stem}-{name}.rknn"))
-    YAML.save(export_path / "metadata.yaml", metadata or {})
+    if metadata:
+        YAML.save(export_path / "metadata.yaml", metadata)
     return export_path
