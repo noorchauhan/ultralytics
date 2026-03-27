@@ -65,7 +65,7 @@ graph LR
 | Stage        | Features                                                                                                                                       |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Upload**   | Images (50MB), videos (1GB), ZIP archives (10GB) with automatic processing                                                                     |
-| **Annotate** | Manual tools, SAM smart annotation, YOLO auto-labeling for all 5 task types (see [supported tasks](data/index.md#supported-tasks))             |
+| **Annotate** | Manual tools for all 5 task types, SAM smart annotation for detect, segment, and OBB, plus YOLO auto-labeling for detect, segment, and OBB     |
 | **Train**    | Cloud GPUs (20 free + 3 Pro-exclusive), real-time metrics, project organization                                                                |
 | **Export**   | [17 deployment formats](../modes/export.md) (ONNX, TensorRT, CoreML, TFLite, etc.; see [supported formats](train/models.md#supported-formats)) |
 | **Deploy**   | 43 global regions with dedicated endpoints, auto-scaling, monitoring                                                                           |
@@ -300,7 +300,7 @@ For a detailed guide, see the [Quickstart](quickstart.md) page.
 - **Real-Time Metrics**: Stream training progress and monitor deployments
 - **43 Deploy Regions**: Deploy models close to your users worldwide
 - **5 Task Types**: Support for detection, segmentation, pose, OBB, and classification (see [task docs](../tasks/index.md))
-- **AI-Assisted Annotation**: SAM and auto-labeling to speed up data preparation
+- **AI-Assisted Annotation**: SAM smart annotation plus YOLO auto-labeling for detect, segment, and OBB
 
 ### What GPU options are available for cloud training?
 

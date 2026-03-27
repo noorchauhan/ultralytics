@@ -1,6 +1,6 @@
 ---
 comments: true
-description: Learn to annotate images in Ultralytics Platform with manual tools, skeleton templates for pose estimation, SAM smart annotation, and YOLO auto-labeling for all 5 task types.
+description: Learn to annotate images in Ultralytics Platform with manual tools, skeleton templates for pose estimation, SAM smart annotation, and YOLO auto-labeling for detect, segment, and OBB tasks.
 keywords: Ultralytics Platform, annotation, labeling, SAM, auto-annotation, bounding box, polygon, keypoints, skeleton templates, pose estimation, segmentation, YOLO
 ---
 
@@ -311,6 +311,22 @@ When Smart mode is active, a model picker appears in the toolbar. Five models ar
 ![Ultralytics Platform Annotate Sam Model Selector](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/platform/platform-annotate-sam-model-selector.avif)
 
 Switching models while Smart mode is active re-initializes the predictor for the current image automatically.
+
+## YOLO Auto-Labeling
+
+YOLO auto-labeling runs model inference and adds the predictions as annotations. Smart mode supports YOLO auto-labeling for **detect**, **segment**, and **OBB** tasks.
+
+1. Enter edit mode and select `Smart` or press `S`
+2. Select a YOLO model from the model picker in the toolbar (`Official` or `My Models`)
+3. Click `Predict`
+4. Review the added annotations and make any needed corrections
+
+![Ultralytics Platform Annotate Yolo Auto Labeling](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/platform/platform-annotate-yolo-auto-labeling.avif)
+
+!!! tip "YOLO Auto-Labeling Notes"
+
+    - The model picker only lists models that match the current dataset task.
+    - Duplicate predictions are skipped when they overlap an existing annotation of the same class at IoU `0.7` or higher.
 
 ## Class Sidebar
 
