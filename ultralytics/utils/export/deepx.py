@@ -42,10 +42,10 @@ def onnx2deepx(
 
     config = {
         "inputs": {"images": [1, 3, imgsz[0], imgsz[1]]},
-        "calibration_num": 8,
+        "calibration_num": 100,
         "calibration_method": "ema",
         "train_batchsize": 32,
-        "num_samples": 8,
+        "num_samples": 1024,
         "default_loader": {
             "dataset_path": dataset.dataset.img_path,
             "file_extensions": ["jpeg", "jpg", "png", "JPEG"],
@@ -66,7 +66,6 @@ def onnx2deepx(
         model=str(onnx_file),
         output_dir=str(export_path),
         config=str(config_path),
-        calibration_method="ema",
         opt_level=0,
     )
 
