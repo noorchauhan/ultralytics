@@ -31,6 +31,7 @@ Usage - formats:
                               yolo26n_imx_model          # Sony IMX
                               yolo26n_rknn_model         # Rockchip RKNN
                               yolo26n.pte                # PyTorch Executorch
+                              yolo26n_axelera_model      # Axelera AI
 """
 
 from __future__ import annotations

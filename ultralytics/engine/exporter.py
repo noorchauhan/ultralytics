@@ -21,7 +21,7 @@ NCNN                    | `ncnn`                    | yolo26n_ncnn_model/
 IMX                     | `imx`                     | yolo26n_imx_model/
 RKNN                    | `rknn`                    | yolo26n_rknn_model/
 ExecuTorch              | `executorch`              | yolo26n_executorch_model/
-Axelera                 | `axelera`                 | yolo26n_axelera_model/
+Axelera AI              | `axelera`                 | yolo26n_axelera_model/
 
 Requirements:
     $ pip install "ultralytics[export]"
