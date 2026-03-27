@@ -1020,8 +1020,9 @@ class Exporter:
                 cmds="--extra-index-url https://software.axelera.ai/artifactory/axelera-runtime-pypi "
                 "--extra-index-url https://software.axelera.ai/artifactory/axelera-dev-pypi",
             )
-        from ultralytics.utils.export.axelera import onnx2axelera
         from axelera.compiler import CompilerConfig
+
+        from ultralytics.utils.export.axelera import onnx2axelera
 
         self.args.opset = 17  # hardcode opset for Axelera
         onnx_path = self.export_onnx()
