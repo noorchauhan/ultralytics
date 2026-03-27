@@ -599,9 +599,13 @@ class Exporter:
         """Export YOLO model to TorchScript format."""
         from ultralytics.utils.export.torchscript import torch2torchscript
 
-        model = NMSModel(self.model, self.args) if self.args.nms else self.model
         return torch2torchscript(
-            model, self.im, self.file, optimize=self.args.optimize, metadata=self.metadata, prefix=prefix
+            NMSModel(self.model, self.args) if self.args.nms else self.model,
+            self.im,
+            self.file,
+            optimize=self.args.optimize,
+            metadata=self.metadata,
+            prefix=prefix,
         )
 
     @try_export
