@@ -64,5 +64,6 @@ def torch2ncnn(
     for f_debug in ("debug.bin", "debug.param", "debug2.bin", "debug2.param", *pnnx_args.values()):
         Path(f_debug).unlink(missing_ok=True)
 
-    YAML.save(f / "metadata.yaml", metadata or {})  # add metadata.yaml
+    if metadata:
+        YAML.save(f / "metadata.yaml", metadata)  # add metadata.yaml
     return str(f)

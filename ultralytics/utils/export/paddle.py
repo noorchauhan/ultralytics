@@ -51,5 +51,6 @@ def torch2paddle(
     f = str(file).replace(file.suffix, f"_paddle_model{os.sep}")
 
     pytorch2paddle(module=model, save_dir=f, jit_type="trace", input_examples=[im])  # export
-    YAML.save(Path(f) / "metadata.yaml", metadata or {})  # add metadata.yaml
+    if metadata:
+        YAML.save(Path(f) / "metadata.yaml", metadata)  # add metadata.yaml
     return f
