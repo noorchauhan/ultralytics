@@ -815,6 +815,7 @@ class Classify(nn.Module):
         """Perform forward pass on input feature maps."""
         if isinstance(x, list):
             x = torch.cat(x, 1)
+        x = x.detach()
         x = self.linear(self.drop(self.pool(self.conv(x)).flatten(1)))
         if self.training:
             return x
