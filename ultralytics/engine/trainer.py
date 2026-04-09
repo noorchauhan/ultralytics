@@ -647,6 +647,7 @@ class BaseTrainer:
             {
                 "epoch": self.epoch,
                 "best_fitness": self.best_fitness,
+                "best_epoch": getattr(self.stopper, "best_epoch", self.epoch),  # Save early stopping state
                 "model": None,  # resume and final checkpoints derive from EMA
                 "ema": ema,
                 "updates": self.ema.updates,
@@ -910,6 +911,9 @@ class BaseTrainer:
             self.ema.ema.load_state_dict(ckpt["ema"].float().state_dict())
             self.ema.updates = ckpt["updates"]
         self.best_fitness = ckpt.get("best_fitness", 0.0)
+        # Restore early stopping best_epoch to calculate remaining patience accurately
+        if hasattr(self, "stopper") and ckpt.get("best_epoch") is not None:
+            self.stopper.best_epoch = ckpt["best_epoch"]
 
     def _handle_nan_recovery(self, epoch):
         """Detect and recover from NaN/Inf loss and fitness collapse by loading last checkpoint."""
