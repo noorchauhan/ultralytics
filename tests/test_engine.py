@@ -155,3 +155,17 @@ def test_nan_recovery():
     trainer.add_callback("on_train_batch_end", inject_nan)
     trainer.train()
     assert nan_injected[0], "NaN injection failed"
+
+
+def test_patience_progress_bar_string():
+    """Test that patience is formatted correctly for the training progress display."""
+    trainer = BaseTrainer.__new__(BaseTrainer)
+    trainer.args = SimpleNamespace(patience=5, val=True)
+    trainer.stopper = SimpleNamespace(best_epoch=2)
+    assert trainer._patience_str(epoch=4) == "   Patience: 3/5"
+    assert trainer._patience_str(epoch=2) == "   Patience: 5/5"
+    trainer.args.val = False
+    assert trainer._patience_str(epoch=4) == ""
+    trainer.args.val = True
+    trainer.args.patience = 0
+    assert trainer._patience_str(epoch=4) == ""
