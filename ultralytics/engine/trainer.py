@@ -480,11 +480,7 @@ class BaseTrainer:
                 # Log
                 if RANK in {-1, 0}:
                     loss_length = self.tloss.shape[0] if len(self.tloss.shape) else 1
-                    patience_str = ""
-                    if self.args.patience:
-                        best_epoch = getattr(self.stopper, "best_epoch", 0)
-                        patience_left = max(0, self.args.patience - max(0, epoch - best_epoch - 1))
-                        patience_str = f"   Patience: {patience_left}/{self.args.patience}"
+                    patience_str = self._patience_str(epoch)
 
                     pbar.set_description(
                         ("%11s" * 2 + "%11.4g" * (2 + loss_length))
@@ -804,6 +800,14 @@ class BaseTrainer:
 
     def progress_string(self):
         """Return a string describing training progress."""
+        return ""
+
+    def _patience_str(self, epoch):
+        """Return the patience display string used in the training progress bar."""
+        if self.args.patience and self.args.val:
+            best_epoch = getattr(self.stopper, "best_epoch", 0)
+            patience_left = max(0, self.args.patience - max(0, epoch - best_epoch))
+            return f"   Patience: {patience_left}/{self.args.patience}"
         return ""
 
     # TODO: may need to put these following functions into callback
