@@ -1,6 +1,7 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 import sys
+from types import SimpleNamespace
 from unittest import mock
 
 import torch
@@ -9,6 +10,7 @@ from tests import MODEL, SOURCE
 from ultralytics import YOLO
 from ultralytics.cfg import get_cfg
 from ultralytics.engine.exporter import Exporter
+from ultralytics.engine.trainer import BaseTrainer
 from ultralytics.models.yolo import classify, detect, segment
 from ultralytics.utils import ASSETS, DEFAULT_CFG, WEIGHTS_DIR
 
